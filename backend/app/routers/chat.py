@@ -30,44 +30,54 @@ from app.services.prompt_builder import (
     render_context,
     trim_history,
 )
-from app.services.supabase_client import get_supabase
+from app.services.supabase_client import get_supabase, safe_execute
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
 
 
-async def _check_ownership(supabase, conversation_id: str, user_id: str):
+async def _check_ownership(_supabase, conversation_id: str, user_id: str):
     return await asyncio.to_thread(
-        lambda: supabase.table("conversations")
-        .select("id")
-        .eq("id", conversation_id)
-        .eq("user_id", user_id)
-        .maybe_single()
-        .execute()
+        lambda: safe_execute(
+            lambda sb: sb.table("conversations")
+            .select("id")
+            .eq("id", conversation_id)
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
     )
 
 
-async def _save_user_message(supabase, conversation_id: str, content: str):
+async def _save_user_message(_supabase, conversation_id: str, content: str):
     await asyncio.to_thread(
-        lambda: supabase.table("messages")
-        .insert({"conversation_id": conversation_id, "role": "user", "content": content})
-        .execute()
+        lambda: safe_execute(
+            lambda sb: sb.table("messages")
+            .insert(
+                {"conversation_id": conversation_id, "role": "user", "content": content}
+            )
+            .execute()
+        )
     )
     await asyncio.to_thread(
-        lambda: supabase.table("conversations")
-        .update({"updated_at": "now()"})
-        .eq("id", conversation_id)
-        .execute()
+        lambda: safe_execute(
+            lambda sb: sb.table("conversations")
+            .update({"updated_at": "now()"})
+            .eq("id", conversation_id)
+            .execute()
+        )
     )
 
 
-async def _load_history(supabase, conversation_id: str) -> list[dict]:
+async def _load_history(_supabase, conversation_id: str) -> list[dict]:
     result = await asyncio.to_thread(
-        lambda: supabase.table("messages")
-        .select("role, content")
-        .eq("conversation_id", conversation_id)
-        .order("created_at")
-        .execute()
+        lambda: safe_execute(
+            lambda sb: sb.table("messages")
+            .select("role, content")
+            .eq("conversation_id", conversation_id)
+            .order("created_at")
+            .execute()
+        )
     )
     return [{"role": m["role"], "content": m["content"]} for m in (result.data or [])]
 
@@ -190,15 +200,17 @@ async def _stream_claude_response(
 
     if assistant_text:
         await asyncio.to_thread(
-            lambda: supabase.table("messages")
-            .insert(
-                {
-                    "conversation_id": conversation_id,
-                    "role": "assistant",
-                    "content": assistant_text,
-                }
+            lambda: safe_execute(
+                lambda sb: sb.table("messages")
+                .insert(
+                    {
+                        "conversation_id": conversation_id,
+                        "role": "assistant",
+                        "content": assistant_text,
+                    }
+                )
+                .execute()
             )
-            .execute()
         )
 
     # Background memory extraction (writes to legacy unstructured table)

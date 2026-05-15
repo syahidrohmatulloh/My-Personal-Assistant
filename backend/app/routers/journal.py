@@ -50,6 +50,14 @@ async def post_entry(
             entry_text=body.note,
             entry_date=date.today(),
         )
+        # Parallel: extract notes about registered people + goal check-ins
+        # from the same journal text. Conservative — only writes when
+        # specific people/goals are named.
+        background_tasks.add_task(
+            journal.extract_people_and_goals_from_entry,
+            user_id=user_id,
+            entry_text=body.note,
+        )
 
     return saved
 

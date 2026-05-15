@@ -93,8 +93,11 @@ async def summarize_conversation(conversation_id: str) -> None:
     )
     messages = msgs_res.data or []
 
-    if len(messages) < 4:
-        return  # too short — nothing meaningful to summarize yet
+    # Minimum 2 messages (1 user + 1 assistant) to summarize. This is intentionally
+    # low — short chats often contain durable plans (e.g. "give me a diet plan")
+    # that the user will want to retrieve from new chats.
+    if len(messages) < 2:
+        return
 
     # If we have a previous summary AND we haven't accumulated N new messages
     # since the last summarize point, skip.

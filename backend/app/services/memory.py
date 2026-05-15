@@ -50,7 +50,7 @@ DEDUP_SIMILARITY_THRESHOLD = 0.92
 
 class ExtractedMemory(BaseModel):
     content: str = Field(min_length=3, max_length=500)
-    kind: Literal["fact", "preference", "context"]
+    kind: Literal["fact", "preference", "context", "plan"]
 
 
 # ---------------------------------------------------------------------------
@@ -58,17 +58,28 @@ class ExtractedMemory(BaseModel):
 # ---------------------------------------------------------------------------
 
 EXTRACTION_SYSTEM_PROMPT = """You analyze a conversation between a user and an AI assistant. \
-Your job is to identify DURABLE facts about the user that would be useful to remember in \
+Your job is to identify DURABLE facts and plans that would be useful to remember in \
 future conversations.
 
 Output a JSON array. Each item has:
-  - content: the fact, written in third person about "the user" (e.g. "User lives in Jakarta")
-  - kind: one of "fact" (objective), "preference" (likes/dislikes), or "context" (current situation)
+  - content: written in third person about "the user" (e.g. "User lives in Jakarta")
+  - kind: one of:
+      - "fact" — objective truth about the user
+      - "preference" — likes/dislikes
+      - "context" — current situation
+      - "plan" — a concrete plan, recommendation, or structured advice the \
+assistant gave the user that the user seems to have accepted or asked to follow
 
-Be CONSERVATIVE. Only extract facts that are:
-- Clearly stated by the user (not by the assistant)
-- Likely to remain true beyond this conversation
-- Specific enough to be useful (not "user said hello")
+Be CONSERVATIVE. Only extract things that are:
+- Clearly stated by the user (for fact/preference/context), OR
+- A concrete actionable plan the assistant gave that the user did not reject (for plan)
+- Specific enough to be useful in a future conversation
+- Likely to remain relevant beyond this conversation
+
+For "plan" entries, capture the CONCRETE substance: numbers, structure, key items. \
+Not "User got a diet plan" — instead "Diet plan: 1800 kcal/day, no carbs after 6pm, \
+high protein breakfast (eggs/oats), lunch with vegetables and lean protein, light \
+dinner before 7pm".
 
 If there's nothing worth remembering, return [].
 
@@ -82,11 +93,16 @@ Examples of what to extract:
   [{"content": "User prefers light themes over dark themes", "kind": "preference"}]
 - User is currently planning a wedding for September → \
   [{"content": "User is planning a wedding for September", "kind": "context"}]
+- Assistant gave a workout plan and user said "thanks, will try it" → \
+  [{"content": "Workout plan: 4x/week upper-lower split, 45min sessions, \
+focus compound lifts (squat, bench, deadlift, OHP), progressive overload weekly", \
+"kind": "plan"}]
 
 Examples of what NOT to extract:
 - Generic chat ("user said hello")
 - Things the user asked but didn't reveal about themselves
-- Information the assistant provided
+- General information the assistant provided that wasn't a concrete plan for the user
+- A plan the user explicitly rejected or said they wouldn't follow
 """
 
 
