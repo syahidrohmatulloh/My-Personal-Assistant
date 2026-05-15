@@ -3,10 +3,12 @@
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowDown } from "lucide-react";
+
 import { Composer } from "@/components/chat/composer";
 import { MessageBubble } from "@/components/chat/message-bubble";
 import { Skeleton } from "@/components/ui/skeleton";
-import { listMessages, streamChat, type Conversation, type Message } from "@/lib/api";
+
+import { listMessages, streamChat } from "@/lib/api";
 
 type LocalMessage = {
   id: string;
@@ -29,6 +31,7 @@ export default function ConversationPage({
   params: Promise<{ id: string }>;
 }) {
   const { id: conversationId } = use(params);
+
   const qc = useQueryClient();
 
   const [messages, setMessages] = useState<LocalMessage[]>([]);
@@ -40,46 +43,61 @@ export default function ConversationPage({
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
 
-  // =========================
-  // LOAD MESSAGES (FIX RACE CONDITION)
-  // =========================
+  // =========================================
+  // LOAD HISTORY
+  // =========================================
   useEffect(() => {
     let cancelled = false;
 
-    const load = async () => {
-      setLoading(true);
-      const msgs = (await listMessages(conversationId)) as LocalMessage[];
+    async function loadMessages() {
+      try {
+        setLoading(true);
 
-      if (cancelled) return;
+        const history = (await listMessages(
+          conversationId,
+        )) as LocalMessage[];
 
-      setMessages((prev) => {
-        const hasPending = prev.some((m) => m.pending);
-        return hasPending ? prev : msgs;
-      });
+        if (cancelled) return;
 
-      requestAnimationFrame(() => {
-        scrollToBottom(scrollRef.current);
-      });
+        setMessages((prev) => {
+          // jangan overwrite kalau sedang streaming
+          const hasPending = prev.some((m) => m.pending);
 
-      setLoading(false);
-    };
+          if (hasPending) {
+            return prev;
+          }
 
-    load();
+          return history;
+        });
+
+        requestAnimationFrame(() => {
+          scrollToBottom(scrollRef.current);
+        });
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadMessages();
 
     return () => {
       cancelled = true;
     };
   }, [conversationId]);
 
-  // =========================
+  // =========================================
   // SCROLL DETECTOR
-  // =========================
+  // =========================================
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
 
     const onScroll = () => {
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      const distance =
+        el.scrollHeight - el.scrollTop - el.clientHeight;
+
       const nearBottom = distance < STICK_THRESHOLD;
 
       stickRef.current = nearBottom;
@@ -87,9 +105,15 @@ export default function ConversationPage({
     };
 
     el.addEventListener("scroll", onScroll);
-    return () => el.removeEventListener("scroll", onScroll);
+
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
+  // =========================================
+  // AUTO SCROLL
+  // =========================================
   useEffect(() => {
     if (stickRef.current) {
       scrollToBottom(scrollRef.current);
@@ -100,20 +124,23 @@ export default function ConversationPage({
     scrollToBottom(scrollRef.current);
   };
 
-  // =========================
-  // SEND MESSAGE (FIXED)
-  // =========================
+  // =========================================
+  // SEND MESSAGE
+  // =========================================
   const handleSend = useCallback(async () => {
     const text = input.trim();
+
     if (!text || sending) return;
 
     setInput("");
     setSending(true);
 
-    const userId = `user-${Date.now()}`;
-    const assistantId = `assistant-${Date.now()}`;
+    const userId = crypto.randomUUID();
+    const assistantId = crypto.randomUUID();
 
-    // 🔥 OPTIMISTIC USER + ASSISTANT
+    // =========================================
+    // OPTIMISTIC UI
+    // =========================================
     setMessages((prev) => [
       ...prev,
       {
@@ -128,36 +155,45 @@ export default function ConversationPage({
         role: "assistant",
         content: "",
         pending: true,
+        created_at: new Date().toISOString(),
       },
     ]);
 
     let assistantText = "";
 
     try {
-      for await (const chunk of streamChat(conversationId, text, assistantId)) {
+      for await (const chunk of streamChat(
+        conversationId,
+        text,
+        assistantId,
+      )) {
         assistantText += chunk;
 
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? { ...m, content: assistantText }
+              ? {
+                  ...m,
+                  content: assistantText,
+                }
               : m,
           ),
         );
       }
 
-      // 🔥 REMOVE PENDING
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId || m.id === userId
-            ? { ...m, pending: false }
-            : m,
-        ),
-      );
+      // =========================================
+      // FINAL RECONCILE
+      // =========================================
+      const latest = (await listMessages(
+        conversationId,
+      )) as LocalMessage[];
 
-      // update sidebar title
-      qc.invalidateQueries({ queryKey: ["conversations"] });
+      setMessages(latest);
 
+      // sidebar refresh
+      qc.invalidateQueries({
+        queryKey: ["conversations"],
+      });
     } catch (err) {
       console.error(err);
 
@@ -177,12 +213,15 @@ export default function ConversationPage({
     }
   }, [conversationId, input, sending, qc]);
 
-  // =========================
+  // =========================================
   // UI
-  // =========================
+  // =========================================
   return (
     <main className="flex flex-col h-full relative">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto p-4 space-y-3"
+      >
         {loading ? (
           <>
             <Skeleton className="h-10 w-3/4" />
@@ -207,9 +246,10 @@ export default function ConversationPage({
       {showJumpBtn && (
         <button
           onClick={jumpToBottom}
-          className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-black text-white px-3 py-1 rounded-full text-xs"
+          className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-black text-white px-3 py-1 rounded-full text-xs flex items-center gap-1"
         >
-          <ArrowDown size={14} /> Jump
+          <ArrowDown size={14} />
+          Jump
         </button>
       )}
 
