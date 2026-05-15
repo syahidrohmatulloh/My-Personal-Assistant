@@ -111,14 +111,21 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
 export async function* streamChat(
   conversationId: string,
   message: string,
+  clientId: string
 ): AsyncGenerator<string, void, unknown> {
-  // Use the edge proxy at /api/chat instead of hitting Fly directly.
-  // The proxy attaches the JWT server-side from cookies, so we don't need
-  // to call getAuthHeader() here — saves a getSession() round-trip on every send.
-  const response = await fetch(`/api/chat`, {
+  const headers = {
+    ...(await getAuthHeader()),
+    "Content-Type": "application/json",
+  };
+
+  const response = await fetch(`${API_URL}/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ conversation_id: conversationId, message }),
+    headers,
+    body: JSON.stringify({
+      conversation_id: conversationId,
+      message,
+      client_id: clientId,
+    }),
   });
 
   if (!response.ok || !response.body) {
@@ -127,6 +134,7 @@ export async function* streamChat(
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+
   let buffer = "";
 
   while (true) {
@@ -135,21 +143,31 @@ export async function* streamChat(
 
     buffer += decoder.decode(value, { stream: true });
 
-    const events = buffer.split("\n\n");
-    buffer = events.pop() ?? "";
+    let boundaryIndex;
+    while ((boundaryIndex = buffer.indexOf("\n\n")) !== -1) {
+      const rawEvent = buffer.slice(0, boundaryIndex);
+      buffer = buffer.slice(boundaryIndex + 2);
 
-    for (const event of events) {
-      const line = event.trim();
-      if (!line.startsWith("data: ")) continue;
+      if (!rawEvent.startsWith("data: ")) continue;
 
-      const payload = line.slice(6);
+      const payload = rawEvent.slice(6).trim();
+
       try {
         const parsed = JSON.parse(payload);
-        if (parsed.type === "delta") yield parsed.text;
-        else if (parsed.type === "error") throw new Error(parsed.message);
+
+        if (parsed.type === "delta") {
+          yield parsed.text;
+        }
+
+        if (parsed.type === "error") {
+          throw new Error(parsed.message);
+        }
+
+        if (parsed.type === "done") {
+          return;
+        }
       } catch (err) {
-        if (err instanceof SyntaxError) continue;
-        throw err;
+        console.error("STREAM PARSE ERROR:", err, payload);
       }
     }
   }

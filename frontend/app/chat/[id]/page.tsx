@@ -10,20 +10,19 @@ import { listMessages, streamChat, type Conversation, type Message } from "@/lib
 
 type LocalMessage =
   | Message
-  | { id: string; role: "assistant"; content: string; pending: true; created_at?: string };
+  | {
+      id: string;
+      role: "assistant" | "user";
+      content: string;
+      pending?: boolean;
+      created_at?: string;
+    };
 
 const STICK_THRESHOLD = 120;
 
-// Helper — scroll the *specific* container to bottom deterministically.
-// Using element.scrollTop avoids scrollIntoView's quirks where it can
-// scroll the wrong ancestor when overflow-hidden is in the chain.
-function scrollContainerToBottom(el: HTMLDivElement | null, smooth = false) {
+function scrollToBottom(el: HTMLDivElement | null) {
   if (!el) return;
-  if (smooth) {
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  } else {
-    el.scrollTop = el.scrollHeight;
-  }
+  el.scrollTop = el.scrollHeight;
 }
 
 export default function ConversationPage({
@@ -41,149 +40,136 @@ export default function ConversationPage({
   const [showJumpBtn, setShowJumpBtn] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const stickToBottomRef = useRef(true);
+  const stickRef = useRef(true);
 
-  // Load messages, then scroll the container to bottom on next frame.
+  // =========================
+  // LOAD MESSAGES (FIX RACE CONDITION)
+  // =========================
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    // Reset to "stick to bottom" on each navigation — new conversation
-    // should land at the latest message.
-    stickToBottomRef.current = true;
 
-    listMessages(conversationId)
-      .then((msgs) => {
-        if (cancelled) return;
-        setMessages(msgs);
-        // Two rAFs to ensure layout has flushed before scrolling.
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            scrollContainerToBottom(scrollRef.current);
-          });
-        });
-      })
-      .catch(console.error)
-      .finally(() => !cancelled && setLoading(false));
+    const load = async () => {
+      setLoading(true);
+      const msgs = await listMessages(conversationId);
+
+      if (cancelled) return;
+
+      setMessages((prev) => {
+        const hasPending = prev.some((m) => m.pending);
+        return hasPending ? prev : msgs;
+      });
+
+      requestAnimationFrame(() => {
+        scrollToBottom(scrollRef.current);
+      });
+
+      setLoading(false);
+    };
+
+    load();
+
     return () => {
       cancelled = true;
     };
   }, [conversationId]);
 
-  // Detect whether user is near the bottom — affects auto-follow during stream.
+  // =========================
+  // SCROLL DETECTOR
+  // =========================
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    function onScroll() {
-      const distance = el!.scrollHeight - el!.scrollTop - el!.clientHeight;
-      const nearBottom = distance < STICK_THRESHOLD;
-      stickToBottomRef.current = nearBottom;
-      setShowJumpBtn(!nearBottom && messages.length > 0);
-    }
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, [messages.length]);
 
-  // Auto-follow new content only if user is near bottom.
+    const onScroll = () => {
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      const nearBottom = distance < STICK_THRESHOLD;
+
+      stickRef.current = nearBottom;
+      setShowJumpBtn(!nearBottom);
+    };
+
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
   useEffect(() => {
-    if (!stickToBottomRef.current) return;
-    scrollContainerToBottom(scrollRef.current);
+    if (stickRef.current) {
+      scrollToBottom(scrollRef.current);
+    }
   }, [messages]);
 
-  function jumpToBottom() {
-    scrollContainerToBottom(scrollRef.current, true);
-    stickToBottomRef.current = true;
-    setShowJumpBtn(false);
-  }
+  const jumpToBottom = () => {
+    scrollToBottom(scrollRef.current);
+  };
 
+  // =========================
+  // SEND MESSAGE (FIXED)
+  // =========================
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || sending) return;
 
     setInput("");
     setSending(true);
-    stickToBottomRef.current = true;
 
-    const wasFirstMessage = messages.length === 0;
+    const userId = `user-${Date.now()}`;
+    const assistantId = `assistant-${Date.now()}`;
 
-    const userMsg: LocalMessage = {
-      id: `local-user-${Date.now()}`,
-      role: "user",
-      content: text,
-      created_at: new Date().toISOString(),
-    };
-    const assistantId = `local-asst-${Date.now()}`;
+    // 🔥 OPTIMISTIC USER + ASSISTANT
     setMessages((prev) => [
       ...prev,
-      userMsg,
-      { id: assistantId, role: "assistant", content: "", pending: true },
+      {
+        id: userId,
+        role: "user",
+        content: text,
+        pending: true,
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        pending: true,
+      },
     ]);
 
-    if (wasFirstMessage) {
-      const title = text.slice(0, 40) + (text.length > 40 ? "…" : "");
-      qc.setQueryData<Conversation[]>(["conversations"], (old = []) =>
-        old.map((c) => (c.id === conversationId ? { ...c, title } : c)),
-      );
-    }
-
     let assistantText = "";
-    let pending = "";
-    let rafId: number | null = null;
-    const flush = () => {
-      if (!pending) {
-        rafId = null;
-        return;
-      }
-      assistantText += pending;
-      pending = "";
-      const snapshot = assistantText;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? { id: assistantId, role: "assistant", content: snapshot, pending: true }
-            : m,
-        ),
-      );
-      rafId = null;
-    };
 
     try {
-      for await (const delta of streamChat(conversationId, text)) {
-        pending += delta;
-        if (rafId == null) {
-          rafId = requestAnimationFrame(flush);
-        }
-      }
-      if (rafId != null) cancelAnimationFrame(rafId);
-      flush();
+      for await (const chunk of streamChat(conversationId, text, assistantId)) {
+        assistantText += chunk;
 
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, content: assistantText }
+              : m,
+          ),
+        );
+      }
+
+      // 🔥 REMOVE PENDING
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === assistantId
-            ? {
-                id: assistantId,
-                role: "assistant",
-                content: assistantText,
-                created_at: new Date().toISOString(),
-              }
+          m.id === assistantId || m.id === userId
+            ? { ...m, pending: false }
             : m,
         ),
       );
 
-      // Background title generation on the server runs after the stream
-      // closes. Wait a moment so the refetch picks up the real title.
-      setTimeout(() => {
-        qc.invalidateQueries({ queryKey: ["conversations"] });
-      }, 4000);
+      // update sidebar title
+      qc.invalidateQueries({ queryKey: ["conversations"] });
+
     } catch (err) {
       console.error(err);
+
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId
             ? {
-                id: assistantId,
-                role: "assistant",
-                content: `**Error:** ${err instanceof Error ? err.message : "unknown"}`,
-                created_at: new Date().toISOString(),
+                ...m,
+                content: "Error terjadi",
+                pending: false,
               }
             : m,
         ),
@@ -191,46 +177,41 @@ export default function ConversationPage({
     } finally {
       setSending(false);
     }
-  }, [conversationId, input, messages.length, qc, sending]);
+  }, [conversationId, input, sending, qc]);
 
+  // =========================
+  // UI
+  // =========================
   return (
-    <main className="flex-1 flex flex-col min-w-0 min-h-0 relative">
-      <div
-        ref={scrollRef}
-        className="flex-1 min-h-0 overflow-y-auto scroll-smooth-mobile overscroll-contain"
-      >
-        <div className="max-w-3xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-3 sm:space-y-4">
-          {loading ? (
-            <>
-              <Skeleton className="h-12 w-3/4 ml-auto rounded-2xl" />
-              <Skeleton className="h-20 w-4/5 rounded-2xl" />
-              <Skeleton className="h-10 w-2/3 ml-auto rounded-2xl" />
-            </>
-          ) : messages.length === 0 ? (
-            <p className="text-sm text-fg-muted text-center pt-12">
-              Say hello — I&apos;m listening.
-            </p>
-          ) : (
-            messages.map((m) => (
-              <MessageBubble
-                key={m.id}
-                role={m.role}
-                content={m.content}
-                pending={"pending" in m && m.pending === true}
-              />
-            ))
-          )}
-        </div>
+    <main className="flex flex-col h-full relative">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+        {loading ? (
+          <>
+            <Skeleton className="h-10 w-3/4" />
+            <Skeleton className="h-20 w-4/5" />
+          </>
+        ) : messages.length === 0 ? (
+          <p className="text-center text-sm text-gray-500">
+            Say hello — I’m listening.
+          </p>
+        ) : (
+          messages.map((m) => (
+            <MessageBubble
+              key={m.id}
+              role={m.role}
+              content={m.content}
+              pending={m.pending}
+            />
+          ))
+        )}
       </div>
 
       {showJumpBtn && (
         <button
           onClick={jumpToBottom}
-          className="absolute bottom-[calc(env(safe-area-inset-bottom)+88px)] sm:bottom-24 left-1/2 -translate-x-1/2 glass-strong h-9 px-3 rounded-full text-xs font-medium text-fg flex items-center gap-1.5 shadow-ds-md fade-up"
-          aria-label="Jump to latest"
+          className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-black text-white px-3 py-1 rounded-full text-xs"
         >
-          <ArrowDown className="h-3.5 w-3.5" />
-          Jump to latest
+          <ArrowDown size={14} /> Jump
         </button>
       )}
 

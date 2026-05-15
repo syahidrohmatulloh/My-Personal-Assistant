@@ -113,7 +113,9 @@ export function Sidebar() {
         old.map((c) => (c.id === ctx?.optimistic.id ? real : c)),
       );
       setOpen(false);
-      router.push(`/chat/${real.id}`);
+    
+      window.location.href = `/chat/${real.id}`;
+      router.refresh(); // 🔥 FIX
     },
     onError: (_e, _v, ctx) => {
       qc.setQueryData<Conversation[]>(["conversations"], (old = []) =>
@@ -174,7 +176,11 @@ export function Sidebar() {
       {/* New chat */}
       <div className="shrink-0 px-3 pb-3">
         <button
-          onClick={() => createMut.mutate()}
+          onClick={async () => {
+            if (!createMut.isPending) {
+              createMut.mutate();
+            }
+          }}
           disabled={createMut.isPending}
           className="w-full flex items-center gap-2 rounded-xl bg-accent text-on-accent px-3 py-2.5 text-sm font-medium hover:bg-accent-hover transition-all hover:shadow-lg hover:shadow-accent/20 active:scale-[0.98] disabled:opacity-60"
         >
