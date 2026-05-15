@@ -1,0 +1,422 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import "highlight.js/styles/github-dark.css";
+
+/* ============================================================================
+   Design system — premium glassmorphism, emerald accent, auto theme.
+
+   Palette logic:
+     Light  — ivory bg, deep forest text, emerald accent
+     Dark   — midnight bg, pearl text, emerald accent
+
+   Glass surfaces use semi-transparent panels over ambient gradient orbs
+   so the blur has real content to operate on.
+   ============================================================================ */
+
+:root {
+  /* === LIGHT MODE === */
+
+  /* Base canvas — ivory with a hint of warmth */
+  --bg: 250 250 247;             /* #fafaf7 */
+  --bg-deep: 245 245 240;        /* #f5f5f0 — slightly deeper, for the page */
+
+  /* Glass panels — sit on top of ambient gradients */
+  --glass: 255 255 255 / 0.72;
+  --glass-strong: 255 255 255 / 0.88;
+  --glass-border: 255 255 255 / 0.6;
+  --glass-shadow: 0 8px 32px -8px rgb(15 23 42 / 0.08), 0 2px 8px -2px rgb(15 23 42 / 0.04);
+
+  /* Text — forest greens, high contrast against ivory */
+  --text: 12 30 24;              /* #0c1e18 — almost black with green undertone */
+  --text-soft: 30 58 47;         /* #1e3a2f */
+  --text-muted: 71 105 90;       /* #47695a */
+  --text-subtle: 122 152 138;    /* #7a988a */
+
+  /* Emerald accent */
+  --accent: 5 122 85;            /* #057a55 — deep emerald */
+  --accent-hover: 4 95 65;       /* #045f41 */
+  --accent-soft: 209 250 229;    /* #d1fae5 — emerald 100 */
+  --accent-glow: 16 185 129 / 0.15;
+
+  /* On-accent text */
+  --on-accent: 255 255 255;
+
+  /* Borders */
+  --border: 16 24 22 / 0.08;
+  --border-strong: 16 24 22 / 0.16;
+
+  /* Ambient gradient orbs (sit behind glass) */
+  --orb-1: 16 185 129 / 0.18;    /* emerald */
+  --orb-2: 14 165 233 / 0.12;    /* cyan whisper */
+  --orb-3: 234 179 8 / 0.10;     /* gold whisper */
+
+  /* Status */
+  --danger: 185 28 28;
+  --danger-soft: 254 226 226 / 0.7;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* === DARK MODE === */
+
+    /* Base canvas — deep midnight with blue-black undertone */
+    --bg: 8 12 20;                 /* #080c14 */
+    --bg-deep: 4 6 12;             /* #04060c — the page edge */
+
+    /* Glass panels — dark glass with subtle illumination */
+    --glass: 20 28 42 / 0.55;
+    --glass-strong: 20 28 42 / 0.78;
+    --glass-border: 255 255 255 / 0.08;
+    --glass-shadow: 0 12px 40px -12px rgb(0 0 0 / 0.6), 0 4px 12px -4px rgb(0 0 0 / 0.4);
+
+    /* Text — pearl whites, warm enough not to feel sterile */
+    --text: 240 244 248;           /* #f0f4f8 */
+    --text-soft: 215 225 235;      /* #d7e1eb */
+    --text-muted: 156 175 192;     /* #9cafc0 */
+    --text-subtle: 110 130 150;    /* #6e8296 */
+
+    /* Emerald — brighter in dark to maintain accent feel */
+    --accent: 52 211 153;          /* #34d399 — emerald 400 */
+    --accent-hover: 110 231 183;   /* #6ee7b7 — emerald 300 */
+    --accent-soft: 4 47 36 / 0.6;
+    --accent-glow: 16 185 129 / 0.22;
+
+    /* On-accent text — keep dark text on bright accent */
+    --on-accent: 4 47 36;          /* #042f24 */
+
+    /* Borders */
+    --border: 255 255 255 / 0.06;
+    --border-strong: 255 255 255 / 0.14;
+
+    /* Ambient gradient orbs — moodier */
+    --orb-1: 16 185 129 / 0.14;    /* emerald */
+    --orb-2: 56 189 248 / 0.10;    /* sky */
+    --orb-3: 168 85 247 / 0.08;    /* purple whisper */
+
+    /* Status */
+    --danger: 248 113 113;
+    --danger-soft: 69 10 10 / 0.5;
+
+    color-scheme: dark;
+  }
+}
+
+/* ============================================================================
+   Base styles
+   ============================================================================ */
+
+html {
+  height: 100%;
+  /* Prevent iOS rubber-band from showing the body background through. */
+  background: rgb(var(--bg-deep));
+}
+
+body {
+  /* dvh = dynamic viewport — shrinks when iOS Safari shows URL bar so the
+     composer stays in view. Fallback to vh for older browsers. */
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: rgb(var(--bg-deep));
+  color: rgb(var(--text));
+  font-feature-settings: "ss01", "cv01", "cv11", "tnum";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  position: relative;
+  overflow-x: hidden;
+  /* No bouncy overscroll on mobile when scrolling the page itself —
+     inner scroll containers still bounce naturally. */
+  overscroll-behavior-y: none;
+}
+
+/* Ambient gradient orbs — fixed behind everything, gives blur content to work with.
+   Mobile gets smaller, less-blurred orbs to ease GPU load. */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(80px);
+  will-change: transform;
+}
+
+body::before {
+  top: -10%;
+  left: -10%;
+  width: 60vw;
+  height: 60vw;
+  background: radial-gradient(
+    circle at center,
+    rgb(var(--orb-1)) 0%,
+    transparent 70%
+  );
+}
+
+body::after {
+  bottom: -20%;
+  right: -10%;
+  width: 70vw;
+  height: 70vw;
+  background:
+    radial-gradient(circle at 30% 30%, rgb(var(--orb-2)) 0%, transparent 65%),
+    radial-gradient(circle at 70% 70%, rgb(var(--orb-3)) 0%, transparent 65%);
+}
+
+@media (max-width: 640px) {
+  body::before {
+    width: 90vw;
+    height: 90vw;
+    filter: blur(48px);
+  }
+  body::after {
+    width: 100vw;
+    height: 100vw;
+    filter: blur(48px);
+  }
+}
+
+/* Respect users who prefer reduced motion — kill orbs entirely, kill animations. */
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  body::after {
+    display: none;
+  }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* All real content sits above the orbs */
+#__next, body > div {
+  position: relative;
+  z-index: 1;
+}
+
+::selection {
+  background: rgb(var(--accent) / 0.3);
+}
+
+/* ============================================================================
+   Glass surface utility
+   ============================================================================ */
+
+.glass {
+  background: rgb(var(--glass));
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid rgb(var(--glass-border));
+  box-shadow: var(--glass-shadow);
+}
+
+.glass-strong {
+  background: rgb(var(--glass-strong));
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  border: 1px solid rgb(var(--glass-border));
+  box-shadow: var(--glass-shadow);
+}
+
+/* ============================================================================
+   Markdown styles for assistant messages
+   ============================================================================ */
+
+.prose-chat {
+  line-height: 1.65;
+}
+.prose-chat p {
+  margin: 0.7em 0;
+  color: rgb(var(--text-soft));
+}
+.prose-chat p:first-child { margin-top: 0; }
+.prose-chat p:last-child { margin-bottom: 0; }
+
+.prose-chat pre {
+  background: rgb(15 23 35 / 0.85);
+  color: rgb(229 231 235);
+  padding: 0.9rem 1.1rem;
+  border-radius: 0.6rem;
+  overflow-x: auto;
+  margin: 0.9em 0;
+  font-size: 0.875em;
+  line-height: 1.55;
+  border: 1px solid rgb(255 255 255 / 0.06);
+  backdrop-filter: blur(8px);
+}
+
+.prose-chat code:not(pre code) {
+  background: rgb(var(--accent-soft));
+  color: rgb(var(--text));
+  padding: 0.15em 0.42em;
+  border-radius: 0.3rem;
+  font-size: 0.88em;
+  font-weight: 500;
+}
+
+.prose-chat ul,
+.prose-chat ol {
+  padding-left: 1.5em;
+  margin: 0.7em 0;
+  color: rgb(var(--text-soft));
+}
+.prose-chat li { margin: 0.35em 0; }
+.prose-chat li::marker { color: rgb(var(--accent)); }
+
+.prose-chat a {
+  color: rgb(var(--accent));
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--accent) / 0.4);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.15s;
+}
+.prose-chat a:hover {
+  text-decoration-color: rgb(var(--accent));
+}
+
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3 {
+  font-weight: 600;
+  margin: 1.1em 0 0.4em;
+  color: rgb(var(--text));
+  letter-spacing: -0.02em;
+}
+.prose-chat h1 { font-size: 1.3em; }
+.prose-chat h2 { font-size: 1.15em; }
+.prose-chat h3 { font-size: 1.05em; }
+
+.prose-chat blockquote {
+  border-left: 2px solid rgb(var(--accent));
+  padding-left: 0.95em;
+  margin: 0.7em 0;
+  color: rgb(var(--text-muted));
+}
+
+/* ============================================================================
+   Scrollbar — themed, slim
+   ============================================================================ */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--border-strong)) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgb(var(--border));
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--border-strong));
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+/* ============================================================================
+   Focus rings — emerald glow
+   ============================================================================ */
+
+:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline-offset: 3px;
+}
+
+/* ============================================================================
+   Animations
+   ============================================================================ */
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-up {
+  animation: fadeUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+/* ============================================================================
+   Mobile interaction utilities
+   ============================================================================ */
+
+/* Use dynamic viewport for full-height containers. h-dvh / min-h-dvh
+   correctly shrinks when iOS Safari shows the URL bar. Fallback handled
+   by the explicit h-screen rule first. */
+.h-dvh { height: 100vh; height: 100dvh; }
+.min-h-dvh { min-height: 100vh; min-height: 100dvh; }
+
+/* Safe-area insets for notch / home indicator. */
+.pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0.5rem); }
+.pt-safe { padding-top: max(env(safe-area-inset-top), 0.5rem); }
+.pl-safe { padding-left: max(env(safe-area-inset-left), 0px); }
+.pr-safe { padding-right: max(env(safe-area-inset-right), 0px); }
+
+/* Buttons should never have tap delay. */
+button, a, [role="button"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent iOS auto-zoom on input focus — fonts must be >= 16px. */
+@media (max-width: 640px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* Smooth momentum scrolling on iOS for inner scroll containers. */
+.scroll-smooth-mobile {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Drawer animations — only used on mobile. */
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.drawer-enter {
+  animation: slideInLeft 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.drawer-backdrop-enter {
+  animation: fadeIn 0.2s ease-out;
+}
