@@ -8,15 +8,13 @@ import { MessageBubble } from "@/components/chat/message-bubble";
 import { Skeleton } from "@/components/ui/skeleton";
 import { listMessages, streamChat, type Conversation, type Message } from "@/lib/api";
 
-type LocalMessage =
-  | Message
-  | {
-      id: string;
-      role: "assistant" | "user";
-      content: string;
-      pending?: boolean;
-      created_at?: string;
-    };
+type LocalMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at?: string;
+  pending?: boolean;
+};
 
 const STICK_THRESHOLD = 120;
 
@@ -50,7 +48,7 @@ export default function ConversationPage({
 
     const load = async () => {
       setLoading(true);
-      const msgs = await listMessages(conversationId);
+      const msgs = (await listMessages(conversationId)) as LocalMessage[];
 
       if (cancelled) return;
 
