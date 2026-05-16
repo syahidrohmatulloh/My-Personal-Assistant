@@ -208,3 +208,136 @@ def parse_transcript(text: str) -> tuple[SourceType, list[ParsedLine]]:
             return "telegram", parsed
 
     return "plain", []
+
+
+# ---------------------------------------------------------------------------
+# User detection — heuristic check whether a sender name looks like the
+# current user (so we can default to analyzing the OTHER person).
+# ---------------------------------------------------------------------------
+
+# Common self-labels across export formats and languages.
+_SELF_LABELS = (
+    "me",
+    "you",
+    "saya",
+    "aku",
+    "gw",
+    "gue",
+    "ku",
+)
+
+
+def _normalize(s: str) -> str:
+    """Lowercase, strip punctuation+spaces, collapse internal whitespace."""
+    import re as _re
+
+    return _re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def is_likely_user(
+    sender: str,
+    *,
+    user_name: str | None,
+    user_aliases: list[str] | None = None,
+    user_email: str | None = None,
+) -> bool:
+    """Return True if `sender` looks like the current user.
+
+    Checks:
+      - exact normalized match against user_name
+      - any alias normalized match
+      - email handle normalized match
+      - first/last name substring match (3+ chars to avoid false positives)
+      - generic self-labels ("me", "saya", etc.)
+    """
+    if not sender:
+        return False
+
+    sender_norm = _normalize(sender)
+    if not sender_norm:
+        return False
+
+    # Generic self-labels (export format markers).
+    if sender_norm in _SELF_LABELS:
+        return True
+
+    candidates: list[str] = []
+    if user_name:
+        candidates.append(user_name)
+        # Split on whitespace — pick parts ≥3 chars.
+        for part in user_name.split():
+            if len(part) >= 3:
+                candidates.append(part)
+    if user_aliases:
+        candidates.extend(user_aliases)
+    if user_email and "@" in user_email:
+        handle = user_email.split("@", 1)[0]
+        if handle:
+            candidates.append(handle)
+
+    for cand in candidates:
+        cand_norm = _normalize(cand)
+        if not cand_norm or len(cand_norm) < 3:
+            continue
+        # Exact match
+        if sender_norm == cand_norm:
+            return True
+        # Substring match — only if candidate is reasonably long to avoid
+        # matching "Anna" against "Ann".
+        if len(cand_norm) >= 4 and cand_norm in sender_norm:
+            return True
+        if len(sender_norm) >= 4 and sender_norm in cand_norm:
+            return True
+
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Sender summary for preview-parse endpoint.
+# ---------------------------------------------------------------------------
+
+
+def summarize_senders(
+    parsed: list[ParsedLine],
+    *,
+    user_name: str | None = None,
+    user_aliases: list[str] | None = None,
+    user_email: str | None = None,
+) -> list[dict]:
+    """Build a per-sender summary with message count + likely-user flag.
+
+    Returns list sorted by message count desc. Caller uses this to render the
+    "whose style?" picker in the UI.
+    """
+    from collections import Counter
+
+    counter = Counter(s for s, _ in parsed)
+    summary: list[dict] = []
+    for name, count in counter.most_common():
+        likely = is_likely_user(
+            name,
+            user_name=user_name,
+            user_aliases=user_aliases,
+            user_email=user_email,
+        )
+        summary.append(
+            {
+                "name": name,
+                "count": count,
+                "is_likely_user": likely,
+            }
+        )
+    return summary
+
+
+def recommend_target(senders: list[dict]) -> str | None:
+    """Pick the most-active non-user sender as default target.
+
+    Logic:
+    1. If any sender is not is_likely_user → return the one with most messages
+    2. If all senders look like the user → return None (caller warns user)
+    """
+    non_user = [s for s in senders if not s["is_likely_user"]]
+    if non_user:
+        return non_user[0]["name"]  # already sorted desc by count
+    return None

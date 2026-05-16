@@ -8,6 +8,14 @@ the caller discards the input.
 
 Output is validated by Pydantic — so even if Haiku hallucinates extra
 fields, we only persist what matches our schema.
+
+Sampling strategy:
+- Auto-tune the chars budget based on transcript size (12k for thin
+  inputs, 30k for rich ones).
+- For parsed transcripts: stratify into beginning / middle / end chunks
+  so we capture greetings, ongoing rhythm, and closings.
+- Always prioritize target messages.
+- For unparsed (plain) inputs: same 3-chunk split on raw text.
 """
 
 from __future__ import annotations
@@ -20,17 +28,19 @@ from typing import Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from app.services.claude import get_claude
-from app.services.style_parser import ParsedLine, SourceType
+from app.services.style_parser import ParsedLine, SourceType, is_likely_user
 
 log = logging.getLogger(__name__)
 
 
-# Maximum transcript size we'll send to Haiku. Larger = more context = better
-# extraction, but more cost and tokens. 12k chars ~ 3000 tokens ~ enough.
-_MAX_TRANSCRIPT_CHARS = 12_000
+# Hard caps. The frontend also enforces 5MB at upload; the backend re-checks.
+MAX_UPLOAD_CHARS = 5_000_000
 
-# Minimum messages from the target before we'll attempt extraction. Below
-# this, the profile would be guesswork.
+# LLM input ceilings — auto-tuned per request between these bounds.
+_LLM_MIN_CHARS = 12_000
+_LLM_MAX_CHARS = 30_000
+
+# Minimum target messages before we'll attempt extraction.
 _MIN_TARGET_MESSAGES = 3
 
 
@@ -112,17 +122,42 @@ async def extract_style(
     parsed_lines: list[ParsedLine],
     raw_text: str,
     target_sender: str | None = None,
-) -> tuple[StyleProfile | None, int]:
+    user_name: str | None = None,
+    user_aliases: list[str] | None = None,
+    user_email: str | None = None,
+) -> tuple[StyleProfile | None, int, list[str]]:
     """Extract a style profile from parsed lines (or raw text if parsing failed).
 
-    Returns (profile_or_none, sample_count).
-    sample_count = number of messages from the target sender that contributed.
+    Returns (profile_or_none, sample_count, warnings).
+    sample_count = number of messages from the target sender.
+    warnings    = list of strings for the UI to surface (e.g. "looks like
+                  your own writing").
     """
-    # Decide what to send Haiku, and how many target messages we have.
+    warnings: list[str] = []
+
+    # Decide what to send Haiku.
     if parsed_lines:
-        target = target_sender or _pick_target_sender(parsed_lines)
+        # Pick target: explicit > non-user-most-active > most-active fallback.
+        target = target_sender or _pick_target_sender(
+            parsed_lines,
+            user_name=user_name,
+            user_aliases=user_aliases,
+            user_email=user_email,
+        )
         if not target:
-            return None, 0
+            return None, 0, ["No senders detected in transcript"]
+
+        # Warn if the picked target itself looks like the user.
+        if is_likely_user(
+            target,
+            user_name=user_name,
+            user_aliases=user_aliases,
+            user_email=user_email,
+        ):
+            warnings.append(
+                "The selected sender looks like your own messages. This will analyze "
+                "your own writing style, which may not be what you want."
+            )
 
         target_lines = [(s, t) for s, t in parsed_lines if s == target]
         if len(target_lines) < _MIN_TARGET_MESSAGES:
@@ -131,22 +166,41 @@ async def extract_style(
                 target,
                 len(target_lines),
             )
-            return None, len(target_lines)
+            warnings.append(
+                f"Only {len(target_lines)} messages from '{target}' — not enough to extract a reliable style."
+            )
+            return None, len(target_lines), warnings
 
-        # Compose transcript chunk. We send both speakers because context
-        # matters (we want to see how the target responds to what), but
-        # clearly label the target.
-        transcript = _format_transcript(parsed_lines, target, _MAX_TRANSCRIPT_CHARS)
-        sample_count = len(target_lines)
-    else:
-        # Plain text fallback. No sender labels — extractor treats it as
-        # one person's writing samples.
-        transcript = (
-            f"Treat the following as a single person's writing samples (no \
-labeled sender available). Target name: {target_sender or 'Unknown'}.\n\n"
-            + raw_text[:_MAX_TRANSCRIPT_CHARS]
+        # Auto-tune chars budget based on transcript richness.
+        budget = _auto_budget(
+            target_msg_count=len(target_lines),
+            total_chars=sum(len(t) for _, t in parsed_lines),
         )
-        sample_count = max(1, len(raw_text) // 80)  # rough estimate
+        transcript = _build_stratified_sample(
+            parsed_lines, target=target, max_chars=budget
+        )
+        sample_count = len(target_lines)
+
+        # Sparse-target signal: enough to extract, but flag low confidence.
+        if len(target_lines) < 15:
+            warnings.append(
+                f"Only {len(target_lines)} messages analyzed — extracted style may be less reliable."
+            )
+    else:
+        # Plain text fallback: split raw text into begin/mid/end.
+        budget = _auto_budget(target_msg_count=0, total_chars=len(raw_text))
+        transcript = _build_plain_sample(raw_text, max_chars=budget, target_name=target_sender)
+        sample_count = max(1, len(raw_text) // 80)
+        warnings.append(
+            "Transcript format wasn't recognized as WhatsApp or Telegram — analyzing as plain text."
+        )
+
+    log.info(
+        "style extract: sending %d chars to Haiku (target=%s, sample_count=%d)",
+        len(transcript),
+        target_sender or "auto",
+        sample_count,
+    )
 
     try:
         claude = get_claude()
@@ -157,12 +211,16 @@ labeled sender available). Target name: {target_sender or 'Unknown'}.\n\n"
             messages=[{"role": "user", "content": transcript}],
         )
     except Exception as exc:
-        log.warning("style extract: Haiku failed: %s", exc)
-        return None, sample_count
+        # Distinguish timeout from other errors for the user.
+        msg = f"Style analysis failed: {exc.__class__.__name__}"
+        log.warning("style extract: Haiku failed: %s", exc, exc_info=True)
+        warnings.append(msg)
+        return None, sample_count, warnings
 
     block = next((b for b in response.content if b.type == "text"), None)
     if not block:
-        return None, sample_count
+        warnings.append("Style analysis returned no result. Try a shorter transcript.")
+        return None, sample_count, warnings
     raw = block.text.strip()
     if raw.startswith("```"):
         raw = raw.strip("`").lstrip("json").strip()
@@ -171,15 +229,17 @@ labeled sender available). Target name: {target_sender or 'Unknown'}.\n\n"
         parsed_json = json.loads(raw)
     except json.JSONDecodeError as exc:
         log.warning("style extract: bad JSON: %s; raw=%r", exc, raw[:200])
-        return None, sample_count
+        warnings.append("Could not parse style analysis. Try again or use a different transcript.")
+        return None, sample_count, warnings
 
     try:
         profile = StyleProfile.model_validate(parsed_json)
     except ValidationError as exc:
         log.warning("style extract: schema mismatch: %s", exc)
-        return None, sample_count
+        warnings.append("Style analysis was incomplete. Try a transcript with more messages.")
+        return None, sample_count, warnings
 
-    return profile, sample_count
+    return profile, sample_count, warnings
 
 
 # ---------------------------------------------------------------------------
@@ -187,32 +247,139 @@ labeled sender available). Target name: {target_sender or 'Unknown'}.\n\n"
 # ---------------------------------------------------------------------------
 
 
-def _pick_target_sender(parsed_lines: list[ParsedLine]) -> str | None:
-    """Pick the sender with the most messages. Heuristic — the "target" is
-    usually the other party, but with two people we don't know which is the
-    user. We let the user override via target_sender parameter."""
+def _auto_budget(*, target_msg_count: int, total_chars: int) -> int:
+    """Pick LLM input size.
+
+    Heuristic — small for thin inputs, larger for rich ones. Reasoning:
+    short transcripts already fit in 12k; long ones need 30k to retain
+    breadth of signal after stratified sampling.
+    """
+    # Plain-text path (no target_msg_count): scale on total chars only.
+    if target_msg_count == 0:
+        if total_chars <= 8_000:
+            return _LLM_MIN_CHARS
+        if total_chars >= 40_000:
+            return _LLM_MAX_CHARS
+        # Linear in between.
+        span = _LLM_MAX_CHARS - _LLM_MIN_CHARS
+        progress = (total_chars - 8_000) / (40_000 - 8_000)
+        return int(_LLM_MIN_CHARS + span * progress)
+
+    # Parsed path: scale on target message count primarily.
+    if target_msg_count <= 20 and total_chars <= 8_000:
+        return _LLM_MIN_CHARS
+    if target_msg_count >= 50 or total_chars >= 40_000:
+        return _LLM_MAX_CHARS
+    # Linear in between (weight count > chars).
+    span = _LLM_MAX_CHARS - _LLM_MIN_CHARS
+    progress = max(
+        (target_msg_count - 20) / 30,
+        (total_chars - 8_000) / (40_000 - 8_000),
+    )
+    return int(_LLM_MIN_CHARS + span * max(0.0, min(1.0, progress)))
+
+
+def _pick_target_sender(
+    parsed_lines: list[ParsedLine],
+    *,
+    user_name: str | None = None,
+    user_aliases: list[str] | None = None,
+    user_email: str | None = None,
+) -> str | None:
+    """Pick the most-active sender that does NOT look like the current user.
+
+    Fallback to overall most-active if every sender looks like the user.
+    """
     if not parsed_lines:
         return None
     counter = Counter(s for s, _ in parsed_lines)
     if not counter:
         return None
-    # Most frequent. If tied, returns the first encountered alphabetically.
-    return counter.most_common(1)[0][0]
+
+    ordered = counter.most_common()
+    # First pass: skip likely-user senders.
+    for name, _ in ordered:
+        if not is_likely_user(
+            name,
+            user_name=user_name,
+            user_aliases=user_aliases,
+            user_email=user_email,
+        ):
+            return name
+    # All look like user — return the most-active one with a warning upstream.
+    return ordered[0][0]
 
 
-def _format_transcript(
-    parsed_lines: list[ParsedLine], target: str, max_chars: int
+def _build_stratified_sample(
+    parsed_lines: list[ParsedLine], *, target: str, max_chars: int
 ) -> str:
-    """Render the transcript with target messages clearly marked."""
-    header = f"TARGET PERSON: {target}\n\nTranscript (analyze ONLY the TARGET's messages):\n\n"
+    """Build a sample with beginning / middle / end slices.
+
+    Within each slice we include both target and other senders (other senders
+    give Claude conversational context — needed to read tone).
+    """
+    header = (
+        f"TARGET PERSON: {target}\n\n"
+        f"Transcript excerpts (analyze ONLY the TARGET's messages — OTHER "
+        f"messages are context). Excerpts come from beginning, middle, and "
+        f"recent portions of the conversation.\n\n"
+    )
+
+    total = len(parsed_lines)
+    if total == 0:
+        return header
+
+    # Budget allocation: 30% beginning, 30% middle, 40% end (recent style
+    # weights more in present-day extraction).
+    budget = max_chars - len(header)
+    chunk_budget = (int(budget * 0.30), int(budget * 0.30), int(budget * 0.40))
+
+    # Slice boundaries.
+    third = max(1, total // 3)
+    slices = [
+        ("Beginning", parsed_lines[:third]),
+        ("Middle", parsed_lines[third : 2 * third]),
+        ("Recent", parsed_lines[2 * third :]),
+    ]
+
     body_parts: list[str] = []
-    used = len(header)
-    for sender, text in parsed_lines:
-        prefix = "TARGET" if sender == target else "OTHER"
-        line = f"[{prefix}] {sender}: {text}\n"
-        if used + len(line) > max_chars:
-            body_parts.append("[transcript truncated]\n")
-            break
-        body_parts.append(line)
-        used += len(line)
+    for (label, lines), budget_chars in zip(slices, chunk_budget):
+        if not lines or budget_chars <= 0:
+            continue
+        body_parts.append(f"--- {label} ---\n")
+        used = 0
+        for sender, text in lines:
+            prefix = "TARGET" if sender == target else "OTHER"
+            line = f"[{prefix}] {sender}: {text}\n"
+            if used + len(line) > budget_chars:
+                break
+            body_parts.append(line)
+            used += len(line)
+        body_parts.append("\n")
+
     return header + "".join(body_parts)
+
+
+def _build_plain_sample(text: str, *, max_chars: int, target_name: str | None) -> str:
+    """Sample a plain text blob from beginning / middle / end."""
+    header = (
+        f"Treat the following as a single person's writing samples "
+        f"(no labeled sender available). Target name: {target_name or 'Unknown'}.\n"
+        f"Excerpts are from different sections of the transcript.\n\n"
+    )
+
+    budget = max_chars - len(header)
+    if len(text) <= budget:
+        return header + text
+
+    third = budget // 3
+    n = len(text)
+    return (
+        header
+        + "--- Beginning ---\n"
+        + text[:third]
+        + "\n\n--- Middle ---\n"
+        + text[n // 2 - third // 2 : n // 2 + third // 2]
+        + "\n\n--- Recent ---\n"
+        + text[-third:]
+    )

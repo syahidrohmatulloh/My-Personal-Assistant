@@ -519,7 +519,41 @@ export type AnalyzeResult = {
   sample_count: number;
   source_type: string;
   suggested_name: string;
+  warnings: string[];
 };
+
+export type PreviewSender = {
+  name: string;
+  count: number;
+  is_likely_user: boolean;
+  recommended: boolean;
+};
+
+export type PreviewParseResult = {
+  source_type: string;
+  message_count: number;
+  senders: PreviewSender[];
+  recommended_target_name: string | null;
+  too_long: boolean;
+  warnings: string[];
+};
+
+export async function previewParseStyle(
+  transcript: string,
+): Promise<PreviewParseResult> {
+  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  const r = await fetch(`${API_URL}/style-profiles/preview-parse`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ transcript }),
+  });
+  if (!r.ok) {
+    let detail = `preview parse failed: ${r.status}`;
+    try { const j = await r.json(); if (j?.detail) detail = j.detail; } catch {}
+    throw new Error(detail);
+  }
+  return r.json();
+}
 
 export async function analyzeStyle(
   transcript: string,
