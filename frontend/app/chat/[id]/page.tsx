@@ -162,11 +162,7 @@ export default function ConversationPage({
     let assistantText = "";
 
     try {
-      for await (const chunk of streamChat(
-        conversationId,
-        text,
-        assistantId,
-      )) {
+      for await (const chunk of streamChat(conversationId, text)) {
         assistantText += chunk;
 
         setMessages((prev) =>
