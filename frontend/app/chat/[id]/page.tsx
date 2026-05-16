@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ArrowDown } from "lucide-react";
 import { Composer } from "@/components/chat/composer";
 import { MessageBubble } from "@/components/chat/message-bubble";
+import { ConversationStyleBadge } from "@/components/chat/conversation-style-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { listMessages, streamChat, type Conversation, type Message } from "@/lib/api";
 
@@ -201,6 +202,7 @@ export default function ConversationPage({
 
   return (
     <main className="flex-1 flex flex-col min-w-0 min-h-0 relative">
+      <ConversationStyleBadge conversationId={conversationId} />
       <div
         ref={scrollRef}
         className="flex-1 min-h-0 overflow-y-auto scroll-smooth-mobile overscroll-contain"

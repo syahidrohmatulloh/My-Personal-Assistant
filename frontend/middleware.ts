@@ -47,7 +47,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/journal") ||
     pathname.startsWith("/goals") ||
     pathname.startsWith("/people") ||
-    pathname.startsWith("/welcome");
+    pathname.startsWith("/welcome") ||
+    pathname.startsWith("/settings");
 
   if (!user && isProtectedRoute) {
     return NextResponse.redirect(new URL("/login", request.url));
@@ -70,6 +71,7 @@ export const config = {
     "/goals/:path*",
     "/people/:path*",
     "/welcome/:path*",
+    "/settings/:path*",
     "/login",
     "/signup",
   ],

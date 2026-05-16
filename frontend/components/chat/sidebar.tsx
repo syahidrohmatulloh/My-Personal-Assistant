@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import {
+  ChevronDown,
   Heart,
   LogOut,
   Menu,
@@ -11,6 +12,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Settings,
   Sparkles,
   Target,
   Trash2,
@@ -22,12 +24,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type Conversation,
+  type StyleProfile,
   createConversation,
   deleteConversation,
   getTodaysJournal,
   listConversations,
+  listStyleProfiles,
   regenerateConversationTitle,
   renameConversation,
+  setConversationStyle,
 } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -81,6 +86,12 @@ export function Sidebar() {
   });
   const journaledToday = today?.entry != null;
 
+  const { data: styleProfiles = [] } = useQuery({
+    queryKey: ["style-profiles"],
+    queryFn: listStyleProfiles,
+    staleTime: 60_000,
+  });
+
   const groups = useMemo(() => groupConversations(conversations), [conversations]);
 
   useEffect(() => {
@@ -98,7 +109,8 @@ export function Sidebar() {
   }, [open]);
 
   const createMut = useMutation({
-    mutationFn: () => createConversation(),
+    mutationFn: (styleProfileId: string | null = null) =>
+      createConversation("New chat", styleProfileId),
     onMutate: async () => {
       const optimistic: Conversation = {
         id: `temp-${Date.now()}`,
@@ -176,14 +188,23 @@ export function Sidebar() {
 
       {/* New chat */}
       <div className="shrink-0 px-3 pb-3">
-        <button
-          onClick={() => createMut.mutate()}
-          disabled={createMut.isPending}
-          className="w-full flex items-center gap-2 rounded-xl bg-accent text-on-accent px-3 py-2.5 text-sm font-medium hover:bg-accent-hover transition-all hover:shadow-lg hover:shadow-accent/20 active:scale-[0.98] disabled:opacity-60"
-        >
-          <Plus className="h-4 w-4" strokeWidth={2.5} />
-          New chat
-        </button>
+        <div className="flex gap-1.5">
+          <button
+            onClick={() => createMut.mutate(null)}
+            disabled={createMut.isPending}
+            className="flex-1 flex items-center gap-2 rounded-xl bg-accent text-on-accent px-3 py-2.5 text-sm font-medium hover:bg-accent-hover transition-all hover:shadow-lg hover:shadow-accent/20 active:scale-[0.98] disabled:opacity-60"
+          >
+            <Plus className="h-4 w-4" strokeWidth={2.5} />
+            New chat
+          </button>
+          {styleProfiles.length > 0 && (
+            <NewChatStyleDropdown
+              profiles={styleProfiles}
+              onPick={(profileId) => createMut.mutate(profileId)}
+              disabled={createMut.isPending}
+            />
+          )}
+        </div>
       </div>
 
       {/* History header */}
@@ -220,6 +241,7 @@ export function Sidebar() {
                   conversation={c}
                   active={activeId === c.id}
                   onDelete={() => handleDelete(c.id)}
+                  styleProfiles={styleProfiles}
                 />
               ))}
             </div>
@@ -239,6 +261,7 @@ export function Sidebar() {
         <NavLink href="/people" icon={<Users className="h-4 w-4" />} label="People" />
         <NavLink href="/identity" icon={<User className="h-4 w-4" />} label="Identity" />
         <NavLink href="/memories" icon={<Sparkles className="h-4 w-4" />} label="Memories" />
+        <NavLink href="/settings" icon={<Settings className="h-4 w-4" />} label="Settings" />
         <button
           onClick={handleSignOut}
           className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-fg-soft active:bg-fg/10 md:hover:bg-fg/5 hover:text-fg transition-colors"
@@ -307,15 +330,18 @@ function ConversationRow({
   conversation,
   active,
   onDelete,
+  styleProfiles,
 }: {
   conversation: Conversation;
   active: boolean;
   onDelete: () => void;
+  styleProfiles: StyleProfile[];
 }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(conversation.title || "");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [stylePickerOpen, setStylePickerOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -343,6 +369,24 @@ function ConversationRow({
       qc.setQueryData<Conversation[]>(["conversations"], (old = []) =>
         old.map((c) => (c.id === conversation.id ? real : c)),
       );
+    },
+  });
+
+  const styleMut = useMutation({
+    mutationFn: (profileId: string | null) =>
+      setConversationStyle(conversation.id, profileId),
+    onMutate: async (profileId) => {
+      await qc.cancelQueries({ queryKey: ["conversations"] });
+      const prev = qc.getQueryData<Conversation[]>(["conversations"]);
+      qc.setQueryData<Conversation[]>(["conversations"], (old = []) =>
+        old.map((c) =>
+          c.id === conversation.id ? { ...c, style_profile_id: profileId } : c,
+        ),
+      );
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["conversations"], ctx.prev);
     },
   });
 
@@ -436,6 +480,15 @@ function ConversationRow({
               label: "Auto-rename",
               onClick: () => regenMut.mutate(),
             },
+            ...(styleProfiles.length > 0
+              ? [
+                  {
+                    icon: <Sparkles className="h-3.5 w-3.5" />,
+                    label: "Change style",
+                    onClick: () => setStylePickerOpen(true),
+                  },
+                ]
+              : []),
             {
               icon: <Trash2 className="h-3.5 w-3.5" />,
               label: "Delete",
@@ -443,6 +496,17 @@ function ConversationRow({
               danger: true,
             },
           ]}
+        />
+      )}
+      {stylePickerOpen && (
+        <StylePickerPopover
+          profiles={styleProfiles}
+          currentId={conversation.style_profile_id ?? null}
+          onPick={(id) => {
+            styleMut.mutate(id);
+            setStylePickerOpen(false);
+          }}
+          onClose={() => setStylePickerOpen(false)}
         />
       )}
     </div>
@@ -497,6 +561,157 @@ function ContextMenu({
           {item.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+function StylePickerPopover({
+  profiles,
+  currentId,
+  onPick,
+  onClose,
+}: {
+  profiles: StyleProfile[];
+  currentId: string | null;
+  onPick: (id: string | null) => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      ref={ref}
+      className="absolute right-1 top-9 z-30 min-w-[200px] glass-strong rounded-lg shadow-lg shadow-black/20 border border-border py-1 overflow-hidden fade-up"
+      role="menu"
+    >
+      <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
+        Conversation style
+      </p>
+      <StyleOption
+        label="Default"
+        active={currentId === null}
+        onClick={() => onPick(null)}
+      />
+      {profiles.map((p) => (
+        <StyleOption
+          key={p.id}
+          label={p.profile_name}
+          active={currentId === p.id}
+          onClick={() => onPick(p.id)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function StyleOption({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "w-full flex items-center justify-between gap-2 px-3 py-1.5 text-xs text-left transition-colors truncate",
+        active ? "bg-accent-soft text-fg font-medium" : "text-fg-soft hover:bg-fg/5 hover:text-fg",
+      )}
+    >
+      <span className="truncate">{label}</span>
+      {active && <span className="text-[10px] text-accent shrink-0">●</span>}
+    </button>
+  );
+}
+
+function NewChatStyleDropdown({
+  profiles,
+  onPick,
+  disabled,
+}: {
+  profiles: StyleProfile[];
+  onPick: (profileId: string | null) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        disabled={disabled}
+        className="h-full px-2.5 rounded-xl bg-accent text-on-accent hover:bg-accent-hover transition-all active:scale-[0.98] disabled:opacity-60"
+        aria-label="New chat with style"
+        title="New chat with style"
+      >
+        <ChevronDown className="h-4 w-4" strokeWidth={2.5} />
+      </button>
+      {open && (
+        <div
+          className="absolute left-0 right-0 top-12 z-30 min-w-[200px] glass-strong rounded-xl shadow-lg shadow-black/20 border border-border py-1 overflow-hidden fade-up"
+          role="menu"
+        >
+          <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
+            Start with style
+          </p>
+          <button
+            onClick={() => {
+              onPick(null);
+              setOpen(false);
+            }}
+            className="w-full text-left px-3 py-1.5 text-xs text-fg-soft hover:bg-fg/5 hover:text-fg transition-colors"
+          >
+            Default
+          </button>
+          {profiles.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => {
+                onPick(p.id);
+                setOpen(false);
+              }}
+              className="w-full text-left px-3 py-1.5 text-xs text-fg-soft hover:bg-fg/5 hover:text-fg transition-colors truncate"
+            >
+              {p.profile_name}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

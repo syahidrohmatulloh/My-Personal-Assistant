@@ -19,6 +19,7 @@ export type Conversation = {
   title: string;
   created_at: string;
   updated_at: string;
+  style_profile_id?: string | null;
 };
 
 export type Message = {
@@ -76,12 +77,17 @@ export async function listConversations(): Promise<Conversation[]> {
   return r.json();
 }
 
-export async function createConversation(title = "New chat"): Promise<Conversation> {
+export async function createConversation(
+  title = "New chat",
+  styleProfileId?: string | null,
+): Promise<Conversation> {
   const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  const body: Record<string, unknown> = { title };
+  if (styleProfileId) body.style_profile_id = styleProfileId;
   const r = await fetch(`${API_URL}/conversations`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ title }),
+    body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(`createConversation failed: ${r.status}`);
   return r.json();
@@ -488,6 +494,112 @@ export async function uploadAttachment(file: File): Promise<AttachmentMeta> {
       const j = await r.json();
       if (j?.detail) detail = j.detail;
     } catch {}
+    throw new Error(detail);
+  }
+  return r.json();
+}
+
+// ---------------------------------------------------------------------------
+// Style Profiles (Phase 4.11)
+// ---------------------------------------------------------------------------
+
+export type StyleProfile = {
+  id: string;
+  profile_name: string;
+  source_type: "whatsapp" | "telegram" | "plain" | "pasted";
+  extracted_style: Record<string, unknown>;
+  sample_count: number;
+  confidence: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AnalyzeResult = {
+  profile: Record<string, unknown>;
+  sample_count: number;
+  source_type: string;
+  suggested_name: string;
+};
+
+export async function analyzeStyle(
+  transcript: string,
+  targetName?: string,
+): Promise<AnalyzeResult> {
+  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  const r = await fetch(`${API_URL}/style-profiles/analyze`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ transcript, target_name: targetName || null }),
+  });
+  if (!r.ok) {
+    let detail = `analyze failed: ${r.status}`;
+    try { const j = await r.json(); if (j?.detail) detail = j.detail; } catch {}
+    throw new Error(detail);
+  }
+  return r.json();
+}
+
+export async function listStyleProfiles(): Promise<StyleProfile[]> {
+  const headers = await getAuthHeader();
+  const r = await fetch(`${API_URL}/style-profiles`, { headers });
+  if (!r.ok) throw new Error(`list profiles failed: ${r.status}`);
+  return r.json();
+}
+
+export async function createStyleProfile(input: {
+  profile_name: string;
+  source_type: string;
+  extracted_style: Record<string, unknown>;
+  sample_count: number;
+}): Promise<StyleProfile> {
+  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  const r = await fetch(`${API_URL}/style-profiles`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(input),
+  });
+  if (!r.ok) {
+    let detail = `create profile failed: ${r.status}`;
+    try { const j = await r.json(); if (j?.detail) detail = j.detail; } catch {}
+    throw new Error(detail);
+  }
+  return r.json();
+}
+
+export async function renameStyleProfile(id: string, name: string): Promise<StyleProfile> {
+  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  const r = await fetch(`${API_URL}/style-profiles/${id}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ profile_name: name }),
+  });
+  if (!r.ok) throw new Error(`rename failed: ${r.status}`);
+  return r.json();
+}
+
+export async function deleteStyleProfile(id: string): Promise<void> {
+  const headers = await getAuthHeader();
+  const r = await fetch(`${API_URL}/style-profiles/${id}`, { method: "DELETE", headers });
+  if (!r.ok && r.status !== 204) throw new Error(`delete failed: ${r.status}`);
+}
+
+// ---------------------------------------------------------------------------
+// Conversation style assignment
+// ---------------------------------------------------------------------------
+
+export async function setConversationStyle(
+  conversationId: string,
+  styleProfileId: string | null,
+): Promise<Conversation> {
+  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  const r = await fetch(`${API_URL}/conversations/${conversationId}/style`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ style_profile_id: styleProfileId }),
+  });
+  if (!r.ok) {
+    let detail = `set style failed: ${r.status}`;
+    try { const j = await r.json(); if (j?.detail) detail = j.detail; } catch {}
     throw new Error(detail);
   }
   return r.json();
