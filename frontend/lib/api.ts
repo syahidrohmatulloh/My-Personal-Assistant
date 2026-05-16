@@ -111,21 +111,14 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
 export async function* streamChat(
   conversationId: string,
   message: string,
-  clientId: string
 ): AsyncGenerator<string, void, unknown> {
-  const headers = {
-    ...(await getAuthHeader()),
-    "Content-Type": "application/json",
-  };
-
-  const response = await fetch(`${API_URL}/chat`, {
+  // Use the edge proxy at /api/chat instead of hitting Fly directly.
+  // The proxy attaches the JWT server-side from cookies, so we don't need
+  // to call getAuthHeader() here — saves a getSession() round-trip on every send.
+  const response = await fetch(`/api/chat`, {
     method: "POST",
-    headers,
-    body: JSON.stringify({
-      conversation_id: conversationId,
-      message,
-      client_id: clientId,
-    }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conversation_id: conversationId, message }),
   });
 
   if (!response.ok || !response.body) {
@@ -134,7 +127,6 @@ export async function* streamChat(
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-
   let buffer = "";
 
   while (true) {
@@ -143,31 +135,21 @@ export async function* streamChat(
 
     buffer += decoder.decode(value, { stream: true });
 
-    let boundaryIndex;
-    while ((boundaryIndex = buffer.indexOf("\n\n")) !== -1) {
-      const rawEvent = buffer.slice(0, boundaryIndex);
-      buffer = buffer.slice(boundaryIndex + 2);
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
 
-      if (!rawEvent.startsWith("data: ")) continue;
+    for (const event of events) {
+      const line = event.trim();
+      if (!line.startsWith("data: ")) continue;
 
-      const payload = rawEvent.slice(6).trim();
-
+      const payload = line.slice(6);
       try {
         const parsed = JSON.parse(payload);
-
-        if (parsed.type === "delta") {
-          yield parsed.text;
-        }
-
-        if (parsed.type === "error") {
-          throw new Error(parsed.message);
-        }
-
-        if (parsed.type === "done") {
-          return;
-        }
+        if (parsed.type === "delta") yield parsed.text;
+        else if (parsed.type === "error") throw new Error(parsed.message);
       } catch (err) {
-        console.error("STREAM PARSE ERROR:", err, payload);
+        if (err instanceof SyntaxError) continue;
+        throw err;
       }
     }
   }
@@ -352,4 +334,49 @@ export async function deletePerson(id: string): Promise<void> {
   const headers = await getAuthHeader();
   const r = await fetch(`${API_URL}/people/${id}`, { method: "DELETE", headers });
   if (!r.ok && r.status !== 204) throw new Error(`deletePerson failed: ${r.status}`);
+}
+
+// ---------------------------------------------------------------------------
+// Daily briefing (Phase 4.7)
+// ---------------------------------------------------------------------------
+
+export type Briefing = {
+  id: string;
+  content: string;
+  generated_at: string;
+  conversation_id: string | null;
+  opened_at: string | null;
+};
+
+function localDateYYYYMMDD(): string {
+  // Browser's local "today" — sidesteps server-side timezone resolution.
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+export async function getTodayBriefing(): Promise<Briefing | null> {
+  const headers = await getAuthHeader();
+  const r = await fetch(`${API_URL}/briefing/today?date=${localDateYYYYMMDD()}`, {
+    headers,
+  });
+  if (!r.ok) throw new Error(`briefing failed: ${r.status}`);
+  const data = await r.json();
+  return (data?.briefing ?? null) as Briefing | null;
+}
+
+export async function openBriefing(
+  briefingId: string,
+  title?: string,
+): Promise<{ conversation_id: string }> {
+  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  const r = await fetch(`${API_URL}/briefing/${briefingId}/open`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ title: title ?? null }),
+  });
+  if (!r.ok) throw new Error(`open briefing failed: ${r.status}`);
+  return r.json();
 }
