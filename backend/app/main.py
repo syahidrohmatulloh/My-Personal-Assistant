@@ -4,7 +4,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import attachments, briefing, chat, conversations, journal, life_model, memories
+from app.routers import (
+    attachments,
+    briefing,
+    chat,
+    conversations,
+    journal,
+    life_model,
+    memories,
+    reflections,
+)
 
 app = FastAPI(
     title="My Assistant API",
@@ -29,6 +38,7 @@ app.include_router(life_model.router)
 app.include_router(journal.router)
 app.include_router(briefing.router)
 app.include_router(attachments.router)
+app.include_router(reflections.router)
 
 
 @app.get("/health", tags=["meta"])

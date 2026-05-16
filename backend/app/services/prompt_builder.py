@@ -148,6 +148,90 @@ def _format_local_date(iso_string: str, tz: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Adaptive emotional tone directive
+#
+# Reads recent self-reported state. If a clear pattern is present (high stress,
+# low mood, high energy), emits a short directive telling Claude how to modulate
+# THIS conversation. Quiet on neutral states — we don't want to inject noise
+# every turn when the user is fine.
+# ---------------------------------------------------------------------------
+
+
+def _emotional_directive(mood_log: list[dict]) -> str | None:
+    """Return a directive string for adaptive tone, or None if no clear signal.
+
+    Looks at SELF-REPORTED entries from the last ~3 days. Inferred data is
+    too low-confidence to drive tone changes — we don't want to assume.
+    """
+    if not mood_log:
+        return None
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=3)
+    recent: list[dict] = []
+    for m in mood_log:
+        if m.get("source") != "self_report":
+            continue
+        observed = m.get("observed_at")
+        if not observed:
+            continue
+        try:
+            dt = datetime.fromisoformat(observed.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+        if dt >= cutoff:
+            recent.append(m)
+
+    # Need at least 2 data points to call something a "pattern" — otherwise
+    # we're overinterpreting a single bad day.
+    if len(recent) < 2:
+        return None
+
+    def _avg(field: str) -> float | None:
+        vals = [e[field] for e in recent if e.get(field) is not None]
+        return statistics.mean(vals) if vals else None
+
+    mood = _avg("mood")
+    energy = _avg("energy")
+    stress = _avg("stress")
+
+    # High stress dominates — even if mood is OK, if stress is high, calm down.
+    if stress is not None and stress >= 2:
+        return (
+            "## Conversational tone for this turn\n"
+            "The user's recent self-reported stress is elevated. For this conversation:\n"
+            "- Keep replies shorter than usual. Don't overload with options or steps.\n"
+            "- Lead with acknowledgment before suggestions.\n"
+            "- Avoid asking multiple questions in one reply.\n"
+            "- Speak as you would to someone who is tired — calmly, without urgency."
+        )
+
+    # Low mood — gentler register, validate before reasoning.
+    if mood is not None and mood <= -2:
+        return (
+            "## Conversational tone for this turn\n"
+            "The user's recent self-reported mood has been low. For this conversation:\n"
+            "- Lead with presence, not problem-solving.\n"
+            "- Don't try to cheer them up. Don't minimize.\n"
+            "- Keep replies short and unforced.\n"
+            "- If they want to vent, let them. Ask what they need before suggesting."
+        )
+
+    # High energy + positive mood — match the velocity, sharpen up.
+    if (mood is not None and mood >= 2) and (energy is not None and energy >= 2):
+        return (
+            "## Conversational tone for this turn\n"
+            "The user's recent self-reported state is energized and positive. For this conversation:\n"
+            "- Match their pace. Be direct, sharp, ambitious.\n"
+            "- Skip excessive caveats. They're ready to act.\n"
+            "- If they're brainstorming, brainstorm with them — don't hold back."
+        )
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Mood aggregation
 # ---------------------------------------------------------------------------
 
@@ -272,7 +356,13 @@ def render_context(context: dict[str, Any]) -> str:
             lines.append(f"- [{r['kind']}] {r['content']}")
         sections.append("\n".join(lines))
 
-    # 7. Name reinforcement — last, so it's the freshest instruction.
+    # 7. Adaptive emotional directive — last technical instruction.
+    # If recent self-reported state shows a pattern, tell Claude how to modulate.
+    directive = _emotional_directive(context.get("recent_mood") or [])
+    if directive:
+        sections.append(directive)
+
+    # 8. Name reinforcement — final friendly note.
     name = profile.get("name") if isinstance(profile, dict) else None
     if name:
         sections.append(
