@@ -174,15 +174,8 @@ async def chat(
         if style_block:
             volatile_context += "\n\n" + style_block
 
-    # Audit log — explicit which style mode is active. Per design contract,
-    # "default" means baseline assistant; "style_profile:<id>" means the
-    # conversation has an attached profile that loaded successfully.
-    style_audit = (
-        f"style_profile:{style_profile_id[:8]}" if style_profile_id else "default"
-    )
-
     log.info(
-        "chat: user=%s context_keys=%s legacy_mems=%d related_summaries=%d history_len=%d attachments=%d mode=%s style=%s",
+        "chat: user=%s context_keys=%s legacy_mems=%d related_summaries=%d history_len=%d attachments=%d mode=%s",
         user_id[:8],
         list(context.keys()),
         len(legacy_memories),
@@ -190,7 +183,6 @@ async def chat(
         len(messages),
         len(attachment_rows),
         detected_mode,
-        style_audit,
     )
 
     # If there are attachments on this turn, replace the last user message's

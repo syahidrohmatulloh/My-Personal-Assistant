@@ -31,7 +31,7 @@ async def list_conversations(user_id: str = Depends(get_current_user_id)):
     supabase = get_supabase()
     result = (
         supabase.table("conversations")
-        .select("id, title, created_at, updated_at, style_profile_id")
+        .select("id, title, created_at, updated_at")
         .eq("user_id", user_id)
         .order("updated_at", desc=True)
         .execute()
@@ -87,83 +87,6 @@ async def rename_conversation(
     )
     if not result.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
-    return result.data[0]
-
-
-class SetStyleIn(BaseModel):
-    """Body for setting / clearing a conversation's style profile.
-
-    `style_profile_id = None` means "use Default style" — that's the rollback
-    operation. Per the design contract, Default = exactly the assistant's
-    behavior before this feature shipped.
-    """
-
-    style_profile_id: str | None = None
-
-
-@router.patch("/{conversation_id}/style", response_model=ConversationOut)
-async def set_conversation_style(
-    conversation_id: str,
-    body: SetStyleIn,
-    user_id: str = Depends(get_current_user_id),
-):
-    """Set or clear the style profile for a single conversation.
-
-    Rollback to Default: send {"style_profile_id": null}. Takes effect on the
-    user's NEXT message in this conversation. Existing messages are not
-    rewritten — style applies forward, not retroactively.
-
-    If the profile_id doesn't belong to the user or doesn't exist, we return
-    400. We do NOT silently fall back, because that would hide bugs in the
-    frontend.
-    """
-    supabase = get_supabase()
-
-    # Verify conversation ownership first.
-    convo = (
-        supabase.table("conversations")
-        .select("id")
-        .eq("id", conversation_id)
-        .eq("user_id", user_id)
-        .maybe_single()
-        .execute()
-    )
-    if not convo or not convo.data:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
-
-    # If setting a profile (not clearing), verify it belongs to the user.
-    if body.style_profile_id is not None:
-        prof = (
-            supabase.table("style_profiles")
-            .select("id")
-            .eq("id", body.style_profile_id)
-            .eq("user_id", user_id)
-            .maybe_single()
-            .execute()
-        )
-        if not prof or not prof.data:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST, "Style profile not found"
-            )
-
-    result = (
-        supabase.table("conversations")
-        .update({"style_profile_id": body.style_profile_id})
-        .eq("id", conversation_id)
-        .eq("user_id", user_id)
-        .execute()
-    )
-    if not result.data:
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR, "Failed to update style"
-        )
-
-    log.info(
-        "conversation style set: user=%s convo=%s style=%s",
-        user_id[:8],
-        conversation_id[:8],
-        body.style_profile_id or "default",
-    )
     return result.data[0]
 
 

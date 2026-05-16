@@ -13,6 +13,7 @@ from app.routers import (
     life_model,
     memories,
     reflections,
+    style_profiles,
 )
 
 app = FastAPI(
@@ -39,6 +40,7 @@ app.include_router(journal.router)
 app.include_router(briefing.router)
 app.include_router(attachments.router)
 app.include_router(reflections.router)
+app.include_router(style_profiles.router)
 
 
 @app.get("/health", tags=["meta"])
