@@ -40,7 +40,7 @@ async def _check_ownership(_supabase, conversation_id: str, user_id: str):
     return await asyncio.to_thread(
         lambda: safe_execute(
             lambda sb: sb.table("conversations")
-            .select("id")
+            .select("id, style_profile_id")
             .eq("id", conversation_id)
             .eq("user_id", user_id)
             .maybe_single()
@@ -163,8 +163,26 @@ async def chat(
     if mode_directive:
         volatile_context += "\n\n" + mode_directive
 
+    # Inject style profile directive if this conversation has one. The
+    # safety preamble is non-negotiable — Claude is adopting STYLE, never
+    # impersonating the source person.
+    style_profile_id = convo_result.data.get("style_profile_id")
+    if style_profile_id:
+        style_block = await asyncio.to_thread(
+            lambda: _fetch_style_directive(user_id, style_profile_id)
+        )
+        if style_block:
+            volatile_context += "\n\n" + style_block
+
+    # Audit log — explicit which style mode is active. Per design contract,
+    # "default" means baseline assistant; "style_profile:<id>" means the
+    # conversation has an attached profile that loaded successfully.
+    style_audit = (
+        f"style_profile:{style_profile_id[:8]}" if style_profile_id else "default"
+    )
+
     log.info(
-        "chat: user=%s context_keys=%s legacy_mems=%d related_summaries=%d history_len=%d attachments=%d mode=%s",
+        "chat: user=%s context_keys=%s legacy_mems=%d related_summaries=%d history_len=%d attachments=%d mode=%s style=%s",
         user_id[:8],
         list(context.keys()),
         len(legacy_memories),
@@ -172,6 +190,7 @@ async def chat(
         len(messages),
         len(attachment_rows),
         detected_mode,
+        style_audit,
     )
 
     # If there are attachments on this turn, replace the last user message's
@@ -341,3 +360,53 @@ async def _generate_title(
         )
     except Exception as exc:
         log.warning("title generation failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Style profile fetch + directive rendering
+# ---------------------------------------------------------------------------
+
+
+def _fetch_style_directive(user_id: str, style_profile_id: str) -> str | None:
+    """Load the style profile and render a compact directive block.
+
+    Always prepends a safety preamble: the assistant is adopting style, NOT
+    impersonating the source person. The do_not_copy list also enters the
+    prompt explicitly so Claude knows what to avoid reproducing.
+    """
+    try:
+        supabase = get_supabase()
+        row = (
+            supabase.table("style_profiles")
+            .select("profile_name, extracted_style")
+            .eq("id", style_profile_id)
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        if not row or not row.data:
+            return None
+        style = row.data["extracted_style"] or {}
+        directive = (style.get("compact_directive") or "").strip()
+        if not directive:
+            return None
+
+        do_not_copy = style.get("do_not_copy") or []
+        avoid_block = ""
+        if do_not_copy:
+            items = "\n".join(f"  - {x}" for x in do_not_copy[:10])
+            avoid_block = f"\nDo NOT reproduce or reference these:\n{items}"
+
+        return (
+            "## Communication style for this conversation\n"
+            f"{directive}\n"
+            "\n"
+            "**Important boundaries:**\n"
+            "- This is STYLE adaptation only. You are still the user's assistant.\n"
+            "- NEVER claim to be the source person. NEVER use their name in first person.\n"
+            "- NEVER reproduce private details from their messages."
+            f"{avoid_block}"
+        )
+    except Exception as exc:
+        log.warning("style directive fetch failed: %s", exc)
+        return None

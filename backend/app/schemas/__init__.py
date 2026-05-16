@@ -19,10 +19,16 @@ class ConversationOut(BaseModel):
     title: str
     created_at: datetime
     updated_at: datetime
+    # Null = Default style (baseline behavior). Otherwise references a row
+    # in style_profiles.
+    style_profile_id: str | None = None
 
 
 class CreateConversationIn(BaseModel):
     title: str = Field(default="New chat", max_length=200)
+    # Optional: link a saved style profile. The chat router reads this and
+    # injects a style directive into the system prompt for this conversation.
+    style_profile_id: str | None = None
 
 
 # --- Messages ---
