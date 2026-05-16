@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
+  Check,
   Loader2,
   Plus,
   Sparkles,
@@ -526,30 +527,33 @@ function ConfirmStep({
           <button
             onClick={() => setSelection("_plain_")}
             className={cn(
-              "w-full text-left p-2.5 rounded-lg border-2 transition-all flex items-center gap-3",
+              "w-full text-left p-3 rounded-lg border-2 transition-all flex items-center gap-3",
               selection === "_plain_"
-                ? "border-accent bg-accent-soft ring-2 ring-accent/20"
-                : "border-border hover:border-border-strong hover:bg-fg/5",
+                ? "border-accent bg-accent text-on-accent shadow-md shadow-accent/30"
+                : "border-border bg-transparent hover:border-border-strong hover:bg-fg/5",
             )}
           >
-            <span
-              className={cn(
-                "h-4 w-4 rounded-full border-2 shrink-0 transition-all grid place-items-center",
-                selection === "_plain_"
-                  ? "border-accent bg-accent"
-                  : "border-border-strong bg-transparent",
-              )}
-            >
-              {selection === "_plain_" && (
-                <span className="h-1.5 w-1.5 rounded-full bg-on-accent" />
-              )}
-            </span>
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-fg">Treat entire text as one writing sample</p>
-              <p className="text-[11px] text-fg-muted">
+              <p
+                className={cn(
+                  "text-sm font-medium",
+                  selection === "_plain_" ? "text-on-accent" : "text-fg",
+                )}
+              >
+                Treat entire text as one writing sample
+              </p>
+              <p
+                className={cn(
+                  "text-[11px]",
+                  selection === "_plain_" ? "text-on-accent/80" : "text-fg-muted",
+                )}
+              >
                 Ignore sender labels, analyze all messages together
               </p>
             </div>
+            {selection === "_plain_" && (
+              <Check className="h-5 w-5 shrink-0 text-on-accent" strokeWidth={3} />
+            )}
           </button>
         </div>
       )}
@@ -596,36 +600,53 @@ function SenderOption({
     <button
       onClick={onClick}
       className={cn(
-        "w-full text-left p-2.5 rounded-lg border-2 transition-all flex items-center gap-3",
+        "w-full text-left p-3 rounded-lg border-2 transition-all flex items-center gap-3",
         selected
-          ? "border-accent bg-accent-soft ring-2 ring-accent/20"
-          : "border-border hover:border-border-strong hover:bg-fg/5",
+          ? "border-accent bg-accent text-on-accent shadow-md shadow-accent/30"
+          : "border-border bg-transparent hover:border-border-strong hover:bg-fg/5",
       )}
     >
-      <span
-        className={cn(
-          "h-4 w-4 rounded-full border-2 shrink-0 transition-all grid place-items-center",
-          selected ? "border-accent bg-accent" : "border-border-strong bg-transparent",
-        )}
-      >
-        {selected && <span className="h-1.5 w-1.5 rounded-full bg-on-accent" />}
-      </span>
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-fg truncate">
+        <p
+          className={cn(
+            "text-sm truncate font-medium",
+            selected ? "text-on-accent" : "text-fg",
+          )}
+        >
           {sender.name}
           {sender.recommended && (
-            <span className="ml-2 text-[10px] uppercase tracking-wider text-accent font-medium">
+            <span
+              className={cn(
+                "ml-2 text-[10px] uppercase tracking-wider font-semibold",
+                selected ? "text-on-accent/80" : "text-accent",
+              )}
+            >
               Recommended
             </span>
           )}
           {sender.is_likely_user && !sender.recommended && (
-            <span className="ml-2 text-[10px] uppercase tracking-wider text-fg-subtle">
+            <span
+              className={cn(
+                "ml-2 text-[10px] uppercase tracking-wider",
+                selected ? "text-on-accent/70" : "text-fg-subtle",
+              )}
+            >
               Likely you
             </span>
           )}
         </p>
-        <p className="text-[11px] text-fg-muted">{sender.count} messages</p>
+        <p
+          className={cn(
+            "text-[11px]",
+            selected ? "text-on-accent/80" : "text-fg-muted",
+          )}
+        >
+          {sender.count} messages
+        </p>
       </div>
+      {selected && (
+        <Check className="h-5 w-5 shrink-0 text-on-accent" strokeWidth={3} />
+      )}
     </button>
   );
 }
