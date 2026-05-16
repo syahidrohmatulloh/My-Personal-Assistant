@@ -23,7 +23,7 @@ from fastapi.responses import StreamingResponse
 from app.config import settings
 from app.core.auth import get_current_user_id
 from app.schemas import ChatIn
-from app.services import conversation_summary, life_model, memory
+from app.services import attachments, conversation_summary, life_model, memory
 from app.services.claude import get_claude
 from app.services.prompt_builder import (
     BASE_PROMPT,
@@ -49,8 +49,11 @@ async def _check_ownership(_supabase, conversation_id: str, user_id: str):
     )
 
 
-async def _save_user_message(_supabase, conversation_id: str, content: str):
-    await asyncio.to_thread(
+async def _save_user_message(_supabase, conversation_id: str, content: str) -> str:
+    """Save the user's message and bump the conversation's updated_at.
+    Returns the new message ID so attachments can be linked to it.
+    """
+    insert_result = await asyncio.to_thread(
         lambda: safe_execute(
             lambda sb: sb.table("messages")
             .insert(
@@ -67,6 +70,7 @@ async def _save_user_message(_supabase, conversation_id: str, content: str):
             .execute()
         )
     )
+    return insert_result.data[0]["id"]
 
 
 async def _load_history(_supabase, conversation_id: str) -> list[dict]:
@@ -90,8 +94,15 @@ async def chat(
 ):
     supabase = get_supabase()
 
-    # === Parallel phase 1: ownership + save + context + legacy mems + related summaries ===
-    convo_result, _, context, legacy_memories, related_summaries = await asyncio.gather(
+    # === Parallel phase 1: ownership + save + context + legacy mems + related summaries + attachments ===
+    (
+        convo_result,
+        user_message_id,
+        context,
+        legacy_memories,
+        related_summaries,
+        attachment_rows,
+    ) = await asyncio.gather(
         _check_ownership(supabase, body.conversation_id, user_id),
         _save_user_message(supabase, body.conversation_id, body.message),
         life_model.get_context(user_id, mood_days=14),
@@ -102,10 +113,25 @@ async def chat(
             exclude_conversation_id=body.conversation_id,
             limit=3,
         ),
+        asyncio.to_thread(
+            lambda: attachments.fetch_for_user(
+                user_id=user_id, attachment_ids=body.attachment_ids
+            )
+        ),
     )
 
     if not convo_result or not convo_result.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+
+    # Link attachments to the saved user message (still pending until now).
+    if attachment_rows:
+        await asyncio.to_thread(
+            lambda: attachments.link_to_message(
+                user_id=user_id,
+                attachment_ids=[r["id"] for r in attachment_rows],
+                message_id=user_message_id,
+            )
+        )
 
     # === Phase 2: history (must be after save) ===
     messages = await _load_history(supabase, body.conversation_id)
@@ -127,13 +153,34 @@ async def chat(
         volatile_context += "\n\n" + "\n".join(lines)
 
     log.info(
-        "chat: user=%s context_keys=%s legacy_mems=%d related_summaries=%d history_len=%d",
+        "chat: user=%s context_keys=%s legacy_mems=%d related_summaries=%d history_len=%d attachments=%d",
         user_id[:8],
         list(context.keys()),
         len(legacy_memories),
         len(related_summaries),
         len(messages),
+        len(attachment_rows),
     )
+
+    # If there are attachments on this turn, replace the last user message's
+    # content (currently a plain string) with a multimodal content array:
+    # image/document blocks first, then the text. Claude works best when
+    # images precede the question about them.
+    if attachment_rows and messages:
+        content_blocks: list[dict] = []
+        for row in attachment_rows:
+            block = await asyncio.to_thread(
+                lambda r=row: attachments.to_claude_content_block(row=r)
+            )
+            if block:
+                content_blocks.append(block)
+        content_blocks.append({"type": "text", "text": body.message})
+
+        # Find and replace the last user message.
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i]["role"] == "user":
+                messages[i] = {"role": "user", "content": content_blocks}
+                break
 
     is_first_message = len(messages) <= 1  # only the user message we just saved
 

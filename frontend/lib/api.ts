@@ -111,6 +111,7 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
 export async function* streamChat(
   conversationId: string,
   message: string,
+  attachmentIds: string[] = [],
 ): AsyncGenerator<string, void, unknown> {
   // Use the edge proxy at /api/chat instead of hitting Fly directly.
   // The proxy attaches the JWT server-side from cookies, so we don't need
@@ -118,7 +119,11 @@ export async function* streamChat(
   const response = await fetch(`/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ conversation_id: conversationId, message }),
+    body: JSON.stringify({
+      conversation_id: conversationId,
+      message,
+      attachment_ids: attachmentIds,
+    }),
   });
 
   if (!response.ok || !response.body) {
@@ -406,5 +411,84 @@ export async function regenerateConversationTitle(id: string): Promise<Conversat
     headers,
   });
   if (!r.ok) throw new Error(`regenerate title failed: ${r.status}`);
+  return r.json();
+}
+
+// ---------------------------------------------------------------------------
+// Attachments (Phase 4.9 — vision + PDF upload)
+// ---------------------------------------------------------------------------
+
+export type AttachmentMeta = {
+  id: string;
+  kind: "image" | "document";
+  media_type: string;
+  original_filename: string;
+  size_bytes: number;
+};
+
+/**
+ * Resize image to max 1568px (long side) + JPEG 80% quality via Canvas API.
+ * Returns a Blob. PDFs are passed through unchanged.
+ *
+ * Why this lives in lib/api.ts: the upload helper below needs to call it,
+ * and we want a single place for "what gets sent to backend".
+ */
+async function maybeResize(file: File): Promise<Blob> {
+  if (!file.type.startsWith("image/")) return file;
+  // GIFs animate — resizing them loses animation. Skip.
+  if (file.type === "image/gif") return file;
+
+  const MAX_DIM = 1568;
+  const QUALITY = 0.8;
+
+  const bitmap = await createImageBitmap(file).catch(() => null);
+  if (!bitmap) return file; // fallback: send original
+
+  const { width, height } = bitmap;
+  if (Math.max(width, height) <= MAX_DIM && file.size <= 1_000_000) {
+    return file; // already small enough
+  }
+
+  const scale = Math.min(1, MAX_DIM / Math.max(width, height));
+  const w = Math.round(width * scale);
+  const h = Math.round(height * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return file;
+  ctx.drawImage(bitmap, 0, 0, w, h);
+
+  const blob: Blob | null = await new Promise((resolve) =>
+    canvas.toBlob(resolve, "image/jpeg", QUALITY),
+  );
+  return blob ?? file;
+}
+
+export async function uploadAttachment(file: File): Promise<AttachmentMeta> {
+  const blob = await maybeResize(file);
+  const headers = await getAuthHeader();
+  const form = new FormData();
+  // For resized images, force .jpg extension on the filename.
+  const filename =
+    blob.type === "image/jpeg" && !file.name.toLowerCase().endsWith(".jpg") && !file.name.toLowerCase().endsWith(".jpeg")
+      ? file.name.replace(/\.[^.]+$/, "") + ".jpg"
+      : file.name;
+  form.append("file", blob, filename);
+
+  const r = await fetch(`${API_URL}/attachments/upload`, {
+    method: "POST",
+    headers, // do NOT set Content-Type — browser sets multipart boundary
+    body: form,
+  });
+  if (!r.ok) {
+    let detail = `upload failed: ${r.status}`;
+    try {
+      const j = await r.json();
+      if (j?.detail) detail = j.detail;
+    } catch {}
+    throw new Error(detail);
+  }
   return r.json();
 }

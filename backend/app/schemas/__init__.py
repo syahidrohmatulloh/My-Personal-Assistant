@@ -41,3 +41,7 @@ class MessageOut(BaseModel):
 class ChatIn(BaseModel):
     conversation_id: str
     message: str = Field(min_length=1, max_length=20000)
+    # IDs of attachments uploaded via /attachments/upload that this message
+    # should reference. Each attachment must belong to the same user — the
+    # chat router verifies before linking. Empty/missing = text-only message.
+    attachment_ids: list[str] = Field(default_factory=list, max_length=10)
