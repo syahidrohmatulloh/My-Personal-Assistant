@@ -23,7 +23,7 @@ from fastapi.responses import StreamingResponse
 from app.config import settings
 from app.core.auth import get_current_user_id
 from app.schemas import ChatIn
-from app.services import attachments, conversation_summary, life_model, memory
+from app.services import attachments, companion_mode, conversation_summary, life_model, memory
 from app.services.claude import get_claude
 from app.services.prompt_builder import (
     BASE_PROMPT,
@@ -94,7 +94,7 @@ async def chat(
 ):
     supabase = get_supabase()
 
-    # === Parallel phase 1: ownership + save + context + legacy mems + related summaries + attachments ===
+    # === Parallel phase 1: ownership + save + context + legacy mems + related summaries + attachments + mode ===
     (
         convo_result,
         user_message_id,
@@ -102,6 +102,7 @@ async def chat(
         legacy_memories,
         related_summaries,
         attachment_rows,
+        detected_mode,
     ) = await asyncio.gather(
         _check_ownership(supabase, body.conversation_id, user_id),
         _save_user_message(supabase, body.conversation_id, body.message),
@@ -118,6 +119,10 @@ async def chat(
                 user_id=user_id, attachment_ids=body.attachment_ids
             )
         ),
+        # Mode detection — runs in parallel so it doesn't add serial latency.
+        # Returns None for short messages or on failure, which gracefully
+        # skips directive injection below.
+        companion_mode.detect_mode(user_message=body.message),
     )
 
     if not convo_result or not convo_result.data:
@@ -152,14 +157,21 @@ async def chat(
             lines.append(f"- [{when}] {title}: {s['summary']}")
         volatile_context += "\n\n" + "\n".join(lines)
 
+    # Inject companion mode directive. Placed near the end so it has high
+    # recency weight in Claude's attention. None on short / ambiguous messages.
+    mode_directive = companion_mode.directive_for(detected_mode)
+    if mode_directive:
+        volatile_context += "\n\n" + mode_directive
+
     log.info(
-        "chat: user=%s context_keys=%s legacy_mems=%d related_summaries=%d history_len=%d attachments=%d",
+        "chat: user=%s context_keys=%s legacy_mems=%d related_summaries=%d history_len=%d attachments=%d mode=%s",
         user_id[:8],
         list(context.keys()),
         len(legacy_memories),
         len(related_summaries),
         len(messages),
         len(attachment_rows),
+        detected_mode,
     )
 
     # If there are attachments on this turn, replace the last user message's

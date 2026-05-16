@@ -315,22 +315,43 @@ def render_context(context: dict[str, Any]) -> str:
             block.append(narrative)
         sections.append("\n".join(block))
 
-    # 2. Active goals.
+    # 2. Active goals — include latest check-in (momentum + note) where available.
     goals = context.get("active_goals") or []
     if goals:
         lines = ["## Active goals"]
         for g in goals[:8]:
             target = f" — target {g['target_date']}" if g.get("target_date") else ""
             lines.append(f"- [{g['horizon']}] {g['title']}{target}")
+            check_in = g.get("latest_check_in") or {}
+            if check_in:
+                momentum = check_in.get("momentum")
+                note = check_in.get("note")
+                bits = []
+                if momentum is not None:
+                    bits.append(f"momentum {momentum:+d}")
+                if note:
+                    # Keep check-in note short so prompt stays compact.
+                    snippet = note if len(note) <= 120 else note[:117] + "…"
+                    bits.append(snippet)
+                if bits:
+                    lines.append(f"  · latest check-in: {' — '.join(bits)}")
         sections.append("\n".join(lines))
 
-    # 3. Important people.
+    # 3. Important people — include up to 3 recent notes per person.
     people = context.get("important_people") or []
     if people:
         lines = ["## People who matter most"]
         for p in people[:10]:
             rel = f" ({p['relationship']})" if p.get("relationship") else ""
             lines.append(f"- {p['name']}{rel}")
+            notes = p.get("recent_notes") or []
+            for n in notes[:3]:
+                content = n.get("content") or ""
+                if not content:
+                    continue
+                kind = n.get("kind") or "note"
+                snippet = content if len(content) <= 140 else content[:137] + "…"
+                lines.append(f"  · [{kind}] {snippet}")
         sections.append("\n".join(lines))
 
     # 4. Mood — aggregated.
