@@ -526,16 +526,30 @@ function ConfirmStep({
           <button
             onClick={() => setSelection("_plain_")}
             className={cn(
-              "w-full text-left p-2.5 rounded-lg border transition-colors",
+              "w-full text-left p-2.5 rounded-lg border-2 transition-all flex items-center gap-3",
               selection === "_plain_"
-                ? "border-accent bg-accent-soft"
-                : "border-border hover:bg-fg/5",
+                ? "border-accent bg-accent-soft ring-2 ring-accent/20"
+                : "border-border hover:border-border-strong hover:bg-fg/5",
             )}
           >
-            <p className="text-sm text-fg">Treat entire text as one writing sample</p>
-            <p className="text-[11px] text-fg-muted">
-              Ignore sender labels, analyze all messages together
-            </p>
+            <span
+              className={cn(
+                "h-4 w-4 rounded-full border-2 shrink-0 transition-all grid place-items-center",
+                selection === "_plain_"
+                  ? "border-accent bg-accent"
+                  : "border-border-strong bg-transparent",
+              )}
+            >
+              {selection === "_plain_" && (
+                <span className="h-1.5 w-1.5 rounded-full bg-on-accent" />
+              )}
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-fg">Treat entire text as one writing sample</p>
+              <p className="text-[11px] text-fg-muted">
+                Ignore sender labels, analyze all messages together
+              </p>
+            </div>
           </button>
         </div>
       )}
@@ -582,12 +596,20 @@ function SenderOption({
     <button
       onClick={onClick}
       className={cn(
-        "w-full text-left p-2.5 rounded-lg border transition-colors flex items-center justify-between gap-2",
+        "w-full text-left p-2.5 rounded-lg border-2 transition-all flex items-center gap-3",
         selected
-          ? "border-accent bg-accent-soft"
-          : "border-border hover:bg-fg/5",
+          ? "border-accent bg-accent-soft ring-2 ring-accent/20"
+          : "border-border hover:border-border-strong hover:bg-fg/5",
       )}
     >
+      <span
+        className={cn(
+          "h-4 w-4 rounded-full border-2 shrink-0 transition-all grid place-items-center",
+          selected ? "border-accent bg-accent" : "border-border-strong bg-transparent",
+        )}
+      >
+        {selected && <span className="h-1.5 w-1.5 rounded-full bg-on-accent" />}
+      </span>
       <div className="flex-1 min-w-0">
         <p className="text-sm text-fg truncate">
           {sender.name}

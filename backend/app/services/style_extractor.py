@@ -45,32 +45,33 @@ _MIN_TARGET_MESSAGES = 3
 
 
 class StyleProfile(BaseModel):
-    """Validated style profile. Every field is required so Haiku can't omit
-    things, but most are free-form strings (we trust the model's prose)."""
+    """Validated style profile. Constraints are generous — we'd rather store
+    a slightly verbose profile than reject Haiku's output entirely. Truncation
+    happens in a validator below."""
 
-    display_name: str = Field(min_length=1, max_length=80)
-    dominant_language: str = Field(min_length=1, max_length=40)
-    language_mixing: str = Field(max_length=120)
+    display_name: str = Field(min_length=1, max_length=200)
+    dominant_language: str = Field(min_length=1, max_length=120)
+    language_mixing: str = Field(default="", max_length=400)
 
-    formality_level: str = Field(max_length=40)
-    warmth_level: str = Field(max_length=40)
-    directness_level: str = Field(max_length=40)
+    formality_level: str = Field(default="", max_length=120)
+    warmth_level: str = Field(default="", max_length=120)
+    directness_level: str = Field(default="", max_length=120)
 
-    humor_style: str = Field(max_length=120)
-    emoji_usage: str = Field(max_length=120)
-    average_reply_length: str = Field(max_length=80)
+    humor_style: str = Field(default="", max_length=300)
+    emoji_usage: str = Field(default="", max_length=300)
+    average_reply_length: str = Field(default="", max_length=200)
 
-    greeting_style: str = Field(max_length=120)
-    closing_style: str = Field(max_length=120)
-    conflict_style: str = Field(max_length=120)
-    support_style: str = Field(max_length=120)
-    decision_making_style: str = Field(max_length=120)
+    greeting_style: str = Field(default="", max_length=300)
+    closing_style: str = Field(default="", max_length=300)
+    conflict_style: str = Field(default="", max_length=300)
+    support_style: str = Field(default="", max_length=300)
+    decision_making_style: str = Field(default="", max_length=300)
 
-    common_phrases: list[str] = Field(default_factory=list, max_length=10)
-    do_not_copy: list[str] = Field(default_factory=list, max_length=10)
+    common_phrases: list[str] = Field(default_factory=list, max_length=20)
+    do_not_copy: list[str] = Field(default_factory=list, max_length=20)
 
     # Compact prose directive (~50-80 tokens) for the system prompt.
-    compact_directive: str = Field(min_length=20, max_length=500)
+    compact_directive: str = Field(min_length=10, max_length=800)
 
 
 EXTRACTOR_SYSTEM_PROMPT = """You analyze chat messages from ONE specific person \
@@ -206,7 +207,7 @@ async def extract_style(
         claude = get_claude()
         response = await claude.messages.create(
             model="claude-haiku-4-5",
-            max_tokens=2000,
+            max_tokens=3000,
             system=EXTRACTOR_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": transcript}],
         )
@@ -219,24 +220,48 @@ async def extract_style(
 
     block = next((b for b in response.content if b.type == "text"), None)
     if not block:
+        log.warning("style extract: no text block in response; stop_reason=%s", getattr(response, "stop_reason", "?"))
         warnings.append("Style analysis returned no result. Try a shorter transcript.")
         return None, sample_count, warnings
     raw = block.text.strip()
     if raw.startswith("```"):
         raw = raw.strip("`").lstrip("json").strip()
 
+    # If Haiku response was truncated by max_tokens, the JSON is incomplete.
+    # Log this explicitly so we can spot it in Fly logs.
+    stop_reason = getattr(response, "stop_reason", None)
+    if stop_reason == "max_tokens":
+        log.warning(
+            "style extract: response was truncated at max_tokens=3000. raw_tail=%r",
+            raw[-200:],
+        )
+
     try:
         parsed_json = json.loads(raw)
     except json.JSONDecodeError as exc:
-        log.warning("style extract: bad JSON: %s; raw=%r", exc, raw[:200])
-        warnings.append("Could not parse style analysis. Try again or use a different transcript.")
+        log.warning("style extract: bad JSON: %s; raw=%r", exc, raw[:500])
+        warnings.append(
+            "Could not parse style analysis. The transcript may be too complex — try with a smaller sample."
+        )
         return None, sample_count, warnings
+
+    # Pre-validate: trim oversized fields so we don't lose the whole profile
+    # to a single over-long string.
+    parsed_json = _trim_profile_fields(parsed_json)
 
     try:
         profile = StyleProfile.model_validate(parsed_json)
     except ValidationError as exc:
-        log.warning("style extract: schema mismatch: %s", exc)
-        warnings.append("Style analysis was incomplete. Try a transcript with more messages.")
+        # Log full detail so we can see which field failed.
+        log.warning(
+            "style extract: schema mismatch. errors=%s; keys=%s",
+            exc.errors()[:5],
+            list(parsed_json.keys()) if isinstance(parsed_json, dict) else "n/a",
+        )
+        warnings.append(
+            f"Style analysis was incomplete ({len(exc.errors())} field issue(s)). "
+            "Try analyzing a different sender or a smaller portion of the transcript."
+        )
         return None, sample_count, warnings
 
     return profile, sample_count, warnings
@@ -245,6 +270,79 @@ async def extract_style(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+_FIELD_CAPS: dict[str, int] = {
+    "display_name": 200,
+    "dominant_language": 120,
+    "language_mixing": 400,
+    "formality_level": 120,
+    "warmth_level": 120,
+    "directness_level": 120,
+    "humor_style": 300,
+    "emoji_usage": 300,
+    "average_reply_length": 200,
+    "greeting_style": 300,
+    "closing_style": 300,
+    "conflict_style": 300,
+    "support_style": 300,
+    "decision_making_style": 300,
+    "compact_directive": 800,
+}
+
+# Required string fields that get a default if Haiku omits them. The
+# StyleProfile model also defines defaults — this layer is belt-and-suspenders.
+_REQUIRED_STRING_DEFAULTS: dict[str, str] = {
+    "language_mixing": "unclear",
+    "formality_level": "unclear",
+    "warmth_level": "unclear",
+    "directness_level": "unclear",
+    "humor_style": "unclear",
+    "emoji_usage": "unclear",
+    "average_reply_length": "unclear",
+    "greeting_style": "unclear",
+    "closing_style": "unclear",
+    "conflict_style": "unclear",
+    "support_style": "unclear",
+    "decision_making_style": "unclear",
+}
+
+
+def _trim_profile_fields(d: dict) -> dict:
+    """Trim string fields to their schema caps and fill missing defaults.
+
+    Without this, a single Haiku field overflow blows up the whole profile.
+    """
+    if not isinstance(d, dict):
+        return d
+
+    out = dict(d)
+
+    # Truncate strings
+    for key, cap in _FIELD_CAPS.items():
+        v = out.get(key)
+        if isinstance(v, str) and len(v) > cap:
+            out[key] = v[: cap - 1].rstrip() + "…"
+
+    # Fill missing string defaults
+    for key, default in _REQUIRED_STRING_DEFAULTS.items():
+        if not out.get(key):
+            out[key] = default
+
+    # Cap list fields
+    for key in ("common_phrases", "do_not_copy"):
+        v = out.get(key)
+        if isinstance(v, list):
+            # Drop non-string entries, cap each at 200 chars, take first 20
+            cleaned: list[str] = []
+            for item in v:
+                if isinstance(item, str) and item.strip():
+                    cleaned.append(item[:200])
+            out[key] = cleaned[:20]
+        elif v is None:
+            out[key] = []
+
+    return out
 
 
 def _auto_budget(*, target_msg_count: int, total_chars: int) -> int:
