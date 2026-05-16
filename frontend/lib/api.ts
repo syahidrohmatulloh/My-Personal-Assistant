@@ -380,3 +380,31 @@ export async function openBriefing(
   if (!r.ok) throw new Error(`open briefing failed: ${r.status}`);
   return r.json();
 }
+
+// ---------------------------------------------------------------------------
+// Conversation rename (Phase 4.8)
+// ---------------------------------------------------------------------------
+
+export async function renameConversation(
+  id: string,
+  title: string,
+): Promise<Conversation> {
+  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  const r = await fetch(`${API_URL}/conversations/${id}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ title }),
+  });
+  if (!r.ok) throw new Error(`rename failed: ${r.status}`);
+  return r.json();
+}
+
+export async function regenerateConversationTitle(id: string): Promise<Conversation> {
+  const headers = await getAuthHeader();
+  const r = await fetch(`${API_URL}/conversations/${id}/regenerate-title`, {
+    method: "POST",
+    headers,
+  });
+  if (!r.ok) throw new Error(`regenerate title failed: ${r.status}`);
+  return r.json();
+}

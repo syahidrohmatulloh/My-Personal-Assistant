@@ -7,7 +7,10 @@ import {
   LogOut,
   Menu,
   MessageSquare,
+  MoreHorizontal,
+  Pencil,
   Plus,
+  RefreshCw,
   Sparkles,
   Target,
   Trash2,
@@ -16,13 +19,15 @@ import {
   X,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type Conversation,
   createConversation,
   deleteConversation,
   getTodaysJournal,
   listConversations,
+  regenerateConversationTitle,
+  renameConversation,
 } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -113,9 +118,7 @@ export function Sidebar() {
         old.map((c) => (c.id === ctx?.optimistic.id ? real : c)),
       );
       setOpen(false);
-    
-      window.location.href = `/chat/${real.id}`;
-      router.refresh(); // 🔥 FIX
+      router.push(`/chat/${real.id}`);
     },
     onError: (_e, _v, ctx) => {
       qc.setQueryData<Conversation[]>(["conversations"], (old = []) =>
@@ -139,9 +142,7 @@ export function Sidebar() {
     },
   });
 
-  function handleDelete(id: string, e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
+  function handleDelete(id: string) {
     if (!confirm("Delete this conversation?")) return;
     deleteMut.mutate(id);
     if (activeId === id) router.push("/chat");
@@ -176,11 +177,7 @@ export function Sidebar() {
       {/* New chat */}
       <div className="shrink-0 px-3 pb-3">
         <button
-          onClick={async () => {
-            if (!createMut.isPending) {
-              createMut.mutate();
-            }
-          }}
+          onClick={() => createMut.mutate()}
           disabled={createMut.isPending}
           className="w-full flex items-center gap-2 rounded-xl bg-accent text-on-accent px-3 py-2.5 text-sm font-medium hover:bg-accent-hover transition-all hover:shadow-lg hover:shadow-accent/20 active:scale-[0.98] disabled:opacity-60"
         >
@@ -218,32 +215,19 @@ export function Sidebar() {
                 {g.label}
               </p>
               {g.conversations.map((c) => (
-                <Link
+                <ConversationRow
                   key={c.id}
-                  href={`/chat/${c.id}`}
-                  className={cn(
-                    "group flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm mb-0.5 transition-all",
-                    activeId === c.id
-                      ? "bg-accent-soft text-fg font-medium"
-                      : "text-fg-soft active:bg-fg/10 md:hover:bg-fg/5",
-                  )}
-                >
-                  <span className="truncate flex-1 min-w-0">{c.title || "Untitled"}</span>
-                  <button
-                    onClick={(e) => handleDelete(c.id, e)}
-                    className="opacity-100 md:opacity-0 md:group-hover:opacity-100 h-7 w-7 grid place-items-center text-fg-subtle hover:text-danger transition-opacity"
-                    aria-label="Delete conversation"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </Link>
+                  conversation={c}
+                  active={activeId === c.id}
+                  onDelete={() => handleDelete(c.id)}
+                />
               ))}
             </div>
           ))
         )}
       </div>
 
-      {/* Footer — shrink-0 keeps it at the bottom and not eating list space */}
+      {/* Footer */}
       <div className="shrink-0 px-3 py-3 border-t border-border space-y-0.5 pb-safe">
         <NavLink
           href="/journal"
@@ -312,6 +296,208 @@ export function Sidebar() {
         {sidebarBody}
       </aside>
     </>
+  );
+}
+
+// =============================================================================
+// Individual conversation row — owns its rename / menu state.
+// =============================================================================
+
+function ConversationRow({
+  conversation,
+  active,
+  onDelete,
+}: {
+  conversation: Conversation;
+  active: boolean;
+  onDelete: () => void;
+}) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(conversation.title || "");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.select();
+  }, [editing]);
+
+  const renameMut = useMutation({
+    mutationFn: (title: string) => renameConversation(conversation.id, title),
+    onMutate: async (title) => {
+      await qc.cancelQueries({ queryKey: ["conversations"] });
+      const prev = qc.getQueryData<Conversation[]>(["conversations"]);
+      qc.setQueryData<Conversation[]>(["conversations"], (old = []) =>
+        old.map((c) => (c.id === conversation.id ? { ...c, title } : c)),
+      );
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["conversations"], ctx.prev);
+    },
+  });
+
+  const regenMut = useMutation({
+    mutationFn: () => regenerateConversationTitle(conversation.id),
+    onSuccess: (real) => {
+      qc.setQueryData<Conversation[]>(["conversations"], (old = []) =>
+        old.map((c) => (c.id === conversation.id ? real : c)),
+      );
+    },
+  });
+
+  function saveRename() {
+    const t = draft.trim();
+    if (t && t !== conversation.title) {
+      renameMut.mutate(t);
+    }
+    setEditing(false);
+  }
+
+  function cancelRename() {
+    setDraft(conversation.title || "");
+    setEditing(false);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveRename();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelRename();
+    }
+  }
+
+  if (editing) {
+    return (
+      <div
+        className={cn(
+          "rounded-lg px-2.5 py-1.5 mb-0.5",
+          active ? "bg-accent-soft" : "bg-fg/5",
+        )}
+      >
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKeyDown}
+          onBlur={saveRename}
+          maxLength={120}
+          className="w-full bg-transparent text-sm text-fg outline-none border-b border-accent/40 focus:border-accent"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <Link
+        href={`/chat/${conversation.id}`}
+        className={cn(
+          "group flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm mb-0.5 transition-all",
+          active
+            ? "bg-accent-soft text-fg font-medium"
+            : "text-fg-soft active:bg-fg/10 md:hover:bg-fg/5",
+        )}
+      >
+        <span className="truncate flex-1 min-w-0">
+          {conversation.title || "Untitled"}
+          {regenMut.isPending && (
+            <RefreshCw className="inline-block ml-1.5 h-3 w-3 animate-spin text-fg-subtle" />
+          )}
+        </span>
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setMenuOpen((v) => !v);
+          }}
+          className="opacity-100 md:opacity-0 md:group-hover:opacity-100 h-7 w-7 grid place-items-center text-fg-subtle hover:text-fg transition-opacity"
+          aria-label="Conversation options"
+        >
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </button>
+      </Link>
+      {menuOpen && (
+        <ContextMenu
+          onClose={() => setMenuOpen(false)}
+          items={[
+            {
+              icon: <Pencil className="h-3.5 w-3.5" />,
+              label: "Rename",
+              onClick: () => {
+                setDraft(conversation.title || "");
+                setEditing(true);
+              },
+            },
+            {
+              icon: <RefreshCw className="h-3.5 w-3.5" />,
+              label: "Auto-rename",
+              onClick: () => regenMut.mutate(),
+            },
+            {
+              icon: <Trash2 className="h-3.5 w-3.5" />,
+              label: "Delete",
+              onClick: onDelete,
+              danger: true,
+            },
+          ]}
+        />
+      )}
+    </div>
+  );
+}
+
+function ContextMenu({
+  items,
+  onClose,
+}: {
+  items: { icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean }[];
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      ref={ref}
+      className="absolute right-1 top-9 z-30 min-w-[140px] glass-strong rounded-lg shadow-lg shadow-black/20 border border-border py-1 overflow-hidden fade-up"
+      role="menu"
+    >
+      {items.map((item, i) => (
+        <button
+          key={i}
+          onClick={() => {
+            item.onClick();
+            onClose();
+          }}
+          className={cn(
+            "w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors",
+            item.danger
+              ? "text-fg-soft hover:bg-danger-soft hover:text-danger"
+              : "text-fg-soft hover:bg-fg/5 hover:text-fg",
+          )}
+        >
+          <span className="text-fg-muted">{item.icon}</span>
+          {item.label}
+        </button>
+      ))}
+    </div>
   );
 }
 

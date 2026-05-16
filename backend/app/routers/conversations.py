@@ -6,13 +6,23 @@ RLS were disabled, a user could never see another user's data through these
 routes.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import asyncio
+import logging
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 
 from app.core.auth import get_current_user_id
 from app.schemas import ConversationOut, CreateConversationIn, MessageOut
-from app.services.supabase_client import get_supabase
+from app.services.claude import get_claude
+from app.services.supabase_client import get_supabase, safe_execute
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+
+
+class RenameConversationIn(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
 
 
 @router.get("", response_model=list[ConversationOut])
@@ -44,6 +54,119 @@ async def create_conversation(
     if not result.data:
         raise HTTPException(500, "Failed to create conversation")
     return result.data[0]
+
+
+@router.patch("/{conversation_id}", response_model=ConversationOut)
+async def rename_conversation(
+    conversation_id: str,
+    body: RenameConversationIn,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Manually rename a conversation. User-edited titles are durable —
+    auto-rename background jobs respect them and don't overwrite."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("conversations")
+        .update({"title": body.title.strip()})
+        .eq("id", conversation_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+    return result.data[0]
+
+
+@router.post("/{conversation_id}/regenerate-title", response_model=ConversationOut)
+async def regenerate_title(
+    conversation_id: str,
+    background_tasks: BackgroundTasks,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Re-run title generation for a conversation. Useful for backfilling
+    'New chat' / 'Untitled' titles on old conversations.
+
+    Synchronous Haiku call so the user sees the new title immediately when
+    the UI refetches. Not in background — user explicitly asked for it.
+    """
+    supabase = get_supabase()
+
+    # Verify ownership.
+    convo = (
+        supabase.table("conversations")
+        .select("id, title")
+        .eq("id", conversation_id)
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+    )
+    if not convo or not convo.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+
+    # Load first ~10 messages — plenty for a title.
+    msgs_res = (
+        supabase.table("messages")
+        .select("role, content")
+        .eq("conversation_id", conversation_id)
+        .order("created_at")
+        .limit(10)
+        .execute()
+    )
+    messages = msgs_res.data or []
+    if len(messages) < 2:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Conversation needs at least one exchange before title can be generated",
+        )
+
+    new_title = await _haiku_title(messages)
+    if not new_title:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "Title generation failed — try again",
+        )
+
+    updated = (
+        supabase.table("conversations")
+        .update({"title": new_title})
+        .eq("id", conversation_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return updated.data[0]
+
+
+async def _haiku_title(messages: list[dict]) -> str | None:
+    """Call Haiku to generate a 3-6 word title. Returns None on failure."""
+    claude = get_claude()
+
+    # Compose enough context for the model. Cap each message; titles need
+    # gist, not full transcripts.
+    excerpt_parts: list[str] = []
+    for m in messages[:6]:
+        excerpt_parts.append(f"{m['role'].upper()}: {m['content'][:300]}")
+    excerpt = "\n\n".join(excerpt_parts)
+
+    try:
+        response = await claude.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=30,
+            system=(
+                "Generate a concise 3-6 word title summarizing this conversation. "
+                "Use the same language as the conversation. "
+                "Output ONLY the title — no quotes, no punctuation at end, no commentary."
+            ),
+            messages=[{"role": "user", "content": excerpt}],
+        )
+    except Exception as exc:
+        log.warning("regenerate-title: Haiku failed: %s", exc)
+        return None
+
+    block = next((b for b in response.content if b.type == "text"), None)
+    if not block:
+        return None
+    title = block.text.strip().strip('"').strip("'")[:60]
+    return title or None
 
 
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
