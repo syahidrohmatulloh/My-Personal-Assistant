@@ -32,6 +32,7 @@ import {
   hydrateCompanionMoodForConversation,
   updateCompanionMoodFromMessage,
   shouldDeferCompanionMoodToAssistant,
+  setPendingCompanionMoodSimulation,
   updateCompanionMoodFromAssistantText,
   shouldRespectCompanionMoodOverride,
 } from "@/lib/companion-mood";
@@ -94,7 +95,7 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           window.setTimeout(() => {
-            applyAssistantMoodAfterLatestMessagePaint(assistantText);
+            updateCompanionMoodFromAssistantText(assistantText, conversationId);
           }, 350);
         });
       });
@@ -209,7 +210,9 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
   const handleSend = useCallback(
     async (attachmentIds: string[] = []) => {
       const text = input.trim();
-      if (!shouldDeferCompanionMoodToAssistant(text)) {
+      if (shouldDeferCompanionMoodToAssistant(text)) {
+        setPendingCompanionMoodSimulation(text, conversationId);
+      } else {
         updateCompanionMoodFromMessage(text, conversationId);
       }
       const hasContent = text.length > 0 || attachmentIds.length > 0;
