@@ -34,6 +34,9 @@ import { getIdentity, putIdentity, type Identity } from "@/lib/api";
 export function BackgroundStyleSettings() {
   const [settings, setSettings] = useState<BackgroundSettings>(DEFAULT_BACKGROUND_SETTINGS);
   const [identity, setIdentity] = useState<Identity | null>(null);
+  const [savedSettings, setSavedSettings] = useState<BackgroundSettings | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,6 +54,7 @@ export function BackgroundStyleSettings() {
         const mergedSettings = coerceBackgroundSettings(savedSettings, localSettings);
 
         setSettings(mergedSettings);
+        setSavedSettings(mergedSettings);
         saveBackgroundSettings(mergedSettings);
         window.dispatchEvent(
           new CustomEvent("assistant.background.settings.changed", {
@@ -67,44 +71,66 @@ export function BackgroundStyleSettings() {
     };
   }, []);
 
-  function persistBackgroundSettings(nextSettings: BackgroundSettings) {
+  function applyLocalBackgroundSettings(nextSettings: BackgroundSettings) {
     saveBackgroundSettings(nextSettings);
+    setSaveMessage(null);
 
     window.dispatchEvent(
       new CustomEvent("assistant.background.settings.changed", {
-        detail: { reason: "settings-save", settings: nextSettings },
+        detail: { reason: "local-preview", settings: nextSettings },
       }),
     );
+  }
 
-    if (!identity) return;
+  async function saveBackgroundToIdentity() {
+    if (!identity) {
+      setSaveMessage("Identity belum kebaca. Coba refresh lalu save lagi.");
+      return;
+    }
+
+    setSaving(true);
+    setSaveMessage(null);
 
     const nextProfile = {
       ...(identity.profile ?? {}),
-      background_settings: nextSettings,
+      background_settings: settings,
     };
 
-    const optimisticIdentity = {
-      ...identity,
-      profile: nextProfile,
-    };
+    try {
+      const saved = await putIdentity(nextProfile, identity.narrative);
+      setIdentity(saved);
+      setSavedSettings(settings);
+      saveBackgroundSettings(settings);
 
-    setIdentity(optimisticIdentity);
+      window.dispatchEvent(
+        new CustomEvent("assistant.background.settings.changed", {
+          detail: { reason: "saved-to-identity", settings },
+        }),
+      );
 
-    void putIdentity(nextProfile, identity.narrative)
-      .then((saved) => {
-        setIdentity(saved);
-      })
-      .catch((error) => {
-        console.warn("Failed to save background settings to identity", error);
-      });
+      setSaveMessage("Saved. Background akan sync ke device lain.");
+    } catch (error) {
+      console.warn("Failed to save background settings to identity", error);
+      setSaveMessage("Save gagal. Coba lagi.");
+    } finally {
+      setSaving(false);
+    }
   }
 
 
   function update(next: Partial<BackgroundSettings>) {
     const merged = { ...settings, ...next };
     setSettings(merged);
-    persistBackgroundSettings(merged);
+    applyLocalBackgroundSettings(merged);
   }
+
+  const hasUnsavedChanges =
+    !savedSettings ||
+    savedSettings.style !== settings.style ||
+    savedSettings.effect !== settings.effect ||
+    savedSettings.mode !== settings.mode ||
+    savedSettings.intensity !== settings.intensity ||
+    savedSettings.motion !== settings.motion;
 
   const moodHint = typeof window === "undefined" ? null : readBackgroundMoodHint();
 
@@ -113,7 +139,7 @@ export function BackgroundStyleSettings() {
     const next = { ...settings, effect };
     setSettings(next);
     saveBackgroundEffect(effect);
-    persistBackgroundSettings(next);
+    applyLocalBackgroundSettings(next);
   };
 
 return (
@@ -253,6 +279,35 @@ return (
             disabled={settings.style === "off"}
           />
         </FieldGroup>
+      </div>
+
+      <div className="rounded-2xl border border-border bg-fg/[0.025] p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-fg">
+            Save background across devices
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+            Changes preview instantly here. Click save to sync desktop and mobile.
+          </p>
+          {saveMessage && (
+            <p className="mt-1 text-[11px] text-fg-subtle">{saveMessage}</p>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={saveBackgroundToIdentity}
+          disabled={saving || !hasUnsavedChanges}
+          className={cn(
+            "rounded-xl px-4 py-2 text-sm font-semibold transition-all",
+            hasUnsavedChanges
+              ? "bg-fg text-bg shadow-lg shadow-fg/10 hover:translate-y-[-1px]"
+              : "bg-fg/10 text-fg-muted cursor-default",
+            saving && "opacity-70 cursor-wait",
+          )}
+        >
+          {saving ? "Saving..." : hasUnsavedChanges ? "Save Background" : "Saved"}
+        </button>
       </div>
 
       <p className="text-[11px] leading-relaxed text-fg-subtle">
