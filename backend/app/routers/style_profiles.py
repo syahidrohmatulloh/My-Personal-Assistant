@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -74,9 +75,182 @@ class CalibrationIn(BaseModel):
     merge: bool = True
 
 
+
+
+class PreviewParseIn(BaseModel):
+    transcript: str = Field(min_length=1, max_length=settings.STYLE_ANALYSIS_UPLOAD_MAX_CHARS)
+    current_user_name: str | None = Field(default=None, max_length=120)
+    current_user_email: str | None = Field(default=None, max_length=160)
+    current_user_aliases: list[str] = Field(default_factory=list, max_length=20)
+
+
+class DetectedSenderOut(BaseModel):
+    name: str
+    count: int
+    is_likely_user: bool = False
+    recommended: bool = False
+
+
+class PreviewParseOut(BaseModel):
+    source_type: str
+    message_count: int
+    senders: list[DetectedSenderOut]
+    recommended_target_name: str | None = None
+    too_long: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+
+
+
+@router.post("/preview-parse", response_model=PreviewParseOut)
+async def preview_parse(
+    body: PreviewParseIn,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Preview transcript parsing without calling the LLM or storing raw transcript."""
+    warnings: list[str] = []
+
+    transcript_len = len(body.transcript or "")
+    too_long = transcript_len > settings.STYLE_ANALYSIS_UPLOAD_MAX_CHARS
+
+    source_type, parsed = style_parser.parse_transcript(body.transcript)
+
+    if source_type == "plain" or not parsed:
+        warnings.append("Format not detected; analyzing as plain text.")
+        return PreviewParseOut(
+            source_type=source_type,
+            message_count=0,
+            senders=[],
+            recommended_target_name=None,
+            too_long=too_long,
+            warnings=warnings,
+        )
+
+    counts = Counter(sender for sender, _ in parsed)
+
+    aliases = _build_user_aliases(
+        current_user_name=body.current_user_name,
+        current_user_email=body.current_user_email,
+        current_user_aliases=body.current_user_aliases,
+    )
+
+    sender_rows = []
+    recommended_name = None
+
+    sorted_senders = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+
+    for sender, count in sorted_senders:
+        likely_user = _is_likely_user_sender(sender, aliases)
+        sender_rows.append(
+            {
+                "name": sender,
+                "count": count,
+                "is_likely_user": likely_user,
+                "recommended": False,
+            }
+        )
+
+    for row in sender_rows:
+        if not row["is_likely_user"]:
+            row["recommended"] = True
+            recommended_name = row["name"]
+            break
+
+    if recommended_name is None and sender_rows:
+        warnings.append(
+            "Only likely-user sender(s) detected. Select a speaker manually if needed."
+        )
+
+    if transcript_len > 500_000:
+        warnings.append(
+            "Large transcript detected. The app will sample representative messages for analysis."
+        )
+
+    log.info(
+        "style preview-parse: user=%s chars=%d source=%s messages=%d senders=%d recommended=%s",
+        user_id[:8],
+        transcript_len,
+        source_type,
+        len(parsed),
+        len(sender_rows),
+        recommended_name,
+    )
+
+    return PreviewParseOut(
+        source_type=source_type,
+        message_count=len(parsed),
+        senders=[DetectedSenderOut(**row) for row in sender_rows],
+        recommended_target_name=recommended_name,
+        too_long=too_long,
+        warnings=warnings,
+    )
+
+
+def _normalize_sender_name(value: str | None) -> str:
+    if not value:
+        return ""
+    value = value.lower().strip()
+    value = re.sub(r"[^a-z0-9@\.\s_-]+", " ", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    return value
+
+
+def _build_user_aliases(
+    current_user_name: str | None,
+    current_user_email: str | None,
+    current_user_aliases: list[str],
+) -> set[str]:
+    aliases: set[str] = set()
+
+    for raw in [current_user_name, current_user_email, *(current_user_aliases or [])]:
+        norm = _normalize_sender_name(raw)
+        if norm:
+            aliases.add(norm)
+
+        if raw and "@" in raw:
+            local = raw.split("@", 1)[0]
+            local_norm = _normalize_sender_name(local)
+            if local_norm:
+                aliases.add(local_norm)
+
+    if current_user_name:
+        parts = [_normalize_sender_name(part) for part in current_user_name.split()]
+        for part in parts:
+            if len(part) >= 3:
+                aliases.add(part)
+
+    aliases.update({"me", "saya", "aku", "gue", "gua", "gw"})
+    return aliases
+
+
+def _is_likely_user_sender(sender: str, aliases: set[str]) -> bool:
+    norm = _normalize_sender_name(sender)
+    if not norm:
+        return False
+
+    if norm in aliases:
+        return True
+
+    compact = norm.replace(" ", "")
+    for alias in aliases:
+        alias_compact = alias.replace(" ", "")
+        if not alias_compact:
+            continue
+
+        if compact == alias_compact:
+            return True
+
+        if len(alias_compact) >= 5 and (
+            alias_compact in compact or compact in alias_compact
+        ):
+            return True
+
+    return False
 
 
 @router.post("/analyze", response_model=AnalyzeOut)
