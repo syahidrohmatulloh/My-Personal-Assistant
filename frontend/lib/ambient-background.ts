@@ -112,6 +112,48 @@ function coercePalette(value: string | null): BackgroundPalette {
 
 
 
+
+
+export function coerceBackgroundSettings(
+  value: unknown,
+  fallback: BackgroundSettings = DEFAULT_BACKGROUND_SETTINGS,
+): BackgroundSettings {
+  if (!value || typeof value !== "object") return fallback;
+
+  const raw = value as Partial<BackgroundSettings>;
+
+  const style =
+    typeof raw.style === "string" &&
+    (BACKGROUND_STYLES as readonly string[]).includes(raw.style)
+      ? (raw.style as BackgroundSettings["style"])
+      : fallback.style;
+
+  const effect =
+    raw.effect === "standard" || raw.effect === "fluid-webgl"
+      ? raw.effect
+      : fallback.effect;
+
+  const mode =
+    raw.mode === "manual" || raw.mode === "mood-based"
+      ? raw.mode
+      : fallback.mode;
+
+  const intensity =
+    raw.intensity === "low" || raw.intensity === "medium"
+      ? raw.intensity
+      : fallback.intensity;
+
+  const motion = typeof raw.motion === "boolean" ? raw.motion : fallback.motion;
+
+  return {
+    style,
+    effect,
+    mode,
+    intensity,
+    motion,
+  };
+}
+
 export function readBackgroundEffect(): BackgroundEffect {
   if (typeof window === "undefined") return "standard";
   const raw = window.localStorage.getItem(BACKGROUND_EFFECT_STORAGE_KEY);

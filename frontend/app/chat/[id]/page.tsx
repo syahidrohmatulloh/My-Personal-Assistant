@@ -1,15 +1,23 @@
 "use client";
 
-import { use, useCallback, useEffect, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown } from "lucide-react";
-import { Composer } from "@/components/chat/composer";
-import { TypingIndicator } from "@/components/chat/typing-indicator";
-import { MessageBubble } from "@/components/chat/message-bubble";
-import { ConversationStyleBadge } from "@/components/chat/conversation-style-badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { getIdentity, listMessages, streamChat, type ChatStreamMeta, type Identity, type Conversation, type Message } from "@/lib/api";
-import { setBackgroundMoodHint } from "@/lib/ambient-background";
+import {
+  use,
+  useCallback,
+  useEffect,
+  useRef,
+  useState } from "react"; import { useQuery,
+  useQueryClient } from "@tanstack/react-query"; import { ArrowDown } from "lucide-react"; import { Composer } from "@/components/chat/composer"; import { TypingIndicator } from "@/components/chat/typing-indicator"; import { MessageBubble } from "@/components/chat/message-bubble"; import { ConversationStyleBadge } from "@/components/chat/conversation-style-badge"; import { Skeleton } from "@/components/ui/skeleton"; import { getIdentity,
+  listMessages,
+  streamChat,
+  type ChatStreamMeta,
+  type Identity,
+  type Conversation,
+  type Message } from "@/lib/api"; import { setBackgroundMoodHint,
+  buildUiContextSnapshot,
+  coerceBackgroundSettings,
+  readBackgroundSettings,
+  saveBackgroundSettings,
+} from "@/lib/ambient-background";
 
 type LocalMessage =
   | Message
@@ -62,6 +70,26 @@ export default function ConversationPage({
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
+
+  useEffect(() => {
+    const savedSettings = identity?.profile?.background_settings;
+
+    if (!savedSettings) return;
+
+    const mergedSettings = coerceBackgroundSettings(
+      savedSettings,
+      readBackgroundSettings(),
+    );
+
+    saveBackgroundSettings(mergedSettings);
+
+    window.dispatchEvent(
+      new CustomEvent("assistant.background.settings.changed", {
+        detail: { reason: "identity-background-sync" },
+      }),
+    );
+  }, [identity]);
+
 
   // Load messages, then scroll the container to bottom on next frame.
   useEffect(() => {

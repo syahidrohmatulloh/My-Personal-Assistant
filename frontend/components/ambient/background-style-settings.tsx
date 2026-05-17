@@ -17,6 +17,7 @@ import {
   BACKGROUND_STYLE_DESCRIPTIONS,
   BACKGROUND_STYLE_LABELS,
   BACKGROUND_STYLES,
+  coerceBackgroundSettings,
   type BackgroundIntensity,
   type BackgroundMode,
   type BackgroundSettings,
@@ -28,17 +29,81 @@ import {
 } from "@/lib/ambient-background";
 import { cn } from "@/lib/utils";
 
+import { getIdentity, putIdentity, type Identity } from "@/lib/api";
+
 export function BackgroundStyleSettings() {
   const [settings, setSettings] = useState<BackgroundSettings>(DEFAULT_BACKGROUND_SETTINGS);
+  const [identity, setIdentity] = useState<Identity | null>(null);
 
   useEffect(() => {
-    setSettings(readBackgroundSettings());
+    let cancelled = false;
+
+    const localSettings = readBackgroundSettings();
+    setSettings(localSettings);
+
+    getIdentity()
+      .then((data) => {
+        if (cancelled) return;
+
+        setIdentity(data);
+
+        const savedSettings = data.profile?.background_settings;
+        const mergedSettings = coerceBackgroundSettings(savedSettings, localSettings);
+
+        setSettings(mergedSettings);
+        saveBackgroundSettings(mergedSettings);
+        window.dispatchEvent(
+          new CustomEvent("assistant.background.settings.changed", {
+            detail: { reason: "identity-background-load" },
+          }),
+        );
+      })
+      .catch(() => {
+        // Local settings remain the fallback when identity cannot be loaded.
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  function persistBackgroundSettings(nextSettings: BackgroundSettings) {
+    saveBackgroundSettings(nextSettings);
+
+    window.dispatchEvent(
+      new CustomEvent("assistant.background.settings.changed", {
+        detail: { reason: "settings-save", settings: nextSettings },
+      }),
+    );
+
+    if (!identity) return;
+
+    const nextProfile = {
+      ...(identity.profile ?? {}),
+      background_settings: nextSettings,
+    };
+
+    const optimisticIdentity = {
+      ...identity,
+      profile: nextProfile,
+    };
+
+    setIdentity(optimisticIdentity);
+
+    void putIdentity(nextProfile, identity.narrative)
+      .then((saved) => {
+        setIdentity(saved);
+      })
+      .catch((error) => {
+        console.warn("Failed to save background settings to identity", error);
+      });
+  }
+
 
   function update(next: Partial<BackgroundSettings>) {
     const merged = { ...settings, ...next };
     setSettings(merged);
-    saveBackgroundSettings(merged);
+    persistBackgroundSettings(merged);
   }
 
   const moodHint = typeof window === "undefined" ? null : readBackgroundMoodHint();
@@ -48,11 +113,7 @@ export function BackgroundStyleSettings() {
     const next = { ...settings, effect };
     setSettings(next);
     saveBackgroundEffect(effect);
-    window.dispatchEvent(
-      new CustomEvent("assistant.background.settings.changed", {
-        detail: { reason: "effect-change", effect },
-      }),
-    );
+    persistBackgroundSettings(next);
   };
 
 return (
