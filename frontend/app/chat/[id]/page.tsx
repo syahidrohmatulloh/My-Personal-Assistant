@@ -1,6 +1,7 @@
 "use client";
 
-import { use, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown } from "lucide-react";
 
@@ -121,7 +122,8 @@ export default function ConversationPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id: conversationId } = use(params);
+  const routeParams = useParams<{ id: string }>();
+  const conversationId = routeParams.id;
   const qc = useQueryClient();
 
   const [messages, setMessages] = useState<LocalMessage[]>([]);
