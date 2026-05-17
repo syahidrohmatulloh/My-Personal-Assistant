@@ -219,10 +219,7 @@ export default function ConversationPage({
   return (
     <main className="flex-1 flex flex-col min-w-0 min-h-0 relative">
       <ConversationStyleBadge conversationId={conversationId} />
-      <div className="pointer-events-none absolute right-3 top-3 z-10 hidden sm:block rounded-full glass px-2.5 py-1 text-[11px] font-medium text-fg-muted">
-        {streamMeta?.mood ? `Mood: ${streamMeta.mood}` : "Default"}
-      </div>
-      <div
+<div
         ref={scrollRef}
         className="flex-1 min-h-0 overflow-y-auto scroll-smooth-mobile overscroll-contain"
       >
