@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ArrowLeft, ChevronRight, MessageSquare } from "lucide-react";
+import { BackgroundStyleSettings } from "@/components/ambient/background-style-settings";
 
 export default function SettingsPage() {
   return (
@@ -34,6 +35,13 @@ export default function SettingsPage() {
               subtitle="Teach the assistant to adapt its communication style"
             />
           </div>
+        </section>
+
+        <section className="mt-6">
+          <h2 className="text-[10px] font-semibold uppercase tracking-wider text-fg-subtle mb-2 px-1">
+            Appearance
+          </h2>
+          <BackgroundStyleSettings />
         </section>
       </div>
     </main>

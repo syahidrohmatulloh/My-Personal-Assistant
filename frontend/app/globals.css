@@ -420,3 +420,225 @@ button, a, [role="button"] {
 .drawer-backdrop-enter {
   animation: fadeIn 0.2s ease-out;
 }
+
+/* ============================================================================
+   Dynamic ambient background — lightweight, CSS-first, visual-only
+   ============================================================================ */
+
+.ambient-background {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0 !important;
+  contain: layout paint style;
+  opacity: 0.82;
+  background:
+    radial-gradient(circle at 50% 0%, rgb(var(--accent) / 0.05), transparent 34%),
+    linear-gradient(135deg, rgb(var(--bg-deep)) 0%, rgb(var(--bg)) 52%, rgb(var(--bg-deep)) 100%);
+}
+
+.ambient-background.ambient-intensity-low { opacity: 0.58; }
+.ambient-background.ambient-intensity-medium { opacity: 0.86; }
+
+.ambient-layer,
+.ambient-readability-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ambient-layer {
+  transform: translateZ(0);
+  will-change: transform, opacity, filter;
+}
+
+.ambient-readability-vignette {
+  z-index: 4;
+  background:
+    radial-gradient(circle at 50% 35%, transparent 0%, rgb(var(--bg-deep) / 0.05) 58%, rgb(var(--bg-deep) / 0.18) 100%),
+    linear-gradient(to bottom, rgb(var(--bg-deep) / 0.1), transparent 18%, transparent 78%, rgb(var(--bg-deep) / 0.12));
+}
+
+@keyframes ambient-drift {
+  0% { transform: translate3d(-1.5%, -1%, 0) scale(1) rotate(0deg); }
+  50% { transform: translate3d(1.5%, 1%, 0) scale(1.04) rotate(3deg); }
+  100% { transform: translate3d(-1.5%, -1%, 0) scale(1) rotate(0deg); }
+}
+
+@keyframes ambient-slow-spin {
+  from { transform: translate3d(0, 0, 0) rotate(0deg); }
+  to { transform: translate3d(0, 0, 0) rotate(360deg); }
+}
+
+@keyframes ambient-flow {
+  0% { transform: translate3d(-2%, 0, 0); background-position: 0 0, 0 0; }
+  50% { transform: translate3d(2%, -1%, 0); background-position: 52px 18px, -34px 22px; }
+  100% { transform: translate3d(-2%, 0, 0); background-position: 0 0, 0 0; }
+}
+
+@keyframes ambient-wave {
+  0% { transform: translate3d(-2%, 0, 0) scaleX(1); filter: blur(1px); }
+  50% { transform: translate3d(2%, -0.5%, 0) scaleX(1.04); filter: blur(1.5px); }
+  100% { transform: translate3d(-2%, 0, 0) scaleX(1); filter: blur(1px); }
+}
+
+/* Cosmic Plasma — Opera Neon inspired */
+.ambient-style-cosmic-plasma .ambient-layer-a {
+  left: 18%;
+  top: 7%;
+  width: 42vw;
+  height: 30vw;
+  min-width: 420px;
+  min-height: 290px;
+  border-radius: 48% 52% 58% 42% / 58% 44% 56% 42%;
+  border: 1.5px solid rgb(var(--accent) / 0.42);
+  box-shadow:
+    0 0 42px rgb(var(--accent) / 0.16),
+    inset 0 0 40px rgb(168 85 247 / 0.14),
+    18px 10px 34px rgb(56 189 248 / 0.10),
+    -18px -10px 34px rgb(217 70 239 / 0.10);
+  filter: blur(0.2px);
+  transform: rotate(-18deg);
+  animation: ambient-drift 28s ease-in-out infinite;
+}
+.ambient-style-cosmic-plasma .ambient-layer-b {
+  background:
+    radial-gradient(ellipse at 25% 40%, rgb(217 70 239 / 0.12), transparent 34%),
+    radial-gradient(ellipse at 58% 55%, rgb(56 189 248 / 0.10), transparent 34%),
+    radial-gradient(ellipse at 45% 20%, rgb(var(--accent) / 0.10), transparent 32%);
+  filter: blur(42px);
+  animation: ambient-drift 34s ease-in-out infinite reverse;
+}
+.ambient-style-cosmic-plasma .ambient-layer-c { opacity: 0; }
+
+/* Nebula Drift */
+.ambient-style-nebula-drift .ambient-layer-a {
+  background:
+    radial-gradient(ellipse at 18% 64%, rgb(var(--orb-1)), transparent 38%),
+    radial-gradient(ellipse at 48% 38%, rgb(var(--orb-2)), transparent 40%),
+    radial-gradient(ellipse at 78% 55%, rgb(var(--orb-3)), transparent 38%);
+  filter: blur(72px);
+  animation: ambient-drift 38s ease-in-out infinite;
+}
+.ambient-style-nebula-drift .ambient-layer-b {
+  background:
+    linear-gradient(115deg, transparent 0%, rgb(56 189 248 / 0.08) 38%, rgb(168 85 247 / 0.07) 54%, transparent 75%);
+  filter: blur(38px);
+  opacity: 0.8;
+  animation: ambient-flow 44s ease-in-out infinite;
+}
+.ambient-style-nebula-drift .ambient-layer-c { opacity: 0; }
+
+/* Micro Particle Flow */
+.ambient-style-micro-particle-flow .ambient-layer-a {
+  background-image:
+    radial-gradient(circle, rgb(var(--accent) / 0.24) 0 1px, transparent 1.4px),
+    radial-gradient(circle, rgb(56 189 248 / 0.14) 0 1px, transparent 1.5px);
+  background-size: 34px 34px, 56px 56px;
+  mask-image: linear-gradient(to bottom, transparent 0%, black 24%, black 72%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 24%, black 72%, transparent 100%);
+  opacity: 0.45;
+  animation: ambient-flow 36s ease-in-out infinite;
+}
+.ambient-style-micro-particle-flow .ambient-layer-b {
+  background:
+    radial-gradient(ellipse at 20% 52%, rgb(217 70 239 / 0.08), transparent 34%),
+    radial-gradient(ellipse at 72% 46%, rgb(56 189 248 / 0.08), transparent 34%);
+  filter: blur(55px);
+}
+.ambient-style-micro-particle-flow .ambient-layer-c { opacity: 0; }
+
+/* Orbital Rings */
+.ambient-style-orbital-rings .ambient-layer-a,
+.ambient-style-orbital-rings .ambient-layer-b {
+  left: 32%;
+  top: 18%;
+  width: 38vw;
+  height: 18vw;
+  min-width: 380px;
+  min-height: 180px;
+  border-radius: 50%;
+  border: 1px solid rgb(var(--accent) / 0.26);
+  box-shadow:
+    0 0 26px rgb(var(--accent) / 0.10),
+    inset 0 0 22px rgb(56 189 248 / 0.06);
+  transform: rotate(-12deg);
+  animation: ambient-slow-spin 52s linear infinite;
+}
+.ambient-style-orbital-rings .ambient-layer-b {
+  width: 46vw;
+  height: 23vw;
+  border-color: rgb(168 85 247 / 0.20);
+  animation-duration: 74s;
+  animation-direction: reverse;
+}
+.ambient-style-orbital-rings .ambient-layer-c {
+  background:
+    radial-gradient(circle at 55% 44%, rgb(var(--accent) / 0.16), transparent 9%),
+    radial-gradient(circle at 24% 66%, rgb(168 85 247 / 0.12), transparent 8%);
+  filter: blur(28px);
+  animation: ambient-drift 36s ease-in-out infinite;
+}
+
+/* Voice Wave — Deepgram inspired */
+.ambient-style-voice-wave .ambient-layer-a {
+  top: 30%;
+  height: 42%;
+  background:
+    radial-gradient(ellipse at 18% 50%, rgb(var(--accent) / 0.18), transparent 22%),
+    radial-gradient(ellipse at 48% 50%, rgb(56 189 248 / 0.14), transparent 28%),
+    radial-gradient(ellipse at 82% 50%, rgb(217 70 239 / 0.15), transparent 22%);
+  mask-image: repeating-radial-gradient(ellipse at center, black 0 1px, transparent 2px 8px);
+  -webkit-mask-image: repeating-radial-gradient(ellipse at center, black 0 1px, transparent 2px 8px);
+  animation: ambient-wave 14s ease-in-out infinite;
+}
+.ambient-style-voice-wave .ambient-layer-b {
+  top: 37%;
+  height: 26%;
+  background: linear-gradient(90deg, transparent 7%, rgb(var(--accent) / 0.22), rgb(56 189 248 / 0.12), rgb(217 70 239 / 0.18), transparent 93%);
+  clip-path: polygon(0% 50%, 8% 44%, 16% 58%, 24% 38%, 32% 63%, 40% 44%, 48% 56%, 56% 42%, 64% 61%, 72% 46%, 80% 55%, 88% 47%, 100% 50%, 100% 70%, 0% 70%);
+  filter: blur(8px);
+  opacity: 0.75;
+  animation: ambient-wave 12s ease-in-out infinite reverse;
+}
+.ambient-style-voice-wave .ambient-layer-c { opacity: 0; }
+
+.ambient-background.ambient-intensity-low .ambient-layer-a,
+.ambient-background.ambient-intensity-low .ambient-layer-b,
+.ambient-background.ambient-intensity-low .ambient-layer-c {
+  opacity: 0.74;
+}
+
+.ambient-background.ambient-intensity-medium .ambient-layer-a,
+.ambient-background.ambient-intensity-medium .ambient-layer-b,
+.ambient-background.ambient-intensity-medium .ambient-layer-c {
+  opacity: 1;
+}
+
+.ambient-background.ambient-static .ambient-layer,
+.ambient-background.ambient-static .ambient-readability-vignette {
+  animation: none !important;
+}
+
+@media (max-width: 640px) {
+  .ambient-background {
+    opacity: 0.48;
+  }
+  .ambient-style-cosmic-plasma .ambient-layer-a,
+  .ambient-style-orbital-rings .ambient-layer-a,
+  .ambient-style-orbital-rings .ambient-layer-b {
+    left: 8%;
+    width: 86vw;
+    height: 52vw;
+    min-width: 0;
+    min-height: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient-background .ambient-layer,
+  .ambient-background .ambient-readability-vignette {
+    animation: none !important;
+  }
+}
