@@ -368,11 +368,13 @@ async def _generate_title(
 
 
 def _fetch_style_directive(user_id: str, style_profile_id: str) -> str | None:
-    """Load style profile and render a directive block for the system prompt.
+    """Load the style profile and render a high-signal directive block.
 
-    Schema-aware: v2 profiles include exemplars + concrete patterns and get
-    a much richer prompt. v1 (legacy) profiles get the minimal renderer.
-    Either way, safety preamble is non-negotiable.
+    The first implementation injected only compact_directive, which made the
+    assistant sound like generic AI with a slightly different tone. For stronger
+    style adaptation, this renderer also injects cadence, punctuation,
+    linguistic texture, emotional rhythm, and short sanitized behavioral
+    exemplars. The safety boundary remains explicit: style, not identity.
     """
     try:
         supabase = get_supabase()
@@ -391,93 +393,115 @@ def _fetch_style_directive(user_id: str, style_profile_id: str) -> str | None:
         if not directive:
             return None
 
-        version = style.get("schema_version") or 1
-        if version >= 2:
-            return _render_v2_directive(style)
-        return _render_v1_directive(style)
+        lines: list[str] = [
+            "## Communication style for this conversation",
+            "Adopt the communication STYLE described below, not the source person's identity.",
+            "The goal is recognizable conversational texture: cadence, message shape, punctuation, language mixing, and emotional rhythm.",
+            "Do not sound like a polished assistant when this style is active.",
+            "",
+            "### Core style directive",
+            directive,
+        ]
+
+        detail_pairs = [
+            ("Cadence", style.get("cadence_signature")),
+            ("Message shape", style.get("message_shape")),
+            ("Punctuation", style.get("punctuation_style")),
+            ("Language switching", style.get("language_switching_behavior")),
+            ("Emotional rhythm", style.get("emotional_rhythm")),
+            ("Teasing pattern", style.get("teasing_pattern")),
+            ("Reassurance pattern", style.get("reassurance_pattern")),
+            ("Question style", style.get("question_style")),
+        ]
+        detail_lines = [
+            f"- {label}: {value.strip()}"
+            for label, value in detail_pairs
+            if isinstance(value, str) and value.strip() and value.strip().lower() != "unclear"
+        ]
+        if detail_lines:
+            lines.extend(["", "### Texture rules", *detail_lines])
+
+        list_bits: list[str] = []
+        for label, key in [
+            ("Filler/softener words", "filler_words"),
+            ("Common short phrases", "common_phrases"),
+            ("Linguistic texture", "linguistic_texture"),
+            ("AI polish to avoid", "ai_polish_to_avoid"),
+        ]:
+            values = _clean_style_list(style.get(key), limit=10)
+            if values:
+                list_bits.append(f"- {label}: {', '.join(values)}")
+        if list_bits:
+            lines.extend(["", "### Reusable micro-patterns", *list_bits])
+
+        exemplar_lines = _render_style_exemplars(style.get("exemplars"))
+        if exemplar_lines:
+            lines.extend(
+                [
+                    "",
+                    "### Short behavioral exemplars",
+                    "Use these only as rhythm/texture anchors. Do NOT copy them verbatim unless they are generic fillers.",
+                    *exemplar_lines,
+                ]
+            )
+
+        do_not_copy = _clean_style_list(style.get("do_not_copy"), limit=10)
+        lines.extend(
+            [
+                "",
+                "### Important boundaries",
+                "- This is STYLE adaptation only. You are still the user's assistant.",
+                "- NEVER claim to be the source person. NEVER use their name in first person.",
+                "- NEVER reproduce private details from their messages.",
+                "- Prefer similar cadence and message shape over exact wording.",
+                "- If the user asks you to literally impersonate or deceive someone, refuse that part and offer style adaptation only.",
+            ]
+        )
+        if do_not_copy:
+            lines.append("- Do NOT reproduce or reference these: " + "; ".join(do_not_copy))
+
+        return "\n".join(lines)
     except Exception as exc:
         log.warning("style directive fetch failed: %s", exc)
         return None
 
 
-def _render_v2_directive(style: dict) -> str:
-    """Rich renderer for v2 profiles: exemplars + concrete patterns +
-    explicit override of baseline 'polished' behavior."""
-    directive = (style.get("compact_directive") or "").strip()
-    exemplars = [e for e in (style.get("exemplars") or []) if isinstance(e, str) and e.strip()][:10]
-    phrases = [p for p in (style.get("common_phrases") or []) if isinstance(p, str) and p.strip()][:15]
-    do_not_copy = [d for d in (style.get("do_not_copy") or []) if isinstance(d, str) and d.strip()][:10]
-
-    parts: list[str] = ["## Communication style for this conversation", "", directive]
-
-    if exemplars:
-        parts.append("")
-        parts.append("**Style anchors — examples of how this person actually writes:**")
-        for ex in exemplars:
-            parts.append(f'  · "{ex}"')
-        parts.append("")
-        parts.append(
-            "Use these as TEXTURE references — match their cadence, "
-            "fragmentation, punctuation, and filler patterns. Do NOT quote them "
-            "verbatim back to the user; they're for shape, not for content."
-        )
-
-    if phrases:
-        parts.append("")
-        parts.append(f"**Fillers/phrases they use naturally:** {', '.join(phrases)}")
-        parts.append("Drop these in where they fit. Do not force them.")
-
-    # Override baseline behavior — without this, BASE_PROMPT's "complete
-    # sentences" and "no excessive emoji" rules suppress the style.
-    parts.extend([
-        "",
-        "**Override the assistant's default polished register for this conversation.**",
-        "- If their style is fragmented, send fragmented short replies — not one balanced paragraph.",
-        "- If their punctuation is loose, be loose. Drop periods if they do.",
-        "- If their capitalization is informal, follow it.",
-        "- Imperfect texting flow over polished AI prose.",
-        "- BUT: still serve the user's actual question or need. Style shapes HOW you reply, not WHAT you reply about.",
-    ])
-
-    parts.extend([
-        "",
-        "**Hard boundaries (these always win over style):**",
-        "- This is STYLE adaptation only. You are still the user's assistant.",
-        "- NEVER claim to be the source person. NEVER speak as if you ARE them.",
-        "- NEVER reproduce private details from their messages.",
-        "- If the user asks 'are you Anna?' or similar — answer honestly that you're their assistant adopting a style.",
-    ])
-
-    if do_not_copy:
-        parts.append("- NEVER reproduce or reference these specific items:")
-        for item in do_not_copy:
-            parts.append(f"    · {item}")
-
-    return "\n".join(parts)
+def _clean_style_list(value, *, limit: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for raw in value:
+        item = str(raw).strip()
+        if not item:
+            continue
+        item = " ".join(item.split())[:120]
+        if item not in out:
+            out.append(item)
+        if len(out) >= limit:
+            break
+    return out
 
 
-def _render_v1_directive(style: dict) -> str:
-    """Minimal renderer for legacy v1 profiles. Suggests user re-analyze."""
-    directive = (style.get("compact_directive") or "").strip()
-    do_not_copy = [d for d in (style.get("do_not_copy") or []) if isinstance(d, str)][:10]
-
-    parts: list[str] = [
-        "## Communication style for this conversation",
-        "",
-        directive,
-        "",
-        "**Override the assistant's default polished register for this conversation.**",
-        "If the style above implies short/fragmented messages, send those — not one balanced paragraph.",
-        "",
-        "**Hard boundaries:**",
-        "- STYLE adaptation only. You are still the user's assistant.",
-        "- NEVER claim to be the source person.",
-        "- NEVER reproduce private details.",
+def _render_style_exemplars(value) -> list[str]:
+    if not isinstance(value, dict):
+        return []
+    labels = [
+        ("greeting", "Greeting"),
+        ("casual_reaction", "Casual reaction"),
+        ("teasing", "Teasing"),
+        ("comforting", "Comforting"),
+        ("affection", "Affection"),
+        ("question_style", "Question style"),
+        ("apology_or_repair", "Repair/apology"),
+        ("encouragement", "Encouragement"),
+        ("goodbye", "Goodbye"),
+        ("fragmented_followup", "Fragmented follow-up"),
     ]
-    if do_not_copy:
-        parts.append("- NEVER reproduce these:")
-        for item in do_not_copy:
-            parts.append(f"    · {item}")
-    parts.append("")
-    parts.append("(Note: this profile uses an older format. Re-analyze in Settings → Style Profiles for richer texture.)")
-    return "\n".join(parts)
+    rows: list[str] = []
+    for key, label in labels:
+        examples = _clean_style_list(value.get(key), limit=3)
+        if examples:
+            rows.append(f"- {label}: " + " | ".join(f"‘{x}’" for x in examples))
+        if len(rows) >= 8:
+            break
+    return rows

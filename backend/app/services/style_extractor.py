@@ -6,187 +6,220 @@ and ask Haiku to extract a structured style profile.
 We never persist the transcript itself. After analyze returns the profile,
 the caller discards the input.
 
-Output is validated by Pydantic — so even if Haiku hallucinates extra
-fields, we only persist what matches our schema.
-
-Sampling strategy:
-- Auto-tune the chars budget based on transcript size (12k for thin
-  inputs, 30k for rich ones).
-- For parsed transcripts: stratify into beginning / middle / end chunks
-  so we capture greetings, ongoing rhythm, and closings.
-- Always prioritize target messages.
-- For unparsed (plain) inputs: same 3-chunk split on raw text.
+Phase 4.11b adds a deeper style layer. The first version only captured
+abstract attributes (warmth, formality, emoji frequency). That is not enough
+for recognizable chat style. Real texting style lives in cadence, message
+shape, punctuation, filler words, emotional rhythm, and short behavioral
+examples. This module now extracts those signals into JSONB without requiring
+a database migration.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 from collections import Counter
-from typing import Literal
+from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.services.claude import get_claude
-from app.services.style_parser import ParsedLine, SourceType, is_likely_user
+from app.services.style_parser import ParsedLine, SourceType
 
 log = logging.getLogger(__name__)
 
 
-# Hard caps. The frontend also enforces 5MB at upload; the backend re-checks.
-MAX_UPLOAD_CHARS = 5_000_000
+# Maximum transcript size we'll send to Haiku. Larger = more context = better
+# extraction, but more cost and tokens. 30k chars is enough for style signals
+# while still keeping analyze latency/cost bounded.
+_MAX_TRANSCRIPT_CHARS = 30_000
 
-# LLM input ceilings — auto-tuned per request between these bounds.
-_LLM_MIN_CHARS = 12_000
-_LLM_MAX_CHARS = 30_000
-
-# Minimum target messages before we'll attempt extraction.
+# Minimum messages from the target before we'll attempt extraction. Below
+# this, the profile would be guesswork.
 _MIN_TARGET_MESSAGES = 3
 
+# For safety, behavioral examples are short. They are style anchors, not a
+# transcript replay mechanism.
+_MAX_EXEMPLAR_CHARS = 120
+_MAX_EXEMPLARS_PER_BUCKET = 5
 
-class StyleProfile(BaseModel):
-    """Validated style profile. Constraints are generous — we'd rather store
-    a slightly verbose profile than reject Haiku's output entirely. Truncation
-    happens in a validator below."""
 
-class StyleProfile(BaseModel):
-    """Rich style profile (v2). Extraction focuses on actionable patterns
-    Claude can imitate, plus literal verbatim snippets ("exemplars") that
-    anchor the texture in the system prompt.
+class StyleExemplars(BaseModel):
+    """Short style anchors grouped by behavior.
 
-    v1 profiles had abstract scales like warmth_level: "warm" — Claude
-    couldn't act on those. v2 fields describe concrete behaviors and carry
-    actual short snippets from the source person.
+    These are intentionally brief snippets. They help the main chat model
+    mimic cadence and texture better than abstract labels do, while avoiding
+    storage of long private transcript passages.
     """
 
-    # Schema version. Older profiles (no schema_version) are v1 and the
-    # prompt builder renders them differently. Newer profiles are v2.
-    schema_version: int = Field(default=2)
+    greeting: list[str] = Field(default_factory=list, max_length=5)
+    casual_reaction: list[str] = Field(default_factory=list, max_length=5)
+    teasing: list[str] = Field(default_factory=list, max_length=5)
+    comforting: list[str] = Field(default_factory=list, max_length=5)
+    affection: list[str] = Field(default_factory=list, max_length=5)
+    question_style: list[str] = Field(default_factory=list, max_length=5)
+    apology_or_repair: list[str] = Field(default_factory=list, max_length=5)
+    encouragement: list[str] = Field(default_factory=list, max_length=5)
+    goodbye: list[str] = Field(default_factory=list, max_length=5)
+    fragmented_followup: list[str] = Field(default_factory=list, max_length=5)
 
-    display_name: str = Field(min_length=1, max_length=200)
-    dominant_language: str = Field(min_length=1, max_length=120)
-    language_mixing: str = Field(default="", max_length=400)
-
-    # === Conversational rhythm ===
-    # How messages are SHAPED on the screen — fragmentation, length, pacing
-    message_shape: str = Field(default="", max_length=500)
-    # e.g. "Sends 2-4 short messages back to back, fragmented mid-thought"
-
-    sentence_style: str = Field(default="", max_length=500)
-    # e.g. "Incomplete sentences, drops subjects, runs words together"
-
-    punctuation_habits: str = Field(default="", max_length=400)
-    # e.g. "Rarely uses periods. Multiple exclamation marks for emphasis.
-    #       Uses '..' instead of '...'. Lowercase always."
-
-    # === Linguistic texture ===
-    fillers_and_softeners: str = Field(default="", max_length=400)
-    # e.g. "Heavy use of 'sih', 'kan', 'yaa', 'kok'. English filler: 'like'."
-
-    capitalization: str = Field(default="", max_length=200)
-    # e.g. "All lowercase always" or "Sentence case, no all-caps"
-
-    emoji_pattern: str = Field(default="", max_length=400)
-    # e.g. "Rare. Only 😭 for self-deprecation, 🥹 for affection."
-
-    # === Emotional texture ===
-    affection_style: str = Field(default="", max_length=400)
-    # e.g. "Subtle. Uses 'beb' or 'sayang' once per conversation, not more."
-
-    teasing_style: str = Field(default="", max_length=400)
-    # e.g. "Gentle teasing followed by reassurance within 2 messages."
-
-    support_style: str = Field(default="", max_length=400)
-    # e.g. "Practical first ('udah makan?'), emotional second."
-
-    closing_style: str = Field(default="", max_length=300)
-    # e.g. "Trails off without closing. Or short 'ok ttyl'."
-
-    # === Conversational asymmetry ===
-    initiation_pattern: str = Field(default="", max_length=300)
-    # e.g. "Often initiates with a question or observation, not greeting"
-
-    response_tendency: str = Field(default="", max_length=300)
-    # e.g. "Reacts more than initiates. Mirrors the other person's energy."
-
-    # === Exemplars — LITERAL verbatim snippets from the source ===
-    # These are the texture anchors that make imitation recognizable.
-    # Each: a short message exactly as the source person wrote it.
-    exemplars: list[str] = Field(default_factory=list, max_length=15)
-
-    # Common short phrases/fillers extracted verbatim (separate from exemplars
-    # because phrases are 1-3 words, exemplars are whole short messages).
-    common_phrases: list[str] = Field(default_factory=list, max_length=20)
-
-    # Content the assistant must NEVER reproduce — sensitive names, secrets,
-    # intimate references. Extractor errs on the side of including more.
-    do_not_copy: list[str] = Field(default_factory=list, max_length=20)
-
-    # Compact actionable directive — used at every chat turn.
-    compact_directive: str = Field(min_length=10, max_length=1200)
+    @field_validator("*", mode="after")
+    @classmethod
+    def _clean_examples(cls, values: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for value in values or []:
+            item = _sanitize_short_snippet(str(value))
+            if item and item not in cleaned:
+                cleaned.append(item)
+            if len(cleaned) >= _MAX_EXEMPLARS_PER_BUCKET:
+                break
+        return cleaned
 
 
-EXTRACTOR_SYSTEM_PROMPT = """You analyze chat messages from ONE specific person and extract their communication style as actionable patterns + literal short snippets. Output strict JSON only.
+class StyleProfile(BaseModel):
+    """Validated style profile.
 
-# CRITICAL: This is for an AI assistant to IMITATE conversational TEXTURE, not impersonate identity. Extract patterns that make their texting recognizable: rhythm, fragmentation, fillers, punctuation. Avoid extracting full sentences or personal content.
+    The legacy fields are preserved so existing frontend/database rows keep
+    working. New fields capture deeper conversational texture for stronger
+    style adaptation in chat.
+    """
 
-# Output schema (ALL keys required)
+    # Legacy/high-level fields ------------------------------------------------
+    display_name: str = Field(min_length=1, max_length=80)
+    dominant_language: str = Field(min_length=1, max_length=40)
+    language_mixing: str = Field(max_length=200)
+
+    formality_level: str = Field(max_length=60)
+    warmth_level: str = Field(max_length=60)
+    directness_level: str = Field(max_length=60)
+
+    humor_style: str = Field(max_length=200)
+    emoji_usage: str = Field(max_length=200)
+    average_reply_length: str = Field(max_length=120)
+
+    greeting_style: str = Field(max_length=200)
+    closing_style: str = Field(max_length=200)
+    conflict_style: str = Field(max_length=220)
+    support_style: str = Field(max_length=220)
+    decision_making_style: str = Field(max_length=220)
+
+    common_phrases: list[str] = Field(default_factory=list, max_length=10)
+    do_not_copy: list[str] = Field(default_factory=list, max_length=10)
+
+    # Deeper style fields -----------------------------------------------------
+    cadence_signature: str = Field(default="unclear", max_length=500)
+    message_shape: str = Field(default="unclear", max_length=500)
+    punctuation_style: str = Field(default="unclear", max_length=350)
+    linguistic_texture: list[str] = Field(default_factory=list, max_length=12)
+    filler_words: list[str] = Field(default_factory=list, max_length=16)
+    language_switching_behavior: str = Field(default="unclear", max_length=350)
+    emotional_rhythm: str = Field(default="unclear", max_length=500)
+    teasing_pattern: str = Field(default="unclear", max_length=350)
+    reassurance_pattern: str = Field(default="unclear", max_length=350)
+    question_style: str = Field(default="unclear", max_length=350)
+    ai_polish_to_avoid: list[str] = Field(default_factory=list, max_length=10)
+    exemplars: StyleExemplars = Field(default_factory=StyleExemplars)
+
+    # Compact prose directive used by the chat prompt.
+    compact_directive: str = Field(min_length=20, max_length=1200)
+
+    @field_validator("common_phrases", "filler_words", "linguistic_texture", "ai_polish_to_avoid", mode="after")
+    @classmethod
+    def _clean_short_lists(cls, values: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for value in values or []:
+            item = _sanitize_short_snippet(str(value), max_chars=80)
+            if item and item not in cleaned:
+                cleaned.append(item)
+        return cleaned
+
+    @field_validator("do_not_copy", mode="after")
+    @classmethod
+    def _clean_avoid_list(cls, values: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for value in values or []:
+            item = str(value).strip()
+            if item and item not in cleaned:
+                cleaned.append(item[:120])
+        return cleaned
+
+
+EXTRACTOR_SYSTEM_PROMPT = """You analyze chat messages from ONE specific target person \
+and extract their texting style. Output strict JSON only.
+
+The goal is NOT generic tone analysis. The goal is to capture the person's \
+recognizable conversational texture: cadence, message shape, filler words, \
+punctuation habits, emotional rhythm, and short style examples.
+
+# Output schema (ALL keys required, even if value is "unclear" or [])
 
 {
-  "schema_version": 2,
-  "display_name": "the person's name as it appears in the transcript",
-  "dominant_language": "Indonesian | English | Mandarin | mixed | etc",
-  "language_mixing": "if mixed: WHERE switching happens. e.g. 'Indonesian base; English for tech terms or jokes; switches to Indonesian when emotional'. Else: 'monolingual'",
+  "display_name": "the target person's name as it appears",
+  "dominant_language": "English | Indonesian | Mandarin | mixed | ...",
+  "language_mixing": "specific pattern, e.g. Indonesian base with English punchlines or work terms",
 
-  "message_shape": "How they SHAPE messages on screen. Fragmented across multiple messages? Single long blocks? Examples: 'Sends 2-4 short messages back to back instead of one paragraph', 'One long message per turn', 'Mixes: short for quick reaction, long when explaining'",
+  "formality_level": "very casual | casual | neutral | formal | very formal",
+  "warmth_level": "cold | reserved | neutral | warm | very warm",
+  "directness_level": "very indirect | indirect | balanced | direct | blunt",
 
-  "sentence_style": "Complete vs fragmented sentences. Subject drops. Run-ons. e.g. 'Drops subjects often (\\"udah makan?\\" instead of \\"kamu udah makan?\\"). Incomplete sentences. Conversational fragments.'",
+  "humor_style": "specific humor pattern in <20 words",
+  "emoji_usage": "none | rare | occasional | frequent | heavy — include emoji types if clear",
+  "average_reply_length": "very short | short | medium | long | varies — include message-burst tendency",
 
-  "punctuation_habits": "Period usage, exclamations, ellipses, repeated letters. e.g. 'Rarely uses periods. Doubles or triples letters for emphasis (\\"okayy\\", \\"hmmmm\\"). Uses \\"..\\" instead of \\"...\\". One exclamation max.'",
+  "greeting_style": "how they open; mention style, not private content",
+  "closing_style": "how they close or 'no consistent closing'",
+  "conflict_style": "how they handle disagreement or tension",
+  "support_style": "how they comfort/support others",
+  "decision_making_style": "how they reason, commit, hedge, or decide",
 
-  "fillers_and_softeners": "VERBATIM list of fillers/particles they actually use. e.g. 'sih, kan, yaa, kok, deh, dong, lah'. English: 'like, lol, lmao, idk'. Quote exactly as written.",
+  "common_phrases": ["up to 8 short snippets actually present; no full private sentences"],
+  "do_not_copy": ["private names, secrets, sensitive details, intimate references to avoid"],
 
-  "capitalization": "e.g. 'All lowercase always' | 'Sentence case' | 'Starts capitalized then drops mid-sentence'",
+  "cadence_signature": "how messages flow: bursty, fragmented, follow-ups, pauses, question density",
+  "message_shape": "texting shape: one-liners, multi-line chunks, lowercase, repeated letters, etc.",
+  "punctuation_style": "periods, commas, ellipses, exclamation, question marks, lowercase/caps habits",
+  "linguistic_texture": ["up to 12 reusable style traits, not secrets"],
+  "filler_words": ["short fillers/softeners actually present, e.g. sih, deh, yaa, wkwk"],
+  "language_switching_behavior": "when/why they switch languages mid-message",
+  "emotional_rhythm": "how they move between teasing, reassurance, concern, seriousness",
+  "teasing_pattern": "specific teasing style or 'unclear'",
+  "reassurance_pattern": "specific comfort/reassurance style or 'unclear'",
+  "question_style": "how they ask questions: direct, stacked, softened, checking-in, etc.",
+  "ai_polish_to_avoid": ["assistant-like habits to avoid when using this profile"],
 
-  "emoji_pattern": "Which emojis specifically, how often, what context. e.g. 'Almost none. Occasional 😭 for embarrassment, 🥹 for affection. Never uses 👍 or 🙏'",
+  "exemplars": {
+    "greeting": ["short non-sensitive snippets"],
+    "casual_reaction": ["short non-sensitive snippets"],
+    "teasing": ["short non-sensitive snippets"],
+    "comforting": ["short non-sensitive snippets"],
+    "affection": ["short non-sensitive snippets"],
+    "question_style": ["short non-sensitive snippets"],
+    "apology_or_repair": ["short non-sensitive snippets"],
+    "encouragement": ["short non-sensitive snippets"],
+    "goodbye": ["short non-sensitive snippets"],
+    "fragmented_followup": ["short non-sensitive snippets"]
+  },
 
-  "affection_style": "How they show warmth. e.g. 'Subtle. Uses nickname \\"beb\\" or \\"sayang\\" once per conversation. Asks practical care questions (\\"udah makan?\\", \\"jangan lupa istirahat\\")'",
-
-  "teasing_style": "Do they tease? How? e.g. 'Gentle teasing then reassurance: \\"haha gaje\\" → \\"becanda yaa\\"' or 'Not a teaser, mostly earnest'",
-
-  "support_style": "How they comfort. e.g. 'Practical first (\\"udah makan?\\"), emotional acknowledgment second. Avoids advice-giving.'",
-
-  "closing_style": "How they end conversations. e.g. 'Trails off, no formal closing. Or just \\"ok ttyl 👋\\"' | 'No consistent closing'",
-
-  "initiation_pattern": "How they OPEN conversations. e.g. 'Direct question or observation, no \\"hi\\" first' | 'Always greets first with \\"hey\\"'",
-
-  "response_tendency": "Initiator vs reactor. Match energy or set energy? e.g. 'Reacts more than initiates. Matches the other person's energy and length.'",
-
-  "exemplars": [
-    "5-12 SHORT messages quoted EXACTLY as the person wrote them. Pick variety: a short reaction, a longer explanation, a fragment, an affectionate one, a teasing one, a question. KEEP THEM SHORT (under 80 chars each). Do NOT pick messages with private details, full names of other people, specific dates, or intimate content."
-  ],
-
-  "common_phrases": [
-    "Short verbatim fillers/phrases they repeat. 1-3 words each. e.g. ['sih', 'wkwk', 'iya gpp', 'kayak gitu']"
-  ],
-
-  "do_not_copy": [
-    "Private/sensitive content the assistant must NEVER reproduce. Specific personal names (other than target's display name), pet names, addresses, contacts, intimate references, secrets, anything that would be weird to hear from an AI. Be conservative."
-  ],
-
-  "compact_directive": "A 60-150 word directive the assistant reads every turn. Be SPECIFIC and ACTIONABLE. Quote the actual fillers, mention the actual punctuation habits, describe the actual cadence. Example structure: 'Send fragmented short messages (2-3 per turn) rather than one block. All lowercase. Rarely use periods, sometimes use \\"..\\". Mix Indonesian base with English for tech or jokes. Use fillers: sih, yaa, kok, wkwk. Affection through practical care questions (\\"udah makan?\\"), not declarations. Tease gently then reassure within the same exchange. Match the other person's energy rather than setting your own. Trail off rather than closing formally.'"
+  "compact_directive": "A strong style directive for future chat. Include cadence, fragmentation, punctuation, language switching, emotional rhythm, and anti-polish guidance. Never say to be or pretend to be the person."
 }
 
-# Hard rules
+# Rules
 
-- VERBATIM means VERBATIM. Quote exactly as the person wrote (typos, lowercase, repeated letters preserved).
-- Exemplars MUST be from the transcript. Do not generate examples. If uncertain, use empty array.
-- Exemplars MUST be short standalone messages (under 80 chars). Skip anything with private content.
-- do_not_copy: include third-party names mentioned in messages, location names, anything intimate, anything specific that would be unsettling for an AI to reference.
-- compact_directive is THE most important field. It is read every chat turn. Make it specific, quote actual fillers/patterns, describe actual cadence — not abstract levels.
-- If the transcript is thin/unclear for a field, use "" for strings or [] for lists. Don't invent.
+- Analyze ONLY messages marked TARGET. Ignore OTHER except as context.
+- Do not summarize the relationship. Extract writing style only.
+- Behavioral exemplars must be SHORT snippets actually present or very lightly anonymized.
+- Never store or output secrets, phone numbers, addresses, exact long messages, or private details.
+- If an exemplar contains a private name/detail, replace it with [name] or skip it.
+- Do NOT invent common phrases. If uncertain, return [].
+- The compact_directive is important. It should be stronger than generic tone labels. \
+  It must tell the assistant HOW to shape messages: e.g. fragmented short bursts, \
+  lowercase, softeners, teasing-then-reassurance, rarely uses periods.
+- The compact_directive must not contain identity claims like "be Anna" or \
+  "pretend to be Anna".
+- If evidence is thin, use "unclear" and keep confidence implied by specificity.
 
-Output ONLY the JSON object. No prose, no markdown fences."""
+Output ONLY the JSON object. No prose, no markdown fences, no commentary."""
 
 
 async def extract_style(
@@ -195,42 +228,16 @@ async def extract_style(
     parsed_lines: list[ParsedLine],
     raw_text: str,
     target_sender: str | None = None,
-    user_name: str | None = None,
-    user_aliases: list[str] | None = None,
-    user_email: str | None = None,
-) -> tuple[StyleProfile | None, int, list[str]]:
+) -> tuple[StyleProfile | None, int]:
     """Extract a style profile from parsed lines (or raw text if parsing failed).
 
-    Returns (profile_or_none, sample_count, warnings).
-    sample_count = number of messages from the target sender.
-    warnings    = list of strings for the UI to surface (e.g. "looks like
-                  your own writing").
+    Returns (profile_or_none, sample_count).
+    sample_count = number of messages from the target sender that contributed.
     """
-    warnings: list[str] = []
-
-    # Decide what to send Haiku.
     if parsed_lines:
-        # Pick target: explicit > non-user-most-active > most-active fallback.
-        target = target_sender or _pick_target_sender(
-            parsed_lines,
-            user_name=user_name,
-            user_aliases=user_aliases,
-            user_email=user_email,
-        )
+        target = target_sender or _pick_target_sender(parsed_lines)
         if not target:
-            return None, 0, ["No senders detected in transcript"]
-
-        # Warn if the picked target itself looks like the user.
-        if is_likely_user(
-            target,
-            user_name=user_name,
-            user_aliases=user_aliases,
-            user_email=user_email,
-        ):
-            warnings.append(
-                "The selected sender looks like your own messages. This will analyze "
-                "your own writing style, which may not be what you want."
-            )
+            return None, 0
 
         target_lines = [(s, t) for s, t in parsed_lines if s == target]
         if len(target_lines) < _MIN_TARGET_MESSAGES:
@@ -239,104 +246,54 @@ async def extract_style(
                 target,
                 len(target_lines),
             )
-            warnings.append(
-                f"Only {len(target_lines)} messages from '{target}' — not enough to extract a reliable style."
-            )
-            return None, len(target_lines), warnings
+            return None, len(target_lines)
 
-        # Auto-tune chars budget based on transcript richness.
-        budget = _auto_budget(
-            target_msg_count=len(target_lines),
-            total_chars=sum(len(t) for _, t in parsed_lines),
-        )
-        transcript = _build_stratified_sample(
-            parsed_lines, target=target, max_chars=budget
+        transcript = _format_representative_transcript(
+            parsed_lines=parsed_lines,
+            target=target,
+            max_chars=_MAX_TRANSCRIPT_CHARS,
         )
         sample_count = len(target_lines)
-
-        # Sparse-target signal: enough to extract, but flag low confidence.
-        if len(target_lines) < 15:
-            warnings.append(
-                f"Only {len(target_lines)} messages analyzed — extracted style may be less reliable."
-            )
     else:
-        # Plain text fallback: split raw text into begin/mid/end.
-        budget = _auto_budget(target_msg_count=0, total_chars=len(raw_text))
-        transcript = _build_plain_sample(raw_text, max_chars=budget, target_name=target_sender)
-        sample_count = max(1, len(raw_text) // 80)
-        warnings.append(
-            "Transcript format wasn't recognized as WhatsApp or Telegram — analyzing as plain text."
+        transcript = _format_plain_text_sample(
+            raw_text=raw_text,
+            target_sender=target_sender,
+            max_chars=_MAX_TRANSCRIPT_CHARS,
         )
-
-    log.info(
-        "style extract: sending %d chars to Haiku (target=%s, sample_count=%d)",
-        len(transcript),
-        target_sender or "auto",
-        sample_count,
-    )
+        sample_count = max(1, len(raw_text) // 80)  # rough estimate
 
     try:
         claude = get_claude()
         response = await claude.messages.create(
             model="claude-haiku-4-5",
-            max_tokens=4000,
+            max_tokens=3500,
             system=EXTRACTOR_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": transcript}],
         )
     except Exception as exc:
-        # Distinguish timeout from other errors for the user.
-        msg = f"Style analysis failed: {exc.__class__.__name__}"
-        log.warning("style extract: Haiku failed: %s", exc, exc_info=True)
-        warnings.append(msg)
-        return None, sample_count, warnings
+        log.warning("style extract: Haiku failed: %s", exc)
+        return None, sample_count
 
     block = next((b for b in response.content if b.type == "text"), None)
     if not block:
-        log.warning("style extract: no text block in response; stop_reason=%s", getattr(response, "stop_reason", "?"))
-        warnings.append("Style analysis returned no result. Try a shorter transcript.")
-        return None, sample_count, warnings
+        return None, sample_count
     raw = block.text.strip()
     if raw.startswith("```"):
         raw = raw.strip("`").lstrip("json").strip()
 
-    # If Haiku response was truncated by max_tokens, the JSON is incomplete.
-    # Log this explicitly so we can spot it in Fly logs.
-    stop_reason = getattr(response, "stop_reason", None)
-    if stop_reason == "max_tokens":
-        log.warning(
-            "style extract: response was truncated at max_tokens=3000. raw_tail=%r",
-            raw[-200:],
-        )
-
     try:
         parsed_json = json.loads(raw)
     except json.JSONDecodeError as exc:
-        log.warning("style extract: bad JSON: %s; raw=%r", exc, raw[:500])
-        warnings.append(
-            "Could not parse style analysis. The transcript may be too complex — try with a smaller sample."
-        )
-        return None, sample_count, warnings
-
-    # Pre-validate: trim oversized fields so we don't lose the whole profile
-    # to a single over-long string.
-    parsed_json = _trim_profile_fields(parsed_json)
+        log.warning("style extract: bad JSON: %s; raw=%r", exc, raw[:400])
+        return None, sample_count
 
     try:
         profile = StyleProfile.model_validate(parsed_json)
     except ValidationError as exc:
-        # Log full detail so we can see which field failed.
-        log.warning(
-            "style extract: schema mismatch. errors=%s; keys=%s",
-            exc.errors()[:5],
-            list(parsed_json.keys()) if isinstance(parsed_json, dict) else "n/a",
-        )
-        warnings.append(
-            f"Style analysis was incomplete ({len(exc.errors())} field issue(s)). "
-            "Try analyzing a different sender or a smaller portion of the transcript."
-        )
-        return None, sample_count, warnings
+        log.warning("style extract: schema mismatch: %s", exc)
+        return None, sample_count
 
-    return profile, sample_count, warnings
+    return profile, sample_count
 
 
 # ---------------------------------------------------------------------------
@@ -344,218 +301,151 @@ async def extract_style(
 # ---------------------------------------------------------------------------
 
 
-_FIELD_CAPS: dict[str, int] = {
-    "display_name": 200,
-    "dominant_language": 120,
-    "language_mixing": 400,
-    "message_shape": 500,
-    "sentence_style": 500,
-    "punctuation_habits": 400,
-    "fillers_and_softeners": 400,
-    "capitalization": 200,
-    "emoji_pattern": 400,
-    "affection_style": 400,
-    "teasing_style": 400,
-    "support_style": 400,
-    "closing_style": 300,
-    "initiation_pattern": 300,
-    "response_tendency": 300,
-    "compact_directive": 1200,
-}
+def _pick_target_sender(parsed_lines: list[ParsedLine]) -> str | None:
+    """Pick the sender with the most messages.
 
-# Required string fields that get a default if Haiku omits them.
-_REQUIRED_STRING_DEFAULTS: dict[str, str] = {
-    "language_mixing": "monolingual",
-    "message_shape": "unclear",
-    "sentence_style": "unclear",
-    "punctuation_habits": "unclear",
-    "fillers_and_softeners": "unclear",
-    "capitalization": "unclear",
-    "emoji_pattern": "unclear",
-    "affection_style": "unclear",
-    "teasing_style": "unclear",
-    "support_style": "unclear",
-    "closing_style": "unclear",
-    "initiation_pattern": "unclear",
-    "response_tendency": "unclear",
-}
-
-
-def _trim_profile_fields(d: dict) -> dict:
-    """Trim string fields to their schema caps and fill missing defaults.
-
-    Without this, a single Haiku field overflow blows up the whole profile.
-    """
-    if not isinstance(d, dict):
-        return d
-
-    out = dict(d)
-
-    # Truncate strings
-    for key, cap in _FIELD_CAPS.items():
-        v = out.get(key)
-        if isinstance(v, str) and len(v) > cap:
-            out[key] = v[: cap - 1].rstrip() + "…"
-
-    # Fill missing string defaults
-    for key, default in _REQUIRED_STRING_DEFAULTS.items():
-        if not out.get(key):
-            out[key] = default
-
-    # Cap list fields. Exemplars allow longer per-item (full short messages);
-    # other lists are short phrases.
-    list_specs = {
-        "exemplars": (15, 200),         # max items, max chars per item
-        "common_phrases": (20, 80),
-        "do_not_copy": (20, 200),
-    }
-    for key, (max_items, max_chars) in list_specs.items():
-        v = out.get(key)
-        if isinstance(v, list):
-            cleaned: list[str] = []
-            for item in v:
-                if isinstance(item, str) and item.strip():
-                    cleaned.append(item[:max_chars])
-            out[key] = cleaned[:max_items]
-        elif v is None:
-            out[key] = []
-
-    return out
-
-
-def _auto_budget(*, target_msg_count: int, total_chars: int) -> int:
-    """Pick LLM input size.
-
-    Heuristic — small for thin inputs, larger for rich ones. Reasoning:
-    short transcripts already fit in 12k; long ones need 30k to retain
-    breadth of signal after stratified sampling.
-    """
-    # Plain-text path (no target_msg_count): scale on total chars only.
-    if target_msg_count == 0:
-        if total_chars <= 8_000:
-            return _LLM_MIN_CHARS
-        if total_chars >= 40_000:
-            return _LLM_MAX_CHARS
-        # Linear in between.
-        span = _LLM_MAX_CHARS - _LLM_MIN_CHARS
-        progress = (total_chars - 8_000) / (40_000 - 8_000)
-        return int(_LLM_MIN_CHARS + span * progress)
-
-    # Parsed path: scale on target message count primarily.
-    if target_msg_count <= 20 and total_chars <= 8_000:
-        return _LLM_MIN_CHARS
-    if target_msg_count >= 50 or total_chars >= 40_000:
-        return _LLM_MAX_CHARS
-    # Linear in between (weight count > chars).
-    span = _LLM_MAX_CHARS - _LLM_MIN_CHARS
-    progress = max(
-        (target_msg_count - 20) / 30,
-        (total_chars - 8_000) / (40_000 - 8_000),
-    )
-    return int(_LLM_MIN_CHARS + span * max(0.0, min(1.0, progress)))
-
-
-def _pick_target_sender(
-    parsed_lines: list[ParsedLine],
-    *,
-    user_name: str | None = None,
-    user_aliases: list[str] | None = None,
-    user_email: str | None = None,
-) -> str | None:
-    """Pick the most-active sender that does NOT look like the current user.
-
-    Fallback to overall most-active if every sender looks like the user.
+    Frontend should normally send target_sender, especially when the transcript
+    includes the current user. This fallback is for curl/backward compatibility.
     """
     if not parsed_lines:
         return None
     counter = Counter(s for s, _ in parsed_lines)
     if not counter:
         return None
-
-    ordered = counter.most_common()
-    # First pass: skip likely-user senders.
-    for name, _ in ordered:
-        if not is_likely_user(
-            name,
-            user_name=user_name,
-            user_aliases=user_aliases,
-            user_email=user_email,
-        ):
-            return name
-    # All look like user — return the most-active one with a warning upstream.
-    return ordered[0][0]
+    return counter.most_common(1)[0][0]
 
 
-def _build_stratified_sample(
-    parsed_lines: list[ParsedLine], *, target: str, max_chars: int
+def _format_representative_transcript(
+    *, parsed_lines: list[ParsedLine], target: str, max_chars: int
 ) -> str:
-    """Build a sample with beginning / middle / end slices.
+    """Render a representative transcript sample.
 
-    Within each slice we include both target and other senders (other senders
-    give Claude conversational context — needed to read tone).
+    The old implementation used the first N characters, which often overfit to
+    greetings and missed recent habits. This sampler keeps beginning/middle/end
+    windows and gives extra budget to TARGET lines while preserving enough OTHER
+    context for response style.
     """
     header = (
         f"TARGET PERSON: {target}\n\n"
-        f"Transcript excerpts (analyze ONLY the TARGET's messages — OTHER "
-        f"messages are context). Excerpts come from beginning, middle, and "
-        f"recent portions of the conversation.\n\n"
+        "Transcript sample (analyze ONLY TARGET messages).\n"
+        "The sample is representative, not complete. Mimic style, not identity.\n\n"
     )
-
-    total = len(parsed_lines)
-    if total == 0:
+    budget = max_chars - len(header)
+    if budget <= 1000:
         return header
 
-    # Budget allocation: 30% beginning, 30% middle, 40% end (recent style
-    # weights more in present-day extraction).
-    budget = max_chars - len(header)
-    chunk_budget = (int(budget * 0.30), int(budget * 0.30), int(budget * 0.40))
+    selected = _select_representative_lines(parsed_lines, target=target, max_lines=260)
+    rendered = _render_lines(selected, target=target)
 
-    # Slice boundaries.
-    third = max(1, total // 3)
-    slices = [
-        ("Beginning", parsed_lines[:third]),
-        ("Middle", parsed_lines[third : 2 * third]),
-        ("Recent", parsed_lines[2 * third :]),
+    if len(rendered) <= budget:
+        return header + rendered
+
+    # If still too long, prioritize target lines but keep nearby context marker.
+    target_only = [(sender, text) for sender, text in selected if sender == target]
+    rendered_target = _render_lines(target_only, target=target)
+    if len(rendered_target) <= budget:
+        return header + rendered_target + "\n[context omitted due to size]\n"
+
+    return header + rendered_target[:budget] + "\n[transcript sampled/truncated]\n"
+
+
+def _select_representative_lines(
+    parsed_lines: list[ParsedLine], *, target: str, max_lines: int
+) -> list[ParsedLine]:
+    if len(parsed_lines) <= max_lines:
+        return parsed_lines
+
+    # Three windows: early, middle, recent. Recent is slightly larger because
+    # it often reflects the current communication style better.
+    early_n = max_lines // 4
+    mid_n = max_lines // 4
+    recent_n = max_lines - early_n - mid_n
+
+    mid_start = max(0, (len(parsed_lines) // 2) - (mid_n // 2))
+    windows = [
+        parsed_lines[:early_n],
+        parsed_lines[mid_start : mid_start + mid_n],
+        parsed_lines[-recent_n:],
     ]
 
-    body_parts: list[str] = []
-    for (label, lines), budget_chars in zip(slices, chunk_budget):
-        if not lines or budget_chars <= 0:
-            continue
-        body_parts.append(f"--- {label} ---\n")
-        used = 0
-        for sender, text in lines:
-            prefix = "TARGET" if sender == target else "OTHER"
-            line = f"[{prefix}] {sender}: {text}\n"
-            if used + len(line) > budget_chars:
-                break
-            body_parts.append(line)
-            used += len(line)
-        body_parts.append("\n")
+    combined: list[ParsedLine] = []
+    seen_positions: set[int] = set()
+    for window in windows:
+        for line in window:
+            # Use object position by first matching index from current search.
+            # Duplicated messages can occur; de-dup by tuple only to avoid huge
+            # repeated export artifacts.
+            if line not in combined:
+                combined.append(line)
 
-    return header + "".join(body_parts)
+    # If target is underrepresented, add evenly spaced target messages.
+    target_lines = [(s, t) for s, t in parsed_lines if s == target]
+    target_in_combined = sum(1 for s, _ in combined if s == target)
+    desired_target = min(120, max(40, max_lines // 2), len(target_lines))
+    if target_in_combined < desired_target:
+        additions = _evenly_spaced(target_lines, desired_target - target_in_combined)
+        for line in additions:
+            if line not in combined:
+                combined.append(line)
+
+    return combined[: max_lines + 80]
 
 
-def _build_plain_sample(text: str, *, max_chars: int, target_name: str | None) -> str:
-    """Sample a plain text blob from beginning / middle / end."""
+def _evenly_spaced(items: list[ParsedLine], count: int) -> list[ParsedLine]:
+    if count <= 0 or not items:
+        return []
+    if len(items) <= count:
+        return items
+    step = (len(items) - 1) / max(1, count - 1)
+    return [items[round(i * step)] for i in range(count)]
+
+
+def _render_lines(lines: list[ParsedLine], *, target: str) -> str:
+    out: list[str] = []
+    for sender, text in lines:
+        prefix = "TARGET" if sender == target else "OTHER"
+        compact = " ".join(text.split())
+        out.append(f"[{prefix}] {sender}: {compact}\n")
+    return "".join(out)
+
+
+def _format_plain_text_sample(*, raw_text: str, target_sender: str | None, max_chars: int) -> str:
     header = (
-        f"Treat the following as a single person's writing samples "
-        f"(no labeled sender available). Target name: {target_name or 'Unknown'}.\n"
-        f"Excerpts are from different sections of the transcript.\n\n"
+        "Treat the following as one person's writing samples. "
+        f"Target name: {target_sender or 'Unknown'}.\n"
+        "The sample may be partial. Extract style, cadence, and texture only.\n\n"
     )
-
     budget = max_chars - len(header)
+    text = raw_text.strip()
     if len(text) <= budget:
-        return header + text
+        sample = text
+    else:
+        # beginning + middle + end beats first-N truncation for style.
+        third = max(1, budget // 3)
+        mid_start = max(0, (len(text) // 2) - (third // 2))
+        sample = (
+            text[:third]
+            + "\n\n[...middle sample...]\n\n"
+            + text[mid_start : mid_start + third]
+            + "\n\n[...recent/end sample...]\n\n"
+            + text[-third:]
+        )
+    return header + sample[:budget]
 
-    third = budget // 3
-    n = len(text)
-    return (
-        header
-        + "--- Beginning ---\n"
-        + text[:third]
-        + "\n\n--- Middle ---\n"
-        + text[n // 2 - third // 2 : n // 2 + third // 2]
-        + "\n\n--- Recent ---\n"
-        + text[-third:]
-    )
+
+def _sanitize_short_snippet(value: str, *, max_chars: int = _MAX_EXEMPLAR_CHARS) -> str:
+    """Remove obvious PII and keep snippet short.
+
+    This is not a perfect anonymizer, but it prevents accidental storage of the
+    most common sensitive tokens in exemplar fields. The extractor prompt also
+    instructs the model to skip/anonymize private details.
+    """
+    text = " ".join(value.strip().split())
+    if not text:
+        return ""
+    text = re.sub(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", "[email]", text)
+    text = re.sub(r"(?:\+?\d[\d\s().-]{7,}\d)", "[phone]", text)
+    text = text.replace("\u200e", "").replace("\u200f", "")
+    if len(text) > max_chars:
+        text = text[: max_chars - 1].rstrip() + "…"
+    return text
