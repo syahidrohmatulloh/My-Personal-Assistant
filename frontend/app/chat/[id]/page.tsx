@@ -1,23 +1,102 @@
 "use client";
 
+import { use, useCallback, useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowDown } from "lucide-react";
+
+import { Composer } from "@/components/chat/composer";
+import { TypingIndicator } from "@/components/chat/typing-indicator";
+import { MessageBubble } from "@/components/chat/message-bubble";
+import { ConversationStyleBadge } from "@/components/chat/conversation-style-badge";
+import { Skeleton } from "@/components/ui/skeleton";
+
 import {
-  use,
-  useCallback,
-  useEffect,
-  useRef,
-  useState } from "react"; import { useQuery,
-  useQueryClient } from "@tanstack/react-query"; import { ArrowDown } from "lucide-react"; import { Composer } from "@/components/chat/composer"; import { TypingIndicator } from "@/components/chat/typing-indicator"; import { MessageBubble } from "@/components/chat/message-bubble"; import { ConversationStyleBadge } from "@/components/chat/conversation-style-badge"; import { Skeleton } from "@/components/ui/skeleton"; import { getIdentity,
+  getIdentity,
   listMessages,
   streamChat,
   type ChatStreamMeta,
   type Identity,
   type Conversation,
-  type Message } from "@/lib/api"; import { setBackgroundMoodHint,
+  type Message,
+} from "@/lib/api";
+
+import {
   buildUiContextSnapshot,
   coerceBackgroundSettings,
   readBackgroundSettings,
   saveBackgroundSettings,
+  setBackgroundMoodHint,
 } from "@/lib/ambient-background";
+
+const LOCAL_MOOD_OVERRIDE_UNTIL_KEY = "assistant.background.localMoodOverrideUntil";
+
+function inferImmediateMoodHint(message: string) {
+  const lower = message.toLowerCase();
+
+  // Reset / end simulation
+  if (
+    /(udah|sudah|selesai|stop|berhenti|balik|normal|reset|udahan|cukup).{0,30}(simulasi|marah|kesel|mode|mood|normal|santai|calm|biasa)/i.test(lower) ||
+    /(balik lagi|normal lagi|santai lagi|udah tenang|sudah tenang|ga marah lagi|nggak marah lagi|tidak marah lagi)/i.test(lower)
+  ) {
+    return { mood: "calm", palette: "calm-blue" as const };
+  }
+
+  // Angry / annoyed, including simulation
+  if (
+    /(simulasi|simulate|roleplay|pura-pura|testing|test).{0,50}(marah|kesel|bete|emosi|angry|rage)/i.test(lower) ||
+    /(marah|kesel|sebel|bete|emosi|ngamuk|rage|angry|annoyed|frustrated|gua marah|aku marah|saya marah|gue marah)/i.test(lower)
+  ) {
+    return { mood: "annoyed", palette: "muted-amber" as const };
+  }
+
+  if (/(panik|cemas|takut|khawatir|stress|stres|anxious|panic|overwhelmed|deg-degan)/i.test(lower)) {
+    return { mood: "stressed", palette: "calm-teal" as const };
+  }
+
+  if (/(happy|senang|bahagia|excited|semangat|love|romantis|sayang|hepi|happy banget)/i.test(lower)) {
+    return { mood: "happy", palette: "warm-pink" as const };
+  }
+
+  if (/(mellow|sedih|galau|down|murung|refleksi|merenung|reflective|sad)/i.test(lower)) {
+    return { mood: "reflective", palette: "reflective-indigo" as const };
+  }
+
+  if (/(debug|coding|deploy|error|fix|teknis|serius|kerja|ngoding|production|build|terminal)/i.test(lower)) {
+    return { mood: "focused", palette: "focus-cyan" as const };
+  }
+
+  if (/(santai|chill|tenang|rileks|calm|ngobrol ringan|mode santai)/i.test(lower)) {
+    return { mood: "calm", palette: "calm-blue" as const };
+  }
+
+  return null;
+}
+
+function applyImmediateMoodHint(message: string) {
+  const hint = inferImmediateMoodHint(message);
+  if (!hint) return null;
+
+  setBackgroundMoodHint(hint);
+
+  if (typeof window !== "undefined") {
+    window.sessionStorage.setItem(
+      LOCAL_MOOD_OVERRIDE_UNTIL_KEY,
+      String(Date.now() + 45_000),
+    );
+  }
+
+  return hint;
+}
+
+function shouldKeepImmediateMoodOverBackend(incomingMood?: string | null) {
+  if (typeof window === "undefined") return false;
+
+  const until = Number(window.sessionStorage.getItem(LOCAL_MOOD_OVERRIDE_UNTIL_KEY) || "0");
+  if (!until || Date.now() > until) return false;
+
+  return !incomingMood || incomingMood === "calm" || incomingMood === "default";
+}
+
 
 type LocalMessage =
   | Message
@@ -156,6 +235,7 @@ export default function ConversationPage({
   const handleSend = useCallback(
     async (attachmentIds: string[] = []) => {
       const text = input.trim();
+    const immediateMoodHint = applyImmediateMoodHint(text);
       const hasContent = text.length > 0 || attachmentIds.length > 0;
       if (!hasContent || sending) return;
 
@@ -222,7 +302,7 @@ export default function ConversationPage({
               updated_at: old?.updated_at ?? null,
             }));
           }
-          if (event.mood || event.background_palette_hint) {
+          if ((event.mood || event.background_palette_hint) && !shouldKeepImmediateMoodOverBackend(event.mood)) {
             setBackgroundMoodHint({
               mood: event.mood,
               palette: event.background_palette_hint as any,
