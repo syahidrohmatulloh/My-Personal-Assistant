@@ -33,9 +33,16 @@ const MAX_UPLOAD_CHARS = 5_000_000;
 const LARGE_FILE_WARN_THRESHOLD = 200_000;
 
 type StyleData = {
+  // shared
   display_name?: string;
   dominant_language?: string;
   language_mixing?: string;
+  common_phrases?: string[];
+  do_not_copy?: string[];
+  compact_directive?: string;
+  schema_version?: number;
+
+  // v1 (legacy) — may be present on older profiles
   formality_level?: string;
   warmth_level?: string;
   directness_level?: string;
@@ -43,13 +50,23 @@ type StyleData = {
   emoji_usage?: string;
   average_reply_length?: string;
   greeting_style?: string;
-  closing_style?: string;
   conflict_style?: string;
-  support_style?: string;
   decision_making_style?: string;
-  common_phrases?: string[];
-  do_not_copy?: string[];
-  compact_directive?: string;
+
+  // v2 (rich)
+  message_shape?: string;
+  sentence_style?: string;
+  punctuation_habits?: string;
+  fillers_and_softeners?: string;
+  capitalization?: string;
+  emoji_pattern?: string;
+  affection_style?: string;
+  teasing_style?: string;
+  support_style?: string;
+  closing_style?: string;
+  initiation_pattern?: string;
+  response_tendency?: string;
+  exemplars?: string[];
 };
 
 export default function StyleProfilesPage() {
@@ -684,20 +701,50 @@ function PreviewStep({
 
       {style.compact_directive && (
         <div className="mb-3">
-          <p className="text-xs font-medium text-fg-muted mb-1">Style summary</p>
-          <p className="text-sm text-fg-soft leading-relaxed">
+          <p className="text-xs font-medium text-fg-muted mb-1">Style directive</p>
+          <p className="text-sm text-fg-soft leading-relaxed whitespace-pre-wrap">
             {style.compact_directive}
+          </p>
+        </div>
+      )}
+
+      {/* v2 exemplars block */}
+      {style.exemplars && style.exemplars.length > 0 && (
+        <div className="mb-3 p-2.5 rounded-lg bg-accent-soft/40 border border-accent/20">
+          <p className="text-xs font-medium text-fg mb-1.5">Style anchors (verbatim)</p>
+          <ul className="text-xs text-fg-soft space-y-1">
+            {style.exemplars.slice(0, 8).map((x, i) => (
+              <li key={i} className="font-mono text-[11px]">· &ldquo;{x}&rdquo;</li>
+            ))}
+          </ul>
+          <p className="text-[10px] text-fg-muted mt-1.5">
+            Used as texture references — assistant matches cadence and shape, never quotes verbatim.
           </p>
         </div>
       )}
 
       <div className="mb-3 grid grid-cols-2 gap-y-1 gap-x-3 text-xs">
         <Item label="Language" v={style.dominant_language} />
-        <Item label="Formality" v={style.formality_level} />
-        <Item label="Warmth" v={style.warmth_level} />
-        <Item label="Directness" v={style.directness_level} />
-        <Item label="Emoji" v={style.emoji_usage} />
-        <Item label="Length" v={style.average_reply_length} />
+        <Item label="Mixing" v={style.language_mixing} />
+        {/* v2 fields */}
+        <Item label="Message shape" v={style.message_shape} />
+        <Item label="Sentence style" v={style.sentence_style} />
+        <Item label="Punctuation" v={style.punctuation_habits} />
+        <Item label="Capitalization" v={style.capitalization} />
+        <Item label="Emoji" v={style.emoji_pattern || style.emoji_usage} />
+        <Item label="Fillers" v={style.fillers_and_softeners} />
+        <Item label="Affection" v={style.affection_style} />
+        <Item label="Teasing" v={style.teasing_style} />
+        <Item label="Support" v={style.support_style} />
+        <Item label="Closing" v={style.closing_style} />
+        {/* v1 fallback (only if v2 missing) */}
+        {!style.message_shape && (
+          <>
+            <Item label="Formality" v={style.formality_level} />
+            <Item label="Warmth" v={style.warmth_level} />
+            <Item label="Length" v={style.average_reply_length} />
+          </>
+        )}
       </div>
 
       {style.do_not_copy && style.do_not_copy.length > 0 && (
@@ -816,8 +863,15 @@ function ProfileCard({
           ) : (
             <p className="text-sm font-medium text-fg">{profile.profile_name}</p>
           )}
-          <p className="text-xs text-fg-muted mt-1">
-            {profile.source_type} · {profile.sample_count} messages analyzed
+          <p className="text-xs text-fg-muted mt-1 flex items-center gap-1.5 flex-wrap">
+            <span>
+              {profile.source_type} · {profile.sample_count} messages analyzed
+            </span>
+            {!style.message_shape && !style.exemplars?.length && (
+              <span className="px-1.5 py-0.5 rounded-md bg-fg/10 text-fg-soft text-[10px] uppercase tracking-wider">
+                Legacy format
+              </span>
+            )}
           </p>
           {style.compact_directive && (
             <p className="text-xs text-fg-soft mt-2 leading-relaxed">
@@ -854,25 +908,52 @@ function ProfileCard({
 }
 
 function ProfileDetails({ style }: { style: StyleData }) {
-  const rows: [string, string | undefined | string[]][] = [
-    ["Language", style.dominant_language],
-    ["Mixing", style.language_mixing],
-    ["Formality", style.formality_level],
-    ["Warmth", style.warmth_level],
-    ["Directness", style.directness_level],
-    ["Humor", style.humor_style],
-    ["Emoji use", style.emoji_usage],
-    ["Reply length", style.average_reply_length],
-    ["Greeting", style.greeting_style],
-    ["Closing", style.closing_style],
-    ["Conflict", style.conflict_style],
-    ["Support", style.support_style],
-    ["Decisions", style.decision_making_style],
-    ["Common phrases", style.common_phrases],
-    ["Do not copy", style.do_not_copy],
-  ];
+  // v2 fields take precedence; v1 fields shown only if v2 absent.
+  const isV2 = !!style.message_shape || !!style.exemplars?.length;
+  const rows: [string, string | undefined | string[]][] = isV2
+    ? [
+        ["Language", style.dominant_language],
+        ["Mixing", style.language_mixing],
+        ["Message shape", style.message_shape],
+        ["Sentence style", style.sentence_style],
+        ["Punctuation", style.punctuation_habits],
+        ["Capitalization", style.capitalization],
+        ["Fillers", style.fillers_and_softeners],
+        ["Emoji", style.emoji_pattern],
+        ["Affection", style.affection_style],
+        ["Teasing", style.teasing_style],
+        ["Support", style.support_style],
+        ["Closing", style.closing_style],
+        ["Initiation", style.initiation_pattern],
+        ["Response tendency", style.response_tendency],
+        ["Exemplars", style.exemplars],
+        ["Common phrases", style.common_phrases],
+        ["Do not copy", style.do_not_copy],
+      ]
+    : [
+        ["Language", style.dominant_language],
+        ["Mixing", style.language_mixing],
+        ["Formality", style.formality_level],
+        ["Warmth", style.warmth_level],
+        ["Directness", style.directness_level],
+        ["Humor", style.humor_style],
+        ["Emoji use", style.emoji_usage],
+        ["Reply length", style.average_reply_length],
+        ["Greeting", style.greeting_style],
+        ["Closing", style.closing_style],
+        ["Conflict", style.conflict_style],
+        ["Support", style.support_style],
+        ["Decisions", style.decision_making_style],
+        ["Common phrases", style.common_phrases],
+        ["Do not copy", style.do_not_copy],
+      ];
   return (
     <dl className="mt-3 space-y-1 text-xs">
+      {!isV2 && (
+        <p className="text-[11px] text-fg-muted italic mb-2">
+          Older profile format. Re-analyze for richer style capture.
+        </p>
+      )}
       {rows.map(([k, v]) =>
         v && (Array.isArray(v) ? v.length > 0 : true) ? (
           <div key={k} className="flex gap-2">

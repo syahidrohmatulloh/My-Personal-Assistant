@@ -368,11 +368,11 @@ async def _generate_title(
 
 
 def _fetch_style_directive(user_id: str, style_profile_id: str) -> str | None:
-    """Load the style profile and render a compact directive block.
+    """Load style profile and render a directive block for the system prompt.
 
-    Always prepends a safety preamble: the assistant is adopting style, NOT
-    impersonating the source person. The do_not_copy list also enters the
-    prompt explicitly so Claude knows what to avoid reproducing.
+    Schema-aware: v2 profiles include exemplars + concrete patterns and get
+    a much richer prompt. v1 (legacy) profiles get the minimal renderer.
+    Either way, safety preamble is non-negotiable.
     """
     try:
         supabase = get_supabase()
@@ -391,22 +391,93 @@ def _fetch_style_directive(user_id: str, style_profile_id: str) -> str | None:
         if not directive:
             return None
 
-        do_not_copy = style.get("do_not_copy") or []
-        avoid_block = ""
-        if do_not_copy:
-            items = "\n".join(f"  - {x}" for x in do_not_copy[:10])
-            avoid_block = f"\nDo NOT reproduce or reference these:\n{items}"
-
-        return (
-            "## Communication style for this conversation\n"
-            f"{directive}\n"
-            "\n"
-            "**Important boundaries:**\n"
-            "- This is STYLE adaptation only. You are still the user's assistant.\n"
-            "- NEVER claim to be the source person. NEVER use their name in first person.\n"
-            "- NEVER reproduce private details from their messages."
-            f"{avoid_block}"
-        )
+        version = style.get("schema_version") or 1
+        if version >= 2:
+            return _render_v2_directive(style)
+        return _render_v1_directive(style)
     except Exception as exc:
         log.warning("style directive fetch failed: %s", exc)
         return None
+
+
+def _render_v2_directive(style: dict) -> str:
+    """Rich renderer for v2 profiles: exemplars + concrete patterns +
+    explicit override of baseline 'polished' behavior."""
+    directive = (style.get("compact_directive") or "").strip()
+    exemplars = [e for e in (style.get("exemplars") or []) if isinstance(e, str) and e.strip()][:10]
+    phrases = [p for p in (style.get("common_phrases") or []) if isinstance(p, str) and p.strip()][:15]
+    do_not_copy = [d for d in (style.get("do_not_copy") or []) if isinstance(d, str) and d.strip()][:10]
+
+    parts: list[str] = ["## Communication style for this conversation", "", directive]
+
+    if exemplars:
+        parts.append("")
+        parts.append("**Style anchors — examples of how this person actually writes:**")
+        for ex in exemplars:
+            parts.append(f'  · "{ex}"')
+        parts.append("")
+        parts.append(
+            "Use these as TEXTURE references — match their cadence, "
+            "fragmentation, punctuation, and filler patterns. Do NOT quote them "
+            "verbatim back to the user; they're for shape, not for content."
+        )
+
+    if phrases:
+        parts.append("")
+        parts.append(f"**Fillers/phrases they use naturally:** {', '.join(phrases)}")
+        parts.append("Drop these in where they fit. Do not force them.")
+
+    # Override baseline behavior — without this, BASE_PROMPT's "complete
+    # sentences" and "no excessive emoji" rules suppress the style.
+    parts.extend([
+        "",
+        "**Override the assistant's default polished register for this conversation.**",
+        "- If their style is fragmented, send fragmented short replies — not one balanced paragraph.",
+        "- If their punctuation is loose, be loose. Drop periods if they do.",
+        "- If their capitalization is informal, follow it.",
+        "- Imperfect texting flow over polished AI prose.",
+        "- BUT: still serve the user's actual question or need. Style shapes HOW you reply, not WHAT you reply about.",
+    ])
+
+    parts.extend([
+        "",
+        "**Hard boundaries (these always win over style):**",
+        "- This is STYLE adaptation only. You are still the user's assistant.",
+        "- NEVER claim to be the source person. NEVER speak as if you ARE them.",
+        "- NEVER reproduce private details from their messages.",
+        "- If the user asks 'are you Anna?' or similar — answer honestly that you're their assistant adopting a style.",
+    ])
+
+    if do_not_copy:
+        parts.append("- NEVER reproduce or reference these specific items:")
+        for item in do_not_copy:
+            parts.append(f"    · {item}")
+
+    return "\n".join(parts)
+
+
+def _render_v1_directive(style: dict) -> str:
+    """Minimal renderer for legacy v1 profiles. Suggests user re-analyze."""
+    directive = (style.get("compact_directive") or "").strip()
+    do_not_copy = [d for d in (style.get("do_not_copy") or []) if isinstance(d, str)][:10]
+
+    parts: list[str] = [
+        "## Communication style for this conversation",
+        "",
+        directive,
+        "",
+        "**Override the assistant's default polished register for this conversation.**",
+        "If the style above implies short/fragmented messages, send those — not one balanced paragraph.",
+        "",
+        "**Hard boundaries:**",
+        "- STYLE adaptation only. You are still the user's assistant.",
+        "- NEVER claim to be the source person.",
+        "- NEVER reproduce private details.",
+    ]
+    if do_not_copy:
+        parts.append("- NEVER reproduce these:")
+        for item in do_not_copy:
+            parts.append(f"    · {item}")
+    parts.append("")
+    parts.append("(Note: this profile uses an older format. Re-analyze in Settings → Style Profiles for richer texture.)")
+    return "\n".join(parts)

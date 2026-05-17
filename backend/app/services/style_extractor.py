@@ -49,72 +49,144 @@ class StyleProfile(BaseModel):
     a slightly verbose profile than reject Haiku's output entirely. Truncation
     happens in a validator below."""
 
+class StyleProfile(BaseModel):
+    """Rich style profile (v2). Extraction focuses on actionable patterns
+    Claude can imitate, plus literal verbatim snippets ("exemplars") that
+    anchor the texture in the system prompt.
+
+    v1 profiles had abstract scales like warmth_level: "warm" — Claude
+    couldn't act on those. v2 fields describe concrete behaviors and carry
+    actual short snippets from the source person.
+    """
+
+    # Schema version. Older profiles (no schema_version) are v1 and the
+    # prompt builder renders them differently. Newer profiles are v2.
+    schema_version: int = Field(default=2)
+
     display_name: str = Field(min_length=1, max_length=200)
     dominant_language: str = Field(min_length=1, max_length=120)
     language_mixing: str = Field(default="", max_length=400)
 
-    formality_level: str = Field(default="", max_length=120)
-    warmth_level: str = Field(default="", max_length=120)
-    directness_level: str = Field(default="", max_length=120)
+    # === Conversational rhythm ===
+    # How messages are SHAPED on the screen — fragmentation, length, pacing
+    message_shape: str = Field(default="", max_length=500)
+    # e.g. "Sends 2-4 short messages back to back, fragmented mid-thought"
 
-    humor_style: str = Field(default="", max_length=300)
-    emoji_usage: str = Field(default="", max_length=300)
-    average_reply_length: str = Field(default="", max_length=200)
+    sentence_style: str = Field(default="", max_length=500)
+    # e.g. "Incomplete sentences, drops subjects, runs words together"
 
-    greeting_style: str = Field(default="", max_length=300)
+    punctuation_habits: str = Field(default="", max_length=400)
+    # e.g. "Rarely uses periods. Multiple exclamation marks for emphasis.
+    #       Uses '..' instead of '...'. Lowercase always."
+
+    # === Linguistic texture ===
+    fillers_and_softeners: str = Field(default="", max_length=400)
+    # e.g. "Heavy use of 'sih', 'kan', 'yaa', 'kok'. English filler: 'like'."
+
+    capitalization: str = Field(default="", max_length=200)
+    # e.g. "All lowercase always" or "Sentence case, no all-caps"
+
+    emoji_pattern: str = Field(default="", max_length=400)
+    # e.g. "Rare. Only 😭 for self-deprecation, 🥹 for affection."
+
+    # === Emotional texture ===
+    affection_style: str = Field(default="", max_length=400)
+    # e.g. "Subtle. Uses 'beb' or 'sayang' once per conversation, not more."
+
+    teasing_style: str = Field(default="", max_length=400)
+    # e.g. "Gentle teasing followed by reassurance within 2 messages."
+
+    support_style: str = Field(default="", max_length=400)
+    # e.g. "Practical first ('udah makan?'), emotional second."
+
     closing_style: str = Field(default="", max_length=300)
-    conflict_style: str = Field(default="", max_length=300)
-    support_style: str = Field(default="", max_length=300)
-    decision_making_style: str = Field(default="", max_length=300)
+    # e.g. "Trails off without closing. Or short 'ok ttyl'."
 
+    # === Conversational asymmetry ===
+    initiation_pattern: str = Field(default="", max_length=300)
+    # e.g. "Often initiates with a question or observation, not greeting"
+
+    response_tendency: str = Field(default="", max_length=300)
+    # e.g. "Reacts more than initiates. Mirrors the other person's energy."
+
+    # === Exemplars — LITERAL verbatim snippets from the source ===
+    # These are the texture anchors that make imitation recognizable.
+    # Each: a short message exactly as the source person wrote it.
+    exemplars: list[str] = Field(default_factory=list, max_length=15)
+
+    # Common short phrases/fillers extracted verbatim (separate from exemplars
+    # because phrases are 1-3 words, exemplars are whole short messages).
     common_phrases: list[str] = Field(default_factory=list, max_length=20)
+
+    # Content the assistant must NEVER reproduce — sensitive names, secrets,
+    # intimate references. Extractor errs on the side of including more.
     do_not_copy: list[str] = Field(default_factory=list, max_length=20)
 
-    # Compact prose directive (~50-80 tokens) for the system prompt.
-    compact_directive: str = Field(min_length=10, max_length=800)
+    # Compact actionable directive — used at every chat turn.
+    compact_directive: str = Field(min_length=10, max_length=1200)
 
 
-EXTRACTOR_SYSTEM_PROMPT = """You analyze chat messages from ONE specific person \
-and extract their communication style. Output strict JSON only.
+EXTRACTOR_SYSTEM_PROMPT = """You analyze chat messages from ONE specific person and extract their communication style as actionable patterns + literal short snippets. Output strict JSON only.
 
-# Output schema (ALL keys required, even if value is "unclear" or [])
+# CRITICAL: This is for an AI assistant to IMITATE conversational TEXTURE, not impersonate identity. Extract patterns that make their texting recognizable: rhythm, fragmentation, fillers, punctuation. Avoid extracting full sentences or personal content.
+
+# Output schema (ALL keys required)
 
 {
-  "display_name": "the person's name as it appears",
-  "dominant_language": "English | Indonesian | Mandarin | mixed | ...",
-  "language_mixing": "describe pattern if mixed, e.g. 'Indonesian base with English tech terms'",
-  "formality_level": "very casual | casual | neutral | formal | very formal",
-  "warmth_level": "cold | reserved | neutral | warm | very warm",
-  "directness_level": "very indirect | indirect | balanced | direct | blunt",
-  "humor_style": "describe in <12 words",
-  "emoji_usage": "none | rare | occasional | frequent | heavy — and which kinds",
-  "average_reply_length": "very short (<5 words) | short | medium | long | varies",
-  "greeting_style": "how they open — quote one example",
-  "closing_style": "how they close — quote one example or 'no consistent closing'",
-  "conflict_style": "how they handle disagreement",
-  "support_style": "how they comfort/support others",
-  "decision_making_style": "how they reason or commit",
-  "common_phrases": ["up to 8 phrases they repeat — VERBATIM short snippets only, no full sentences"],
-  "do_not_copy": ["sensitive content the assistant must NEVER reproduce — names, secrets, private details, intimate references"],
-  "compact_directive": "ONE prose sentence the assistant will read each turn. Describe the style WITHOUT naming the person. Example: 'Casual Indonesian-English mix, short replies, warm but teasing tone, sparing emoji, practical reassurance, decisions made by listing pros then deciding.'"
+  "schema_version": 2,
+  "display_name": "the person's name as it appears in the transcript",
+  "dominant_language": "Indonesian | English | Mandarin | mixed | etc",
+  "language_mixing": "if mixed: WHERE switching happens. e.g. 'Indonesian base; English for tech terms or jokes; switches to Indonesian when emotional'. Else: 'monolingual'",
+
+  "message_shape": "How they SHAPE messages on screen. Fragmented across multiple messages? Single long blocks? Examples: 'Sends 2-4 short messages back to back instead of one paragraph', 'One long message per turn', 'Mixes: short for quick reaction, long when explaining'",
+
+  "sentence_style": "Complete vs fragmented sentences. Subject drops. Run-ons. e.g. 'Drops subjects often (\\"udah makan?\\" instead of \\"kamu udah makan?\\"). Incomplete sentences. Conversational fragments.'",
+
+  "punctuation_habits": "Period usage, exclamations, ellipses, repeated letters. e.g. 'Rarely uses periods. Doubles or triples letters for emphasis (\\"okayy\\", \\"hmmmm\\"). Uses \\"..\\" instead of \\"...\\". One exclamation max.'",
+
+  "fillers_and_softeners": "VERBATIM list of fillers/particles they actually use. e.g. 'sih, kan, yaa, kok, deh, dong, lah'. English: 'like, lol, lmao, idk'. Quote exactly as written.",
+
+  "capitalization": "e.g. 'All lowercase always' | 'Sentence case' | 'Starts capitalized then drops mid-sentence'",
+
+  "emoji_pattern": "Which emojis specifically, how often, what context. e.g. 'Almost none. Occasional 😭 for embarrassment, 🥹 for affection. Never uses 👍 or 🙏'",
+
+  "affection_style": "How they show warmth. e.g. 'Subtle. Uses nickname \\"beb\\" or \\"sayang\\" once per conversation. Asks practical care questions (\\"udah makan?\\", \\"jangan lupa istirahat\\")'",
+
+  "teasing_style": "Do they tease? How? e.g. 'Gentle teasing then reassurance: \\"haha gaje\\" → \\"becanda yaa\\"' or 'Not a teaser, mostly earnest'",
+
+  "support_style": "How they comfort. e.g. 'Practical first (\\"udah makan?\\"), emotional acknowledgment second. Avoids advice-giving.'",
+
+  "closing_style": "How they end conversations. e.g. 'Trails off, no formal closing. Or just \\"ok ttyl 👋\\"' | 'No consistent closing'",
+
+  "initiation_pattern": "How they OPEN conversations. e.g. 'Direct question or observation, no \\"hi\\" first' | 'Always greets first with \\"hey\\"'",
+
+  "response_tendency": "Initiator vs reactor. Match energy or set energy? e.g. 'Reacts more than initiates. Matches the other person's energy and length.'",
+
+  "exemplars": [
+    "5-12 SHORT messages quoted EXACTLY as the person wrote them. Pick variety: a short reaction, a longer explanation, a fragment, an affectionate one, a teasing one, a question. KEEP THEM SHORT (under 80 chars each). Do NOT pick messages with private details, full names of other people, specific dates, or intimate content."
+  ],
+
+  "common_phrases": [
+    "Short verbatim fillers/phrases they repeat. 1-3 words each. e.g. ['sih', 'wkwk', 'iya gpp', 'kayak gitu']"
+  ],
+
+  "do_not_copy": [
+    "Private/sensitive content the assistant must NEVER reproduce. Specific personal names (other than target's display name), pet names, addresses, contacts, intimate references, secrets, anything that would be weird to hear from an AI. Be conservative."
+  ],
+
+  "compact_directive": "A 60-150 word directive the assistant reads every turn. Be SPECIFIC and ACTIONABLE. Quote the actual fillers, mention the actual punctuation habits, describe the actual cadence. Example structure: 'Send fragmented short messages (2-3 per turn) rather than one block. All lowercase. Rarely use periods, sometimes use \\"..\\". Mix Indonesian base with English for tech or jokes. Use fillers: sih, yaa, kok, wkwk. Affection through practical care questions (\\"udah makan?\\"), not declarations. Tease gently then reassure within the same exchange. Match the other person's energy rather than setting your own. Trail off rather than closing formally.'"
 }
 
-# Rules
+# Hard rules
 
-- Analyze ONLY the target person's messages — ignore the other party's style.
-- "common_phrases" must be short snippets actually present in the transcript. \
-NOT made up. If you can't find any, return [].
-- "do_not_copy" identifies content the assistant must avoid reproducing: \
-private names, romantic/intimate references, secrets, anything sensitive. \
-Be conservative — when in doubt, include it.
-- "compact_directive" is the most important field. It will be injected into \
-the assistant's system prompt. Write it as STYLE guidance, never as identity \
-("be like Anna"). Use phrases like "casual tone, short replies, warm but \
-teasing", NOT "talk like Anna".
-- If the transcript is too thin or unclear to determine a field, use "unclear" \
-for strings or [] for lists.
+- VERBATIM means VERBATIM. Quote exactly as the person wrote (typos, lowercase, repeated letters preserved).
+- Exemplars MUST be from the transcript. Do not generate examples. If uncertain, use empty array.
+- Exemplars MUST be short standalone messages (under 80 chars). Skip anything with private content.
+- do_not_copy: include third-party names mentioned in messages, location names, anything intimate, anything specific that would be unsettling for an AI to reference.
+- compact_directive is THE most important field. It is read every chat turn. Make it specific, quote actual fillers/patterns, describe actual cadence — not abstract levels.
+- If the transcript is thin/unclear for a field, use "" for strings or [] for lists. Don't invent.
 
-Output ONLY the JSON object. No prose, no markdown fences, no commentary."""
+Output ONLY the JSON object. No prose, no markdown fences."""
 
 
 async def extract_style(
@@ -207,7 +279,7 @@ async def extract_style(
         claude = get_claude()
         response = await claude.messages.create(
             model="claude-haiku-4-5",
-            max_tokens=3000,
+            max_tokens=4000,
             system=EXTRACTOR_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": transcript}],
         )
@@ -276,35 +348,36 @@ _FIELD_CAPS: dict[str, int] = {
     "display_name": 200,
     "dominant_language": 120,
     "language_mixing": 400,
-    "formality_level": 120,
-    "warmth_level": 120,
-    "directness_level": 120,
-    "humor_style": 300,
-    "emoji_usage": 300,
-    "average_reply_length": 200,
-    "greeting_style": 300,
+    "message_shape": 500,
+    "sentence_style": 500,
+    "punctuation_habits": 400,
+    "fillers_and_softeners": 400,
+    "capitalization": 200,
+    "emoji_pattern": 400,
+    "affection_style": 400,
+    "teasing_style": 400,
+    "support_style": 400,
     "closing_style": 300,
-    "conflict_style": 300,
-    "support_style": 300,
-    "decision_making_style": 300,
-    "compact_directive": 800,
+    "initiation_pattern": 300,
+    "response_tendency": 300,
+    "compact_directive": 1200,
 }
 
-# Required string fields that get a default if Haiku omits them. The
-# StyleProfile model also defines defaults — this layer is belt-and-suspenders.
+# Required string fields that get a default if Haiku omits them.
 _REQUIRED_STRING_DEFAULTS: dict[str, str] = {
-    "language_mixing": "unclear",
-    "formality_level": "unclear",
-    "warmth_level": "unclear",
-    "directness_level": "unclear",
-    "humor_style": "unclear",
-    "emoji_usage": "unclear",
-    "average_reply_length": "unclear",
-    "greeting_style": "unclear",
-    "closing_style": "unclear",
-    "conflict_style": "unclear",
+    "language_mixing": "monolingual",
+    "message_shape": "unclear",
+    "sentence_style": "unclear",
+    "punctuation_habits": "unclear",
+    "fillers_and_softeners": "unclear",
+    "capitalization": "unclear",
+    "emoji_pattern": "unclear",
+    "affection_style": "unclear",
+    "teasing_style": "unclear",
     "support_style": "unclear",
-    "decision_making_style": "unclear",
+    "closing_style": "unclear",
+    "initiation_pattern": "unclear",
+    "response_tendency": "unclear",
 }
 
 
@@ -329,16 +402,21 @@ def _trim_profile_fields(d: dict) -> dict:
         if not out.get(key):
             out[key] = default
 
-    # Cap list fields
-    for key in ("common_phrases", "do_not_copy"):
+    # Cap list fields. Exemplars allow longer per-item (full short messages);
+    # other lists are short phrases.
+    list_specs = {
+        "exemplars": (15, 200),         # max items, max chars per item
+        "common_phrases": (20, 80),
+        "do_not_copy": (20, 200),
+    }
+    for key, (max_items, max_chars) in list_specs.items():
         v = out.get(key)
         if isinstance(v, list):
-            # Drop non-string entries, cap each at 200 chars, take first 20
             cleaned: list[str] = []
             for item in v:
                 if isinstance(item, str) and item.strip():
-                    cleaned.append(item[:200])
-            out[key] = cleaned[:20]
+                    cleaned.append(item[:max_chars])
+            out[key] = cleaned[:max_items]
         elif v is None:
             out[key] = []
 
