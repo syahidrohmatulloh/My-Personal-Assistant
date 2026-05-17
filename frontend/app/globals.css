@@ -759,3 +759,40 @@ button, a, [role="button"] {
   }
 }
 
+
+/* Clear selected state for background setting cards */
+button[data-selected="true"] {
+  position: relative;
+}
+
+button[data-selected="true"]::after {
+  content: "✓";
+  position: absolute;
+  right: 0.75rem;
+  top: 0.75rem;
+  display: grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: rgb(var(--bg));
+  background: rgb(var(--fg));
+  box-shadow: 0 8px 24px rgb(var(--fg) / 0.16);
+}
+
+/* Fluid WebGL is now an overlay/effect, not a standalone style. */
+.ambient-background .cosmic-fluid-mount {
+  mix-blend-mode: screen;
+  opacity: 0.72;
+}
+
+.ambient-background.ambient-intensity-low .cosmic-fluid-mount {
+  opacity: 0.48;
+}
+
+.ambient-background.ambient-intensity-medium .cosmic-fluid-mount {
+  opacity: 0.78;
+}
+

@@ -1,6 +1,7 @@
 export const BACKGROUND_STYLE_STORAGE_KEY = "assistant.background.style";
 export const BACKGROUND_INTENSITY_STORAGE_KEY = "assistant.background.intensity";
 export const BACKGROUND_MOTION_STORAGE_KEY = "assistant.background.motion";
+export const BACKGROUND_EFFECT_STORAGE_KEY = "assistant.background.effect";
 export const BACKGROUND_MODE_STORAGE_KEY = "assistant.background.mode";
 export const BACKGROUND_MOOD_STORAGE_KEY = "assistant.background.mood";
 export const BACKGROUND_PALETTE_STORAGE_KEY = "assistant.background.palette";
@@ -10,7 +11,6 @@ export const BACKGROUND_MOOD_EVENT = "assistant-background-mood";
 export const BACKGROUND_STYLES = [
   "off",
   "cosmic-plasma",
-  "cosmic-fluid-webgl",
   "nebula-drift",
   "micro-particle-flow",
   "orbital-rings",
@@ -29,6 +29,7 @@ export const BACKGROUND_PALETTES = [
 export type BackgroundStyle = (typeof BACKGROUND_STYLES)[number];
 export type BackgroundIntensity = "low" | "medium";
 export type BackgroundMode = "manual" | "mood-based";
+export type BackgroundEffect = "standard" | "fluid-webgl";
 export type BackgroundPalette = (typeof BACKGROUND_PALETTES)[number];
 
 export type BackgroundSettings = {
@@ -36,6 +37,7 @@ export type BackgroundSettings = {
   intensity: BackgroundIntensity;
   motion: boolean;
   mode: BackgroundMode;
+  effect: BackgroundEffect;
 };
 
 export type BackgroundMoodHint = {
@@ -45,6 +47,7 @@ export type BackgroundMoodHint = {
 
 export const DEFAULT_BACKGROUND_SETTINGS: BackgroundSettings = {
   style: "nebula-drift",
+  effect: "standard",
   intensity: "low",
   motion: true,
   mode: "manual",
@@ -58,7 +61,6 @@ export const DEFAULT_BACKGROUND_MOOD: BackgroundMoodHint = {
 export const BACKGROUND_STYLE_LABELS: Record<BackgroundStyle, string> = {
   off: "Off",
   "cosmic-plasma": "Cosmic Plasma",
-  "cosmic-fluid-webgl": "Cosmic Fluid WebGL",
   "nebula-drift": "Nebula Drift",
   "micro-particle-flow": "Micro Particle Flow",
   "orbital-rings": "Orbital Rings",
@@ -68,7 +70,6 @@ export const BACKGROUND_STYLE_LABELS: Record<BackgroundStyle, string> = {
 export const BACKGROUND_STYLE_DESCRIPTIONS: Record<BackgroundStyle, string> = {
   off: "Disable the ambient layer entirely.",
   "cosmic-plasma": "A soft Opera Neon-inspired plasma aura.",
-  "cosmic-fluid-webgl": "GPU-rendered cosmic fluid with mood-reactive color blending.",
   "nebula-drift": "Slow atmospheric clouds with low-contrast color depth.",
   "micro-particle-flow": "A subtle dotted flow field behind the interface.",
   "orbital-rings": "Thin elliptical rings with very slow orbital motion.",
@@ -109,11 +110,25 @@ function coercePalette(value: string | null): BackgroundPalette {
     : DEFAULT_BACKGROUND_MOOD.palette;
 }
 
+
+
+export function readBackgroundEffect(): BackgroundEffect {
+  if (typeof window === "undefined") return "standard";
+  const raw = window.localStorage.getItem(BACKGROUND_EFFECT_STORAGE_KEY);
+  return raw === "fluid-webgl" ? "fluid-webgl" : "standard";
+}
+
+export function saveBackgroundEffect(effect: BackgroundEffect) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(BACKGROUND_EFFECT_STORAGE_KEY, effect);
+}
+
 export function readBackgroundSettings(): BackgroundSettings {
   if (typeof window === "undefined") return DEFAULT_BACKGROUND_SETTINGS;
 
   return {
     style: coerceStyle(window.localStorage.getItem(BACKGROUND_STYLE_STORAGE_KEY)),
+    effect: readBackgroundEffect(),
     intensity: coerceIntensity(
       window.localStorage.getItem(BACKGROUND_INTENSITY_STORAGE_KEY),
     ),

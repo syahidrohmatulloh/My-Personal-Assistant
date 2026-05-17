@@ -1,5 +1,15 @@
 "use client";
 
+const BACKGROUND_EFFECT_LABELS: Record<string, string> = {
+  standard: "Standard",
+  "fluid-webgl": "Fluid WebGL",
+};
+
+const BACKGROUND_EFFECT_DESCRIPTIONS: Record<string, string> = {
+  standard: "Use the selected background as-is.",
+  "fluid-webgl": "Add a smooth GPU fluid layer on top of the selected background.",
+};
+
 import { useEffect, useState } from "react";
 import {
   BACKGROUND_MODE_DESCRIPTIONS,
@@ -14,6 +24,7 @@ import {
   readBackgroundMoodHint,
   readBackgroundSettings,
   saveBackgroundSettings,
+  saveBackgroundEffect,
 } from "@/lib/ambient-background";
 import { cn } from "@/lib/utils";
 
@@ -32,7 +43,15 @@ export function BackgroundStyleSettings() {
 
   const moodHint = typeof window === "undefined" ? null : readBackgroundMoodHint();
 
-  return (
+  
+  const handleEffectChange = (effect: "standard" | "fluid-webgl") => {
+    const next = { ...settings, effect };
+    setSettings(next);
+    saveBackgroundEffect(effect);
+    window.dispatchEvent(new Event("assistant.background.settings.changed"));
+  };
+
+return (
     <div className="glass rounded-2xl p-4 sm:p-5 space-y-5">
       <div>
         <h3 className="text-sm font-semibold text-fg">Background Style</h3>

@@ -50,8 +50,7 @@ export function AmbientBackground() {
     () => (settings.mode === "mood-based" ? mood.palette : null),
     [settings.mode, mood.palette],
   );
-
-  const isWebglBackground = settings.style === "cosmic-fluid-webgl";
+  const useFluidEffect = settings.effect === "fluid-webgl";
   const webglPalette = (effectivePalette ?? "calm-blue") as BackgroundPalette;
 
   if (settings.style === "off") return null;
@@ -71,19 +70,18 @@ export function AmbientBackground() {
         !settings.motion && "ambient-static",
       )}
     >
-      {isWebglBackground ? (
+      <span className="ambient-layer ambient-layer-a" />
+      <span className="ambient-layer ambient-layer-b" />
+      <span className="ambient-layer ambient-layer-c" />
+
+      {useFluidEffect && (
         <CosmicFluidBackground
           palette={webglPalette}
           intensity={settings.intensity}
           motion={settings.motion}
         />
-      ) : (
-        <>
-          <span className="ambient-layer ambient-layer-a" />
-          <span className="ambient-layer ambient-layer-b" />
-          <span className="ambient-layer ambient-layer-c" />
-        </>
       )}
+
       <span className="ambient-readability-vignette" />
     </div>
   );
