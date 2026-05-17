@@ -10,6 +10,19 @@ Perf shifts vs Phase 4:
     cost by 90% and TTFT by ~30-50%.
   * History is trimmed to a token budget so long chats don't blow up.
   * Title generation runs in background after first message.
+
+Phase 4.12 Zip 2 changes:
+  * Companion mood state + assistant name now sourced from the new
+    `companion_settings` + `companion_mood_state` tables via the
+    `companion` service, not from identity.profile or the old
+    `companion_mood_states` table.
+  * Companion mood is fully gated by user settings:
+      - companion_mode='professional' | 'friendly' | 'affectionate' →
+        mood block + repair gate are NOT injected
+      - companion_mode='partner' + mood_realism='dynamic' → mood block injected
+      - repair_gate_enabled=true → repair gate logic injected
+  * Default assistant_name is "Assistant", not "Aliyya". Aliyya stays for
+    users who explicitly have her configured (the migration preserved that).
 """
 
 import asyncio
@@ -24,7 +37,14 @@ from fastapi.responses import StreamingResponse
 from app.config import settings
 from app.core.auth import get_current_user_id
 from app.schemas import ChatIn
-from app.services import attachments, companion_mode, conversation_summary, life_model, memory
+from app.services import (
+    attachments,
+    companion,
+    companion_mode,
+    conversation_summary,
+    life_model,
+    memory,
+)
 from app.services.claude import get_claude
 from app.services.prompt_builder import (
     BASE_PROMPT,
@@ -37,8 +57,9 @@ log = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
 
 # ---------------------------------------------------------------------------
-# Companion mood repair gate
+# Companion mood repair gate — keyword detectors
 # ---------------------------------------------------------------------------
+
 
 def _is_romantic_simulation_request(message: str | None) -> bool:
     if not message:
@@ -97,68 +118,37 @@ def _is_user_repair_message(message: str | None) -> bool:
     return any(w in lower for w in repair_words)
 
 
-def _fetch_companion_mood_for_prompt(
-    supabase,
-    user_id: str,
-    conversation_id: str | None,
-) -> dict:
-    def _fetch(scope: str, conversation_id_value: str | None):
-        q = (
-            supabase.table("companion_mood_states")
-            .select("*")
-            .eq("user_id", user_id)
-            .eq("scope", scope)
-            .order("updated_at", desc=True)
-            .limit(1)
-        )
-
-        if scope == "conversation" and conversation_id_value:
-            q = q.eq("conversation_id", conversation_id_value)
-        else:
-            q = q.is_("conversation_id", "null")
-
-        result = q.execute()
-        return result.data[0] if result.data else None
-
-    conversation_state = (
-        _fetch("conversation", conversation_id) if conversation_id else None
-    )
-    global_state = _fetch("global", None)
-
-    return conversation_state or global_state or {
-        "mood": "calm",
-        "intensity": 1,
-        "reason": "no previous companion mood state",
-        "mood_scores": {},
-    }
-
-
-def _companion_mood_repair_gate_text(
-    supabase,
-    user_id: str,
-    conversation_id: str | None,
+def _build_mood_block(
+    companion_settings_row: dict,
+    current_mood: dict | None,
     user_message: str | None,
-    ui_context: dict | None = None,
+    ui_context: dict | None,
 ) -> str:
-    # Prefer the latest frontend companion mood state because it is more current
-    # than the async backend sync. Fall back to DB only if ui_context is missing.
-    ui_companion = None
-    if isinstance(ui_context, dict):
-        maybe_companion = ui_context.get("companion_mood")
-        if isinstance(maybe_companion, dict):
-            ui_companion = maybe_companion
+    """Render the companion mood block. Caller must verify mood is active.
 
-    state = ui_companion or _fetch_companion_mood_for_prompt(
-        supabase,
-        user_id,
-        conversation_id,
-    )
+    Repair gate logic only fires if repair_gate_enabled in settings.
+    """
+    # Prefer UI-supplied mood if frontend pushed a more recent one.
+    state = current_mood or {}
+    if isinstance(ui_context, dict):
+        ui_companion = ui_context.get("companion_mood")
+        if isinstance(ui_companion, dict):
+            state = ui_companion
+
+    if not state:
+        state = {
+            "mood": "calm",
+            "intensity": 1,
+            "reason": "no previous companion mood state",
+            "mood_scores": {},
+        }
 
     mood = state.get("mood", "calm")
     intensity = int(state.get("intensity") or 1)
     reason = state.get("reason") or ""
     mood_scores = state.get("mood_scores") or {}
 
+    repair_gate_on = bool(companion_settings_row.get("repair_gate_enabled"))
     romantic_simulation_requested = _is_romantic_simulation_request(user_message)
     user_is_repairing = _is_user_repair_message(user_message)
 
@@ -168,7 +158,6 @@ def _companion_mood_repair_gate_text(
         "jealous_playful",
         "withdrawn_soft",
     }
-
     negative_score = 0
     if isinstance(mood_scores, dict):
         negative_score = max(
@@ -178,8 +167,14 @@ def _companion_mood_repair_gate_text(
             int(mood_scores.get("withdrawn_soft") or 0),
         )
 
+    # Repair required only when ALL conditions met:
+    #   1. User enabled the repair gate in settings
+    #   2. User asked for romantic simulation
+    #   3. User is NOT already repairing
+    #   4. Companion is in negative mood with sufficient intensity OR score
     repair_required = (
-        romantic_simulation_requested
+        repair_gate_on
+        and romantic_simulation_requested
         and not user_is_repairing
         and (
             (negative_mood and intensity >= 4)
@@ -205,7 +200,7 @@ def _companion_mood_repair_gate_text(
         lines.extend(
             [
                 "",
-                "The user is asking Aliyya to initiate or simulate romantic mode.",
+                "The user is asking the assistant to initiate or simulate romantic mode.",
                 "Do not let the user's request alone decide the mood; only your actual reply should express the companion mood.",
             ]
         )
@@ -215,19 +210,16 @@ def _companion_mood_repair_gate_text(
             [
                 "",
                 "IMPORTANT REPAIR GATE:",
-                "The user is asking for romantic simulation, but Aliyya is still in a negatively activated companion mood.",
+                "The user is asking for romantic simulation, but the assistant is still in a negatively activated companion mood.",
                 "Do NOT instantly become romantic. This rule is mandatory when repair_required is true.",
                 "Gently hesitate or refuse in a light, safe, affectionate way.",
-                "Ask the user to reassure, apologize, or calm Aliyya first before any romantic simulation.",
+                "Ask the user to reassure, apologize, or calm the assistant first before any romantic simulation.",
                 "Do not be toxic, threatening, cold, or manipulative.",
-                "Good example tone:",
-                "'Hmm aku masih agak ngambek... tenangin aku dulu dong, baru aku mau romantis lagi.'",
                 "If the user comforts you, accept it warmly and soften toward reassured/affectionate.",
             ]
         )
 
     return "\n".join(lines)
-
 
 
 def _clean_assistant_name(name: str | None) -> str | None:
@@ -237,10 +229,8 @@ def _clean_assistant_name(name: str | None) -> str | None:
     cleaned = re.sub(r"\s+", " ", cleaned)
     if not cleaned:
         return None
-    # Keep it short so accidental long phrases don't become the app name.
     if len(cleaned) > 32:
         cleaned = cleaned[:32].strip()
-    # Avoid generic words becoming the name.
     blocked = {"assistant", "asisten", "ai", "bot", "kamu", "you"}
     if cleaned.lower() in blocked:
         return None
@@ -273,21 +263,6 @@ def _extract_assistant_name(user_message: str) -> str | None:
         if match:
             return _clean_assistant_name(match.group(1))
     return None
-
-
-def _get_assistant_name_from_context(context: dict | None) -> str:
-    identity = (context or {}).get("identity") or {}
-    profile = identity.get("profile") or {}
-    name = _clean_assistant_name(str(profile.get("assistant_name") or ""))
-    return name or "Aliyya"
-
-
-async def _save_assistant_name_to_identity(user_id: str, context: dict, assistant_name: str) -> None:
-    identity = context.get("identity") or {}
-    profile = dict(identity.get("profile") or {})
-    narrative = identity.get("narrative")
-    profile["assistant_name"] = assistant_name
-    await life_model.upsert_identity(user_id, profile, narrative)
 
 
 def _mode_to_pacing(mode: str | None) -> str:
@@ -435,7 +410,7 @@ async def chat(
 ):
     supabase = get_supabase()
 
-    # === Parallel phase 1: ownership + save + context + legacy mems + related summaries + attachments + mode ===
+    # === Parallel phase 1: ownership + save + context + legacy mems + related summaries + attachments + mode + companion settings + mood ===
     (
         convo_result,
         user_message_id,
@@ -444,6 +419,8 @@ async def chat(
         related_summaries,
         attachment_rows,
         detected_mode,
+        companion_settings_row,
+        current_mood,
     ) = await asyncio.gather(
         _check_ownership(supabase, body.conversation_id, user_id),
         _save_user_message(supabase, body.conversation_id, body.message),
@@ -460,10 +437,13 @@ async def chat(
                 user_id=user_id, attachment_ids=body.attachment_ids
             )
         ),
-        # Mode detection — runs in parallel so it doesn't add serial latency.
-        # Returns None for short messages or on failure, which gracefully
-        # skips directive injection below.
         companion_mode.detect_mode(user_message=body.message),
+        # Companion settings: stable, controls whether companion mood/repair logic
+        # is active for this user. Always loaded — cheap.
+        companion.get_settings(user_id),
+        # Current companion mood. Returns None if mood is not applicable
+        # per user settings (mode != 'partner' or realism != 'dynamic').
+        companion.get_current_mood(user_id),
     )
 
     if not convo_result or not convo_result.data:
@@ -479,22 +459,19 @@ async def chat(
             )
         )
 
-    # Assistant display name is user-configurable and stored in identity.profile.assistant_name.
+    # Assistant display name now comes from companion_settings, not identity.
     assistant_rename = _extract_assistant_name(body.message)
-    assistant_name = assistant_rename or _get_assistant_name_from_context(context)
-
     if assistant_rename:
-        identity = context.get("identity") or {}
-        profile = dict(identity.get("profile") or {})
-        profile["assistant_name"] = assistant_name
-        identity["profile"] = profile
-        context["identity"] = identity
+        # Persist rename via companion service. Background task — user shouldn't
+        # wait on it.
         background_tasks.add_task(
-            _save_assistant_name_to_identity,
+            companion.update_settings,
             user_id,
-            context,
-            assistant_name,
+            assistant_name=assistant_rename,
         )
+        assistant_name = assistant_rename
+    else:
+        assistant_name = companion_settings_row.get("assistant_name") or "Assistant"
 
     # === Phase 2: history (must be after save) ===
     messages = await _load_history(supabase, body.conversation_id)
@@ -516,15 +493,20 @@ async def chat(
     if ui_context_block:
         volatile_context += "\n\n" + ui_context_block
 
-    companion_mood_repair_gate_text = _companion_mood_repair_gate_text(
-        supabase,
-        user_id,
-        body.conversation_id,
-        body.message,
-        body.ui_context,
-    )
-    if companion_mood_repair_gate_text:
-        volatile_context += "\n\n" + companion_mood_repair_gate_text
+    # Companion mood block — ONLY injected if user has dynamic mood enabled.
+    # Default users (professional/friendly/affectionate or stable realism) get
+    # exactly zero mood-related prompt content. Repair gate inside the block
+    # is further gated by repair_gate_enabled.
+    if companion.is_mood_active(companion_settings_row):
+        mood_block = _build_mood_block(
+            companion_settings_row,
+            current_mood,
+            body.message,
+            body.ui_context,
+        )
+        if mood_block:
+            volatile_context += "\n\n" + mood_block
+
     if legacy_memories:
         extra = "\n".join(f"- {m['content']}" for m in legacy_memories[:5])
         volatile_context += f"\n\n## Additional notes (unstructured)\n{extra}"
@@ -555,15 +537,19 @@ async def chat(
         if style_block:
             volatile_context += "\n\n" + style_block
 
-    # Audit log — explicit which style mode is active. Per design contract,
-    # "default" means baseline assistant; "style_profile:<id>" means the
-    # conversation has an attached profile that loaded successfully.
+    # Audit log — explicit which style mode is active and whether companion
+    # mood is active for this turn. Visible in Fly logs.
     style_audit = (
         f"style_profile:{style_profile_id[:8]}" if style_profile_id else "default"
     )
+    companion_audit = (
+        f"companion={companion_settings_row.get('companion_mode')}"
+        f"/realism={companion_settings_row.get('mood_realism')}"
+        f"/repair={companion_settings_row.get('repair_gate_enabled')}"
+    )
 
     log.info(
-        "chat: user=%s context_keys=%s legacy_mems=%d related_summaries=%d history_len=%d attachments=%d mode=%s style=%s",
+        "chat: user=%s context_keys=%s legacy_mems=%d related_summaries=%d history_len=%d attachments=%d mode=%s style=%s %s",
         user_id[:8],
         list(context.keys()),
         len(legacy_memories),
@@ -572,6 +558,7 @@ async def chat(
         len(attachment_rows),
         detected_mode,
         style_audit,
+        companion_audit,
     )
 
     # If there are attachments on this turn, replace the last user message's
@@ -628,7 +615,7 @@ async def _stream_claude_response(
     background_tasks: BackgroundTasks,
     is_first_message: bool,
     detected_mode: str | None = None,
-    assistant_name: str = "Aliyya",
+    assistant_name: str = "Assistant",
 ) -> AsyncIterator[str]:
     claude = get_claude()
     supabase = get_supabase()
@@ -656,7 +643,7 @@ async def _stream_claude_response(
         "background_palette_hint": _mood_to_palette(mood),
         "assistant_name": assistant_name,
     }
-    yield f"data: {json.dumps(meta_event)}\\n\\n"
+    yield f"data: {json.dumps(meta_event)}\n\n"
     try:
         async with claude.messages.stream(
             model=settings.ANTHROPIC_MODEL,
