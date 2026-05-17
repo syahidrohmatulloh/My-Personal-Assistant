@@ -112,7 +112,17 @@ export default function ConversationPage({
       })
       .catch(console.error)
       .finally(() => !cancelled && setLoading(false));
-    return () => {
+  
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(
+        "assistant.lastChatPath",
+        window.location.pathname,
+      );
+    }
+  }, []);
+
+  return () => {
       cancelled = true;
     };
   }, [conversationId]);

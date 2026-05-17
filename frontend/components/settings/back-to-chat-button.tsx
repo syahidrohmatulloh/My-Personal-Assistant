@@ -3,12 +3,19 @@
 import { ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+const LAST_CHAT_PATH_KEY = "assistant.lastChatPath";
+
 export function BackToChatButton() {
   const router = useRouter();
 
   function handleBack() {
-    if (typeof window !== "undefined" && window.history.length > 1) {
-      router.back();
+    const lastChatPath =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem(LAST_CHAT_PATH_KEY)
+        : null;
+
+    if (lastChatPath && lastChatPath.startsWith("/chat")) {
+      router.push(lastChatPath);
       return;
     }
 
