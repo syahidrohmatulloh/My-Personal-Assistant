@@ -696,3 +696,59 @@ export async function previewParseStyle(input: string | {
     warnings: data.warnings ?? [],
   };
 }
+
+// ---------------------------------------------------------------------------
+// Companion mood state
+// ---------------------------------------------------------------------------
+
+export type CompanionMoodStateApi = {
+  id?: string | null;
+  user_id?: string;
+  conversation_id?: string | null;
+  scope: "global" | "conversation";
+  mood: string;
+  intensity: number;
+  valence: number;
+  arousal: number;
+  attachment: number;
+  trust: number;
+  insecurity: number;
+  warmth: number;
+  playfulness: number;
+  reason: string;
+  last_trigger: string;
+  source: string;
+  version?: number;
+  expires_at: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type CompanionMoodResponse = {
+  global: CompanionMoodStateApi | null;
+  conversation: CompanionMoodStateApi | null;
+  effective: CompanionMoodStateApi;
+};
+
+export async function getCompanionMoodState(
+  conversationId?: string | null,
+): Promise<CompanionMoodResponse> {
+  const headers = await getAuthHeader();
+  const qs = conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : "";
+  const r = await fetch(`${API_URL}/companion-mood${qs}`, { headers });
+  if (!r.ok) throw new Error(`getCompanionMoodState failed: ${r.status}`);
+  return r.json();
+}
+
+export async function putCompanionMoodState(
+  state: CompanionMoodStateApi,
+): Promise<CompanionMoodStateApi> {
+  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  const r = await fetch(`${API_URL}/companion-mood`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify(state),
+  });
+  if (!r.ok) throw new Error(`putCompanionMoodState failed: ${r.status}`);
+  return r.json();
+}

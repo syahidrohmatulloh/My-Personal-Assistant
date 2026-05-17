@@ -8,6 +8,7 @@ from app.routers import (
     attachments,
     briefing,
     chat,
+    companion_mood,
     conversations,
     journal,
     life_model,
@@ -33,6 +34,7 @@ app.add_middleware(
 )
 
 app.include_router(chat.router)
+app.include_router(companion_mood.router)
 app.include_router(conversations.router)
 app.include_router(memories.router)
 app.include_router(life_model.router)

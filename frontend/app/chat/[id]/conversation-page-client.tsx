@@ -29,9 +29,12 @@ import {
 } from "@/lib/ambient-background";
 
 import {
-  applyMoodBackgroundFromMessage,
-  shouldRespectLocalMoodOverride,
-} from "@/lib/mood-background";
+  hydrateCompanionMoodForConversation,
+  updateCompanionMoodFromMessage,
+  shouldRespectCompanionMoodOverride,
+} from "@/lib/companion-mood";
+import { subscribeCompanionMoodRealtime } from "@/lib/companion-mood-realtime";
+
 
 
 
@@ -81,6 +84,26 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
+
+  useEffect(() => {
+    let unsubscribe: (() => void) | null = null;
+    let cancelled = false;
+
+    void hydrateCompanionMoodForConversation(conversationId);
+
+    subscribeCompanionMoodRealtime(conversationId).then((fn) => {
+      if (cancelled) {
+        fn();
+        return;
+      }
+      unsubscribe = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      if (unsubscribe) unsubscribe();
+    };
+  }, [conversationId]);
 
   useEffect(() => {
     const savedSettings = identity?.profile?.background_settings;
@@ -169,7 +192,7 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
   const handleSend = useCallback(
     async (attachmentIds: string[] = []) => {
       const text = input.trim();
-    applyMoodBackgroundFromMessage(text);
+      updateCompanionMoodFromMessage(text, conversationId);
       const hasContent = text.length > 0 || attachmentIds.length > 0;
       if (!hasContent || sending) return;
 
@@ -236,7 +259,7 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
               updated_at: old?.updated_at ?? null,
             }));
           }
-          if ((event.mood || event.background_palette_hint) && !shouldRespectLocalMoodOverride(event.mood)) {
+          if ((event.mood || event.background_palette_hint) && !shouldRespectCompanionMoodOverride(event.mood)) {
             setBackgroundMoodHint({
               mood: event.mood,
               palette: event.background_palette_hint as any,
