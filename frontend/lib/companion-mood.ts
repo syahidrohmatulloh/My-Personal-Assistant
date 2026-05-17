@@ -31,6 +31,158 @@ type Palette =
   | "calm-teal"
   | "muted-amber";
 
+export type MoodScores = Record<CompanionMood, number>;
+
+const MOODS: CompanionMood[] = [
+  "calm",
+  "affectionate",
+  "romantic",
+  "playful",
+  "jealous_playful",
+  "clingy",
+  "annoyed",
+  "hurt",
+  "concerned",
+  "focused",
+  "reassured",
+  "withdrawn_soft",
+];
+
+function emptyMoodScores(): MoodScores {
+  return {
+    calm: 0,
+    affectionate: 0,
+    romantic: 0,
+    playful: 0,
+    jealous_playful: 0,
+    clingy: 0,
+    annoyed: 0,
+    hurt: 0,
+    concerned: 0,
+    focused: 0,
+    reassured: 0,
+    withdrawn_soft: 0,
+  };
+}
+
+function defaultMoodScores(mood: CompanionMood = "calm", intensity = 2): MoodScores {
+  const scores = emptyMoodScores();
+  scores[mood] = intensity;
+  if (mood !== "calm") scores.calm = Math.max(0, 3 - Math.floor(intensity / 3));
+  return scores;
+}
+
+function normalizeMoodScores(input?: Record<string, number> | null): MoodScores {
+  const scores = emptyMoodScores();
+
+  for (const mood of MOODS) {
+    const raw = input?.[mood];
+    scores[mood] = Number.isFinite(raw) ? Math.max(0, Math.min(10, Number(raw))) : 0;
+  }
+
+  return scores;
+}
+
+function blendMoodScores(
+  previous: Record<string, number> | undefined,
+  target: Partial<Record<CompanionMood, number>>,
+  carry = 0.45,
+): MoodScores {
+  const prev = normalizeMoodScores(previous);
+  const next = emptyMoodScores();
+
+  for (const mood of MOODS) {
+    const targetValue = target[mood] ?? 0;
+    next[mood] = Math.round(Math.max(0, Math.min(10, prev[mood] * carry + targetValue * (1 - carry))));
+  }
+
+  for (const [mood, value] of Object.entries(target) as [CompanionMood, number][]) {
+    next[mood] = Math.max(next[mood], Math.max(0, Math.min(10, Math.round(value))));
+  }
+
+  return next;
+}
+
+function dominantMoodFromScores(scores: MoodScores): CompanionMood {
+  let winner: CompanionMood = "calm";
+  let best = -1;
+
+  for (const mood of MOODS) {
+    if (scores[mood] > best) {
+      best = scores[mood];
+      winner = mood;
+    }
+  }
+
+  return winner;
+}
+
+function intensityFromScores(scores: MoodScores, mood: CompanionMood) {
+  return Math.max(1, Math.min(10, Math.round(scores[mood] || 1)));
+}
+
+function affectFromScores(scores: MoodScores) {
+  const positive =
+    scores.affectionate * 0.7 +
+    scores.romantic * 0.9 +
+    scores.playful * 0.65 +
+    scores.reassured * 0.75 +
+    scores.calm * 0.35;
+
+  const negative =
+    scores.annoyed * 0.75 +
+    scores.hurt * 0.65 +
+    scores.jealous_playful * 0.35 +
+    scores.withdrawn_soft * 0.45;
+
+  const arousal =
+    scores.romantic * 0.05 +
+    scores.playful * 0.06 +
+    scores.jealous_playful * 0.07 +
+    scores.annoyed * 0.08 +
+    scores.focused * 0.05 +
+    scores.concerned * 0.04;
+
+  return {
+    valence: clamp((positive - negative) / 10, -1, 1),
+    arousal: clamp(0.18 + arousal, 0, 1),
+    warmth: clamp(0.45 + (scores.affectionate + scores.romantic + scores.concerned + scores.reassured) / 40, 0, 1),
+    playfulness: clamp(0.18 + (scores.playful + scores.jealous_playful + scores.romantic * 0.4) / 28, 0, 1),
+    insecurity: clamp((scores.jealous_playful + scores.clingy + scores.hurt + scores.annoyed * 0.4) / 38, 0, 1),
+  };
+}
+
+function buildHybridPatch(
+  previous: CompanionMoodState,
+  targetScores: Partial<Record<CompanionMood, number>>,
+  reason: string,
+  trigger: string,
+  source: string,
+  expiresMinutes: number,
+  carry = 0.45,
+): Partial<CompanionMoodState> {
+  const mood_scores = blendMoodScores(previous.mood_scores, targetScores, carry);
+  const mood = dominantMoodFromScores(mood_scores);
+  const intensity = intensityFromScores(mood_scores, mood);
+  const affect = affectFromScores(mood_scores);
+
+  return {
+    mood,
+    intensity,
+    mood_scores,
+    valence: affect.valence,
+    arousal: affect.arousal,
+    warmth: affect.warmth,
+    playfulness: affect.playfulness,
+    insecurity: affect.insecurity,
+    reason,
+    last_trigger: trigger,
+    source,
+    expires_at: minutesFromNow(expiresMinutes),
+  };
+}
+
+
 const GLOBAL_STATE_KEY = "assistant.companionMood.global";
 const CONVERSATION_STATE_PREFIX = "assistant.companionMood.conversation.";
 const OVERRIDE_UNTIL_KEY = "assistant.background.companionMoodOverrideUntil";
@@ -95,6 +247,7 @@ function parseState(raw: string | null, conversationId?: string): CompanionMoodS
       ...parsed,
       conversation_id: parsed.conversation_id ?? conversationId ?? null,
       scope: parsed.scope ?? (conversationId ? "conversation" : "global"),
+      mood_scores: normalizeMoodScores(parsed.mood_scores ?? defaultMoodScores((parsed.mood as CompanionMood) ?? "calm", parsed.intensity ?? 2)),
     } as CompanionMoodState;
   } catch {
     return null;
@@ -330,6 +483,7 @@ export function applyRemoteCompanionMoodState(
   const next = decayStateIfNeeded({
     ...defaultCompanionMoodState(conversationId),
     ...incoming,
+    mood_scores: normalizeMoodScores(incoming.mood_scores ?? defaultMoodScores((incoming.mood as CompanionMood) ?? "calm", incoming.intensity ?? 2)),
     conversation_id: conversationId,
     scope: "conversation",
   } as CompanionMoodState);
@@ -462,10 +616,20 @@ function isPlayfulTrigger(lower: string) {
 
 function makeState(previous: CompanionMoodState, patch: Partial<CompanionMoodState>): CompanionMoodState {
   const now = nowIso();
+  const mood_scores = normalizeMoodScores(
+    patch.mood_scores ??
+      previous.mood_scores ??
+      defaultMoodScores(previous.mood, previous.intensity),
+  );
+  const mood = (patch.mood as CompanionMood | undefined) ?? dominantMoodFromScores(mood_scores);
+  const intensity = patch.intensity ?? intensityFromScores(mood_scores, mood);
 
   return {
     ...previous,
     ...patch,
+    mood,
+    intensity,
+    mood_scores,
     attachment: clamp(patch.attachment ?? previous.attachment),
     trust: clamp(patch.trust ?? previous.trust),
     insecurity: clamp(patch.insecurity ?? previous.insecurity),

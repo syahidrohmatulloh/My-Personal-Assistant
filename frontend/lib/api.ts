@@ -708,6 +708,7 @@ export type CompanionMoodStateApi = {
   scope: "global" | "conversation";
   mood: string;
   intensity: number;
+  mood_scores?: Record<string, number>;
   valence: number;
   arousal: number;
   attachment: number;

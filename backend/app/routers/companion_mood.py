@@ -36,9 +36,27 @@ class CompanionMoodIn(BaseModel):
     reason: str = "default calm companion state"
     last_trigger: str = "default"
     source: str = "frontend"
+    mood_scores: dict[str, int] = Field(default_factory=dict)
 
     expires_at: str | None = None
 
+
+
+def _default_mood_scores() -> dict[str, int]:
+    return {
+        "calm": 2,
+        "affectionate": 0,
+        "romantic": 0,
+        "playful": 0,
+        "jealous_playful": 0,
+        "clingy": 0,
+        "annoyed": 0,
+        "hurt": 0,
+        "concerned": 0,
+        "focused": 0,
+        "reassured": 0,
+        "withdrawn_soft": 0,
+    }
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -53,6 +71,7 @@ def _default_state(user_id: str, conversation_id: str | None = None) -> dict[str
         "scope": "conversation" if conversation_id else "global",
         "mood": "calm",
         "intensity": 1,
+        "mood_scores": _default_mood_scores(),
         "valence": 0.35,
         "arousal": 0.2,
         "attachment": 0.45,
@@ -137,6 +156,7 @@ async def put_companion_mood(
         "scope": scope,
         "mood": body.mood,
         "intensity": body.intensity,
+        "mood_scores": body.mood_scores or _default_mood_scores(),
         "valence": body.valence,
         "arousal": body.arousal,
         "attachment": body.attachment,
