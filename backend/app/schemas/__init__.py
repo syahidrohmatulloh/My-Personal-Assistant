@@ -6,7 +6,7 @@ with a clear 422 instead of crashing the handler.
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -51,3 +51,7 @@ class ChatIn(BaseModel):
     # should reference. Each attachment must belong to the same user — the
     # chat router verifies before linking. Empty/missing = text-only message.
     attachment_ids: list[str] = Field(default_factory=list, max_length=10)
+    # Ephemeral app/browser state sent by the frontend on each request.
+    # This is not stored as memory or message content. It helps the assistant
+    # answer UI/time questions accurately, e.g. current background or timezone.
+    ui_context: dict[str, Any] | None = None

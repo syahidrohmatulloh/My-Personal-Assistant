@@ -2,12 +2,16 @@
 
 import { useEffect, useState } from "react";
 import {
+  BACKGROUND_MODE_DESCRIPTIONS,
+  BACKGROUND_MODE_LABELS,
   BACKGROUND_STYLE_DESCRIPTIONS,
   BACKGROUND_STYLE_LABELS,
   BACKGROUND_STYLES,
   type BackgroundIntensity,
+  type BackgroundMode,
   type BackgroundSettings,
   DEFAULT_BACKGROUND_SETTINGS,
+  readBackgroundMoodHint,
   readBackgroundSettings,
   saveBackgroundSettings,
 } from "@/lib/ambient-background";
@@ -25,6 +29,8 @@ export function BackgroundStyleSettings() {
     setSettings(merged);
     saveBackgroundSettings(merged);
   }
+
+  const moodHint = typeof window === "undefined" ? null : readBackgroundMoodHint();
 
   return (
     <div className="glass rounded-2xl p-4 sm:p-5 space-y-5">
@@ -62,6 +68,41 @@ export function BackgroundStyleSettings() {
           );
         })}
       </div>
+
+      <FieldGroup label="Background Mode">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {(["manual", "mood-based"] as BackgroundMode[]).map((mode) => {
+            const active = settings.mode === mode;
+            return (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => update({ mode })}
+                disabled={settings.style === "off"}
+                className={cn(
+                  "rounded-xl border px-3.5 py-3 text-left transition-all",
+                  "hover:bg-fg/5 active:scale-[0.99] disabled:opacity-45",
+                  active
+                    ? "border-accent/45 bg-accent-soft/50 shadow-sm shadow-accent/10"
+                    : "border-border bg-fg/[0.025]",
+                )}
+              >
+                <span className="block text-sm font-medium text-fg">
+                  {BACKGROUND_MODE_LABELS[mode]}
+                </span>
+                <span className="mt-1 block text-xs leading-snug text-fg-muted">
+                  {BACKGROUND_MODE_DESCRIPTIONS[mode]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {settings.mode === "mood-based" && moodHint && (
+          <p className="mt-2 text-[11px] leading-relaxed text-fg-subtle">
+            Current chat mood hint: {moodHint.mood} · palette {moodHint.palette}
+          </p>
+        )}
+      </FieldGroup>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
         <FieldGroup label="Intensity">

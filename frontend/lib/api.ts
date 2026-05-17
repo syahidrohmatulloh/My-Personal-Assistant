@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { buildUiContextSnapshot } from "@/lib/ambient-background";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL!;
 
@@ -106,69 +107,23 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
   return r.json();
 }
 
-// ---------------------------------------------------------------------------
-// Streaming chat — Phase 4.12 emits typing meta as the first SSE event.
-// ---------------------------------------------------------------------------
-
-/**
- * Companion mode names known to the backend (Phase 4.11).
- * Frontend treats anything outside this set as "unknown" and applies
- * heuristic pacing.
- */
-export type CompanionMode =
-  | "strategist"
-  | "listener"
-  | "motivator"
-  | "challenger"
-  | "reflective"
-  | "practical"
-  | "unknown";
-
-/**
- * Pacing hint from backend. Frontend maps these to reveal-speed presets,
- * with `prefers-reduced-motion` forcing "immediate" regardless.
- */
-export type Pacing = "immediate" | "fast" | "natural" | "slow";
+export type ChatStreamMeta = {
+  type: "meta";
+  mode?: string;
+  pacing?: "slow" | "natural" | "fast" | "immediate" | string;
+  mood?: string;
+  background_palette_hint?: string;
+  assistant_name?: string;
+};
 
 export type ChatStreamEvent =
-  | { type: "meta"; mode: CompanionMode; pacing: Pacing; assistantName: string }
+  | ChatStreamMeta
   | { type: "delta"; text: string }
-  | { type: "error"; message: string }
   | { type: "done" };
 
-const VALID_MODES: ReadonlySet<string> = new Set<CompanionMode>([
-  "strategist",
-  "listener",
-  "motivator",
-  "challenger",
-  "reflective",
-  "practical",
-  "unknown",
-]);
-
-const VALID_PACINGS: ReadonlySet<string> = new Set<Pacing>([
-  "immediate",
-  "fast",
-  "natural",
-  "slow",
-]);
-
 /**
- * Stream a chat response. Returns an async iterable of typed events.
- *
- * Backward compatibility:
- *   - If the backend doesn't emit `meta`, we never yield one — consumers
- *     should handle the absence.
- *   - If the backend emits an event with an unknown `type`, we skip it
- *     silently. Future backend additions won't break older frontends.
- *   - Malformed JSON lines are skipped (matches previous behaviour).
- *   - On `error`, we still throw — preserves previous try/catch semantics.
- *
- * Usage:
- *   for await (const evt of streamChat(convoId, "hello")) {
- *     if (evt.type === "delta") setText(prev => prev + evt.text);
- *     else if (evt.type === "meta") setPacing(evt.pacing);
- *   }
+ * Stream a chat response. Returns SSE events from the backend.
+ * `meta` is ephemeral UI guidance. `delta` is assistant text.
  */
 export async function* streamChat(
   conversationId: string,
@@ -185,6 +140,7 @@ export async function* streamChat(
       conversation_id: conversationId,
       message,
       attachment_ids: attachmentIds,
+      ui_context: buildUiContextSnapshot(),
     }),
   });
 
@@ -210,48 +166,16 @@ export async function* streamChat(
       if (!line.startsWith("data: ")) continue;
 
       const payload = line.slice(6);
-      let parsed: unknown;
       try {
-        parsed = JSON.parse(payload);
-      } catch {
-        // Malformed JSON line — skip silently (same as previous behaviour).
-        continue;
+        const parsed = JSON.parse(payload);
+        if (parsed.type === "meta") yield parsed as ChatStreamMeta;
+        else if (parsed.type === "delta") yield { type: "delta", text: parsed.text ?? "" };
+        else if (parsed.type === "done") yield { type: "done" };
+        else if (parsed.type === "error") throw new Error(parsed.message);
+      } catch (err) {
+        if (err instanceof SyntaxError) continue;
+        throw err;
       }
-
-      if (!parsed || typeof parsed !== "object") continue;
-      const obj = parsed as Record<string, unknown>;
-      const type = obj.type;
-
-      if (type === "delta" && typeof obj.text === "string") {
-        yield { type: "delta", text: obj.text };
-      } else if (type === "error" && typeof obj.message === "string") {
-        // Surface as an event AND throw — keeps the previous throw semantics
-        // so existing try/catch in the chat page still works.
-        yield { type: "error", message: obj.message };
-        throw new Error(obj.message);
-      } else if (type === "done") {
-        yield { type: "done" };
-      } else if (type === "meta") {
-        // Defensive narrowing — backend may evolve. We only forward the
-        // event if mode & pacing land in our known sets, otherwise fall
-        // through to a safe default the frontend treats as "use heuristic".
-        const rawMode = typeof obj.mode === "string" ? obj.mode : "unknown";
-        const rawPacing = typeof obj.pacing === "string" ? obj.pacing : "natural";
-        const rawName =
-          typeof obj.assistant_name === "string" && obj.assistant_name.trim()
-            ? obj.assistant_name.trim()
-            : "Assistant";
-
-        const mode: CompanionMode = VALID_MODES.has(rawMode)
-          ? (rawMode as CompanionMode)
-          : "unknown";
-        const pacing: Pacing = VALID_PACINGS.has(rawPacing)
-          ? (rawPacing as Pacing)
-          : "natural";
-
-        yield { type: "meta", mode, pacing, assistantName: rawName };
-      }
-      // Unknown event types: ignore silently. Future-proof.
     }
   }
 }
@@ -609,41 +533,7 @@ export type AnalyzeResult = {
   sample_count: number;
   source_type: string;
   suggested_name: string;
-  warnings: string[];
 };
-
-export type PreviewSender = {
-  name: string;
-  count: number;
-  is_likely_user: boolean;
-  recommended: boolean;
-};
-
-export type PreviewParseResult = {
-  source_type: string;
-  message_count: number;
-  senders: PreviewSender[];
-  recommended_target_name: string | null;
-  too_long: boolean;
-  warnings: string[];
-};
-
-export async function previewParseStyle(
-  transcript: string,
-): Promise<PreviewParseResult> {
-  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
-  const r = await fetch(`${API_URL}/style-profiles/preview-parse`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ transcript }),
-  });
-  if (!r.ok) {
-    let detail = `preview parse failed: ${r.status}`;
-    try { const j = await r.json(); if (j?.detail) detail = j.detail; } catch {}
-    throw new Error(detail);
-  }
-  return r.json();
-}
 
 export async function analyzeStyle(
   transcript: string,

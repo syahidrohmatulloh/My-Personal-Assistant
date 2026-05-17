@@ -642,3 +642,74 @@ button, a, [role="button"] {
     animation: none !important;
   }
 }
+
+/* ==========================================================================
+   Mood-based ambient palette hints
+   --------------------------------------------------------------------------
+   These variables are scoped to the visual-only ambient layer. They do not
+   change app text/buttons; they only regulate the background color mood.
+   ========================================================================== */
+
+.ambient-background {
+  --ambient-primary: var(--accent);
+  --ambient-orb-1: var(--orb-1);
+  --ambient-orb-2: var(--orb-2);
+  --ambient-orb-3: var(--orb-3);
+}
+
+.ambient-background.ambient-palette-calm-blue {
+  --accent: 56 189 248;
+  --orb-1: 56 189 248 / 0.16;
+  --orb-2: 16 185 129 / 0.12;
+  --orb-3: 234 179 8 / 0.08;
+}
+
+.ambient-background.ambient-palette-warm-pink {
+  --accent: 236 72 153;
+  --orb-1: 236 72 153 / 0.16;
+  --orb-2: 251 146 60 / 0.10;
+  --orb-3: 250 204 21 / 0.08;
+}
+
+.ambient-background.ambient-palette-focus-cyan {
+  --accent: 34 211 238;
+  --orb-1: 34 211 238 / 0.14;
+  --orb-2: 59 130 246 / 0.12;
+  --orb-3: 15 23 42 / 0.06;
+}
+
+.ambient-background.ambient-palette-reflective-indigo {
+  --accent: 139 92 246;
+  --orb-1: 139 92 246 / 0.16;
+  --orb-2: 79 70 229 / 0.12;
+  --orb-3: 56 189 248 / 0.07;
+}
+
+.ambient-background.ambient-palette-calm-teal {
+  --accent: 20 184 166;
+  --orb-1: 20 184 166 / 0.14;
+  --orb-2: 45 212 191 / 0.10;
+  --orb-3: 56 189 248 / 0.08;
+}
+
+.ambient-background.ambient-palette-muted-amber {
+  --accent: 245 158 11;
+  --orb-1: 245 158 11 / 0.12;
+  --orb-2: 239 68 68 / 0.07;
+  --orb-3: 20 184 166 / 0.06;
+}
+
+.ambient-background.ambient-mood-based::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0.46;
+  background:
+    radial-gradient(circle at 22% 18%, rgb(var(--orb-1)), transparent 34%),
+    radial-gradient(circle at 78% 72%, rgb(var(--orb-2)), transparent 38%),
+    radial-gradient(circle at 50% 42%, rgb(var(--orb-3)), transparent 46%);
+  filter: blur(52px);
+  animation: ambient-drift 34s ease-in-out infinite;
+}

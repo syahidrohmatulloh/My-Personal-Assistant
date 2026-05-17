@@ -6,10 +6,9 @@ import { ArrowDown } from "lucide-react";
 import { Composer } from "@/components/chat/composer";
 import { MessageBubble } from "@/components/chat/message-bubble";
 import { ConversationStyleBadge } from "@/components/chat/conversation-style-badge";
-import { TypingIndicator } from "@/components/chat/typing-indicator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { listMessages, streamChat, type Conversation, type Message } from "@/lib/api";
-import { useAdaptivePacing } from "@/lib/use-adaptive-pacing";
+import { listMessages, streamChat, type ChatStreamMeta, type Conversation, type Message } from "@/lib/api";
+import { setBackgroundMoodHint } from "@/lib/ambient-background";
 
 type LocalMessage =
   | Message
@@ -42,10 +41,7 @@ export default function ConversationPage({
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showJumpBtn, setShowJumpBtn] = useState(false);
-
-  // Typing indicator state (Phase 4.12). Reserved space lives in the
-  // <TypingIndicator/> component itself — toggling this only fades it.
-  const [assistantName, setAssistantName] = useState("Assistant");
+  const [streamMeta, setStreamMeta] = useState<ChatStreamMeta | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -102,31 +98,6 @@ export default function ConversationPage({
     setShowJumpBtn(false);
   }
 
-  // Mutable ref to the active assistant message id so the pacing hook
-  // can append text without needing it as a closure dep.
-  const activeAssistantIdRef = useRef<string | null>(null);
-
-  // Pacing layer — gets chunks of text from the stream loop, drips them
-  // into the active assistant bubble via setMessages.
-  const pacing = useAdaptivePacing({
-    onText: (chunk: string) => {
-      const id = activeAssistantIdRef.current;
-      if (!id) return;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === id
-            ? {
-                id,
-                role: "assistant",
-                content: ("content" in m ? m.content : "") + chunk,
-                pending: true,
-              }
-            : m,
-        ),
-      );
-    },
-  });
-
   const handleSend = useCallback(
     async (attachmentIds: string[] = []) => {
       const text = input.trim();
@@ -139,6 +110,7 @@ export default function ConversationPage({
 
       setInput("");
       setSending(true);
+      setStreamMeta(null);
       stickToBottomRef.current = true;
 
       const wasFirstMessage = messages.length === 0;
@@ -149,92 +121,111 @@ export default function ConversationPage({
         content: messageText,
         created_at: new Date().toISOString(),
       };
-      const assistantId = `local-asst-${Date.now()}`;
-      activeAssistantIdRef.current = assistantId;
-      pacing.reset(); // clear leftovers from any prior send
+    const assistantId = `local-asst-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      userMsg,
+      { id: assistantId, role: "assistant", content: "", pending: true },
+    ]);
 
-      setMessages((prev) => [
-        ...prev,
-        userMsg,
-        { id: assistantId, role: "assistant", content: "", pending: true },
-      ]);
+    if (wasFirstMessage) {
+      const title = messageText.slice(0, 40) + (messageText.length > 40 ? "…" : "");
+      qc.setQueryData<Conversation[]>(["conversations"], (old = []) =>
+        old.map((c) => (c.id === conversationId ? { ...c, title } : c)),
+      );
+    }
 
-      if (wasFirstMessage) {
-        const title = messageText.slice(0, 40) + (messageText.length > 40 ? "…" : "");
-        qc.setQueryData<Conversation[]>(["conversations"], (old = []) =>
-          old.map((c) => (c.id === conversationId ? { ...c, title } : c)),
-        );
+    let assistantText = "";
+    let pending = "";
+    let rafId: number | null = null;
+    const flush = () => {
+      if (!pending) {
+        rafId = null;
+        return;
       }
+      assistantText += pending;
+      pending = "";
+      const snapshot = assistantText;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? { id: assistantId, role: "assistant", content: snapshot, pending: true }
+            : m,
+        ),
+      );
+      rafId = null;
+    };
 
-      try {
-        for await (const evt of streamChat(conversationId, messageText, attachmentIds)) {
-          if (evt.type === "meta") {
-            pacing.setPacing(evt.pacing);
-            if (evt.assistantName) setAssistantName(evt.assistantName);
-          } else if (evt.type === "delta") {
-            pacing.push(evt.text);
-          } else if (evt.type === "done") {
-            // Flush any queued tokens so we end on the full message.
-            pacing.flush();
+    try {
+      for await (const event of streamChat(conversationId, messageText, attachmentIds)) {
+        if (event.type === "meta") {
+          setStreamMeta(event);
+          if (event.mood || event.background_palette_hint) {
+            setBackgroundMoodHint({
+              mood: event.mood,
+              palette: event.background_palette_hint as any,
+            });
           }
-          // "error" is also re-thrown by streamChat, so it lands in catch.
+          continue;
         }
-        // Final safety flush in case backend ended without a 'done' event.
-        pacing.flush();
+        if (event.type === "done") continue;
 
-        // Snapshot final content from state, then commit a non-pending message.
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId && "pending" in m
-              ? {
-                  id: assistantId,
-                  role: "assistant",
-                  content: m.content,
-                  created_at: new Date().toISOString(),
-                }
-              : m,
-          ),
-        );
-
-        // Background title generation on the server runs after the stream
-        // closes. Wait a moment so the refetch picks up the real title.
-        setTimeout(() => {
-          qc.invalidateQueries({ queryKey: ["conversations"] });
-        }, 4000);
-      } catch (err) {
-        console.error(err);
-        pacing.reset();
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId
-              ? {
-                  id: assistantId,
-                  role: "assistant",
-                  content: `**Error:** ${err instanceof Error ? err.message : "unknown"}`,
-                  created_at: new Date().toISOString(),
-                }
-              : m,
-          ),
-        );
-      } finally {
-        activeAssistantIdRef.current = null;
-        setSending(false);
+        pending += event.text;
+        if (rafId == null) {
+          rafId = requestAnimationFrame(flush);
+        }
       }
-    },
-    [conversationId, input, messages.length, qc, sending, pacing],
-  );
+      if (rafId != null) cancelAnimationFrame(rafId);
+      flush();
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? {
+                id: assistantId,
+                role: "assistant",
+                content: assistantText,
+                created_at: new Date().toISOString(),
+              }
+            : m,
+        ),
+      );
+
+      // Background title generation on the server runs after the stream
+      // closes. Wait a moment so the refetch picks up the real title.
+      setTimeout(() => {
+        qc.invalidateQueries({ queryKey: ["conversations"] });
+      }, 4000);
+    } catch (err) {
+      console.error(err);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? {
+                id: assistantId,
+                role: "assistant",
+                content: `**Error:** ${err instanceof Error ? err.message : "unknown"}`,
+                created_at: new Date().toISOString(),
+              }
+            : m,
+        ),
+      );
+    } finally {
+      setSending(false);
+      setStreamMeta(null);
+    }
+  }, [conversationId, input, messages.length, qc, sending]);
 
   return (
     <main className="flex-1 flex flex-col min-w-0 min-h-0 relative">
       <ConversationStyleBadge conversationId={conversationId} />
+      <div className="pointer-events-none absolute right-3 top-3 z-10 hidden sm:block rounded-full glass px-2.5 py-1 text-[11px] font-medium text-fg-muted">
+        {streamMeta?.mood ? `Mood: ${streamMeta.mood}` : "Default"}
+      </div>
       <div
         ref={scrollRef}
         className="flex-1 min-h-0 overflow-y-auto scroll-smooth-mobile overscroll-contain"
       >
-        {/* Typing indicator — sticky inside the scroll viewport.
-            Visible only while we have an active pending assistant message. */}
-        <TypingIndicator visible={sending} assistantName={assistantName} />
-
         <div className="max-w-3xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-3 sm:space-y-4">
           {loading ? (
             <>
