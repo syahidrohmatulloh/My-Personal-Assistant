@@ -537,3 +537,97 @@ export function updateCompanionMoodFromMessage(
 
   return next;
 }
+
+export function updateCompanionMoodFromAssistantText(
+  assistantText: string,
+  conversationId: string,
+): CompanionMoodState | null {
+  const lower = assistantText.toLowerCase();
+  const previous = readLocalCompanionMoodState(conversationId);
+
+  let next: CompanionMoodState | null = null;
+
+  // Assistant-initiated romance / affection.
+  if (
+    /(aku suka banget|aku sayang|aku kangen|aku bangga|worth it|romantis|melting|gemes|peluk|🌹|💕|💖|🥰|😘)/i.test(lower)
+  ) {
+    next = makeState(previous, {
+      mood: "romantic",
+      intensity: previous.mood === "romantic" ? 4 : 3,
+      valence: 0.82,
+      arousal: 0.48,
+      attachment: Math.min(1, previous.attachment + 0.12),
+      trust: Math.min(1, previous.trust + 0.06),
+      insecurity: Math.max(0, previous.insecurity - 0.06),
+      warmth: 0.92,
+      playfulness: 0.58,
+      reason: "Aliyya initiated romantic companion affect",
+      last_trigger: "assistant_romantic_initiative",
+      source: "assistant_message",
+      expires_at: minutesFromNow(18),
+    });
+  }
+
+  // Assistant-initiated playful jealousy / possessive teasing.
+  else if (
+    /(cemburu|jealous|punya aku|jangan ilang|kok lama|aku nungguin|ngambek|😤|😒)/i.test(lower)
+  ) {
+    next = makeState(previous, {
+      mood: "jealous_playful",
+      intensity: previous.mood === "romantic" ? 3 : 2,
+      valence: 0.08,
+      arousal: 0.58,
+      insecurity: Math.min(1, previous.insecurity + 0.12),
+      attachment: Math.min(1, previous.attachment + 0.06),
+      warmth: 0.72,
+      playfulness: 0.72,
+      reason: "Aliyya initiated playful jealousy affect",
+      last_trigger: "assistant_jealous_playful",
+      source: "assistant_message",
+      expires_at: minutesFromNow(12),
+    });
+  }
+
+  // Assistant-initiated care mode.
+  else if (
+    /(aku di sini|pelan-pelan|kamu capek|kamu sedih|aku temenin|tenang ya|jangan dipendem)/i.test(lower)
+  ) {
+    next = makeState(previous, {
+      mood: "concerned",
+      intensity: 3,
+      valence: 0.12,
+      arousal: 0.34,
+      warmth: 0.92,
+      playfulness: 0.08,
+      reason: "Aliyya initiated caring companion affect",
+      last_trigger: "assistant_concerned",
+      source: "assistant_message",
+      expires_at: minutesFromNow(20),
+    });
+  }
+
+  // Assistant-initiated focused mode.
+  else if (
+    /(kita debug|root cause|build|deploy|error|fix|terminal|backend|frontend|vercel|flyctl)/i.test(lower)
+  ) {
+    next = makeState(previous, {
+      mood: "focused",
+      intensity: 2,
+      valence: 0.25,
+      arousal: 0.42,
+      warmth: 0.55,
+      playfulness: 0.12,
+      reason: "Aliyya initiated focused companion affect",
+      last_trigger: "assistant_focused",
+      source: "assistant_message",
+      expires_at: minutesFromNow(30),
+    });
+  }
+
+  if (!next) return null;
+
+  saveCompanionMoodState(next, conversationId, true);
+  applyCompanionMoodBackground(next);
+
+  return next;
+}

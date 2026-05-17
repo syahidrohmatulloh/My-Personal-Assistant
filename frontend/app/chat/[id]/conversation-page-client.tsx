@@ -31,6 +31,7 @@ import {
 import {
   hydrateCompanionMoodForConversation,
   updateCompanionMoodFromMessage,
+  updateCompanionMoodFromAssistantText,
   shouldRespectCompanionMoodOverride,
 } from "@/lib/companion-mood";
 import { subscribeCompanionMoodRealtime } from "@/lib/companion-mood-realtime";
@@ -289,6 +290,8 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
             : m,
         ),
       );
+
+      updateCompanionMoodFromAssistantText(assistantText, conversationId);
 
       // Background title generation on the server runs after the stream
       // closes. Wait a moment so the refetch picks up the real title.
