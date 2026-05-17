@@ -117,11 +117,7 @@ function scrollContainerToBottom(el: HTMLDivElement | null, smooth = false) {
   }
 }
 
-export default function ConversationPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default function ConversationPage() {
   const routeParams = useParams<{ id: string }>();
   const conversationId = routeParams.id;
   const qc = useQueryClient();
