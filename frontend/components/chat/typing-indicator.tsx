@@ -8,7 +8,7 @@ type Props = {
 };
 
 /**
- * Sticky "Assistant is typing" indicator (Phase 4.12).
+ * Sticky assistant typing indicator (Phase 4.12).
  *
  * Sits at the top of the scroll viewport so it's visible during long
  * responses without scrolling back up. The wrapper always reserves its
@@ -20,7 +20,7 @@ type Props = {
  *
  * Uses existing CSS tokens — no new colours, no new utility classes.
  */
-function TypingIndicatorBase({ visible, assistantName = "Assistant" }: Props) {
+function TypingIndicatorBase({ visible, assistantName = "Aliyya" }: Props) {
   return (
     <div
       // Sticky at the top of the scroll container. z-10 keeps it above
@@ -40,7 +40,7 @@ function TypingIndicatorBase({ visible, assistantName = "Assistant" }: Props) {
             visible ? "opacity-100" : "opacity-0",
           ].join(" ")}
         >
-          <span>{assistantName} is typing</span>
+          <span className="italic">{assistantName} is typing...</span>
           <span className="flex items-center gap-0.5" aria-hidden="true">
             <span
               className="h-1 w-1 rounded-full bg-fg-muted pulse-dot"

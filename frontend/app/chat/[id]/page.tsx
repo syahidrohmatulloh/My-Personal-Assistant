@@ -1,13 +1,14 @@
 "use client";
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown } from "lucide-react";
 import { Composer } from "@/components/chat/composer";
+import { TypingIndicator } from "@/components/chat/typing-indicator";
 import { MessageBubble } from "@/components/chat/message-bubble";
 import { ConversationStyleBadge } from "@/components/chat/conversation-style-badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { listMessages, streamChat, type ChatStreamMeta, type Conversation, type Message } from "@/lib/api";
+import { getIdentity, listMessages, streamChat, type ChatStreamMeta, type Identity, type Conversation, type Message } from "@/lib/api";
 import { setBackgroundMoodHint } from "@/lib/ambient-background";
 
 type LocalMessage =
@@ -42,6 +43,22 @@ export default function ConversationPage({
   const [loading, setLoading] = useState(true);
   const [showJumpBtn, setShowJumpBtn] = useState(false);
   const [streamMeta, setStreamMeta] = useState<ChatStreamMeta | null>(null);
+
+  const { data: identity } = useQuery({
+    queryKey: ["identity"],
+    queryFn: getIdentity,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+  });
+
+  const assistantName =
+    streamMeta?.assistant_name ||
+    (typeof identity?.profile?.assistant_name === "string" &&
+    identity.profile.assistant_name.trim().length > 0
+      ? identity.profile.assistant_name.trim()
+      : "Aliyya");
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -160,6 +177,13 @@ export default function ConversationPage({
       for await (const event of streamChat(conversationId, messageText, attachmentIds)) {
         if (event.type === "meta") {
           setStreamMeta(event);
+          if (event.assistant_name) {
+            qc.setQueryData<Identity | undefined>(["identity"], (old) => ({
+              profile: { ...(old?.profile ?? {}), assistant_name: event.assistant_name },
+              narrative: old?.narrative ?? null,
+              updated_at: old?.updated_at ?? null,
+            }));
+          }
           if (event.mood || event.background_palette_hint) {
             setBackgroundMoodHint({
               mood: event.mood,
@@ -257,6 +281,8 @@ export default function ConversationPage({
           Jump to latest
         </button>
       )}
+
+      <TypingIndicator visible={sending} assistantName={assistantName} />
 
       <Composer
         value={input}

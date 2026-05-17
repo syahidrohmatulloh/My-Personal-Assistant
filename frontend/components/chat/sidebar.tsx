@@ -28,6 +28,7 @@ import {
   createConversation,
   deleteConversation,
   getTodaysJournal,
+  getIdentity,
   listConversations,
   listStyleProfiles,
   regenerateConversationTitle,
@@ -74,6 +75,21 @@ export function Sidebar() {
   const qc = useQueryClient();
 
   const [open, setOpen] = useState(false);
+
+  const { data: identity } = useQuery({
+    queryKey: ["identity"],
+    queryFn: getIdentity,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+  });
+
+  const assistantName =
+    typeof identity?.profile?.assistant_name === "string" &&
+    identity.profile.assistant_name.trim().length > 0
+      ? identity.profile.assistant_name.trim()
+      : "Aliyya";
 
   const { data: conversations = [], isLoading } = useQuery({
     queryKey: ["conversations"],
@@ -180,7 +196,7 @@ export function Sidebar() {
           <Sparkles className="h-3.5 w-3.5 text-on-accent" strokeWidth={2.5} />
         </div>
         <span className="text-sm font-semibold text-fg tracking-tighter">
-          Assistant
+          {assistantName}
         </span>
         <button
           onClick={() => setOpen(false)}
@@ -300,7 +316,7 @@ export function Sidebar() {
               <Sparkles className="h-3 w-3 text-on-accent" strokeWidth={2.5} />
             </div>
             <span className="text-sm font-semibold text-fg tracking-tighter">
-              Assistant
+              {assistantName}
             </span>
           </div>
         </div>
