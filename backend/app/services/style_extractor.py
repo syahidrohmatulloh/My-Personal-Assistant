@@ -288,6 +288,8 @@ async def extract_style(
     Returns (profile_or_none, sample_count).
     sample_count = number of messages from the target sender that contributed.
     """
+    target = target_sender or None
+
     if parsed_lines:
         target = target_sender or _pick_target_sender(parsed_lines)
         if not target:
@@ -325,12 +327,23 @@ async def extract_style(
             messages=[{"role": "user", "content": transcript}],
         )
     except Exception as exc:
-        log.warning("style extract: Haiku failed: %s", exc)
-        return None, sample_count
+        log.warning("style extract: Haiku failed, using fallback style profile: %s", exc)
+        return _build_fallback_style_profile(
+            target_sender=target,
+            parsed_lines=parsed_lines,
+            transcript=transcript,
+            reason="llm_failed",
+        ), sample_count
 
     block = next((b for b in response.content if b.type == "text"), None)
     if not block:
-        return None, sample_count
+        log.warning("style extract: empty LLM response, using fallback style profile")
+        return _build_fallback_style_profile(
+            target_sender=target,
+            parsed_lines=parsed_lines,
+            transcript=transcript,
+            reason="empty_llm_response",
+        ), sample_count
     raw = block.text.strip()
     if raw.startswith("```"):
         raw = raw.strip("`").lstrip("json").strip()
@@ -338,8 +351,13 @@ async def extract_style(
     try:
         parsed_json = json.loads(raw)
     except json.JSONDecodeError as exc:
-        log.warning("style extract: bad JSON: %s; raw=%r", exc, raw[:400])
-        return None, sample_count
+        log.warning("style extract: bad JSON, using fallback style profile: %s; raw=%r", exc, raw[:400])
+        return _build_fallback_style_profile(
+            target_sender=target,
+            parsed_lines=parsed_lines,
+            transcript=transcript,
+            reason="bad_json",
+        ), sample_count
 
     profile, normalization_warnings = _validate_or_repair_profile(
         parsed_json, fallback_name=target_sender or _infer_target_name_from_transcript(transcript)
@@ -350,7 +368,12 @@ async def extract_style(
             normalization_warnings,
             sorted(parsed_json.keys()) if isinstance(parsed_json, dict) else type(parsed_json).__name__,
         )
-        return None, sample_count
+        return _build_fallback_style_profile(
+            target_sender=target,
+            parsed_lines=parsed_lines,
+            transcript=transcript,
+            reason="schema_unusable_after_repair",
+        ), sample_count
 
     if normalization_warnings:
         log.info(
@@ -629,6 +652,293 @@ def _infer_target_name_from_transcript(transcript: str) -> str | None:
             return value or None
     return None
 
+
+
+def _build_fallback_style_profile(
+    *,
+    target_sender: str | None,
+    parsed_lines: list[ParsedLine],
+    transcript: str,
+    reason: str,
+) -> StyleProfile:
+    """Build a usable style profile without LLM output.
+
+    This prevents the UX from hard-failing when the model returns partial/bad JSON.
+    It uses observed target messages to create a conservative, lower-confidence
+    profile that users can still preview/save/calibrate.
+    """
+    target = (
+        target_sender
+        or _infer_target_name_from_transcript(transcript)
+        or _pick_target_sender(parsed_lines)
+        or "Unknown"
+    )
+
+    target_texts = [
+        text
+        for sender, text in (parsed_lines or [])
+        if sender == target and not _is_style_noise(text, is_target=True)
+    ]
+
+    if not target_texts:
+        target_texts = _extract_target_texts_from_rendered_sample(transcript)
+
+    snippets = [_sanitize_short_snippet(t, max_chars=120) for t in target_texts]
+    snippets = [s for s in snippets if s]
+
+    short_snippets = [s for s in snippets if len(s) <= 80]
+    question_snippets = [s for s in snippets if "?" in s or any(w in s.lower() for w in ["apa", "siapa", "gimana", "kenapa", "kapan"])]
+    laugh_snippets = [s for s in snippets if any(w in s.lower() for w in ["wkwk", "haha", "hehe", "akwk"])]
+    support_snippets = [s for s in snippets if any(w in s.lower() for w in ["semangat", "jangan", "doain", "gapapa", "gpp", "aman"])]
+    planning_snippets = [s for s in snippets if any(w in s.lower() for w in ["nanti", "tar", "besok", "jam", "meeting", "makan", "dinner"])]
+    closing_snippets = [s for s in snippets if any(w in s.lower() for w in ["yauda", "yaudah", "dadah", "bye", "ttyl"])]
+
+    fillers = _observed_fillers(snippets)
+    common_phrases = _observed_common_phrases(snippets, fillers)
+
+    avg_len = _average_reply_length_label(snippets)
+    cadence = _infer_cadence_signature(snippets)
+    punctuation = _infer_punctuation_style(snippets)
+    language = _infer_language_label(snippets)
+
+    exemplars = StyleExemplars(
+        greeting=_take(short_snippets, 3),
+        casual_reaction=_take(short_snippets, 5),
+        teasing=_take(laugh_snippets, 5),
+        comforting=_take(support_snippets, 5),
+        affection=_take([s for s in snippets if any(w in s.lower() for w in ["mas", "beb", "sayang", "hid"])], 5),
+        question_style=_take(question_snippets, 5),
+        apology_or_repair=[],
+        encouragement=_take(support_snippets, 5),
+        goodbye=_take(closing_snippets, 5),
+        fragmented_followup=_take(short_snippets, 5),
+    )
+
+    directive_bits = [
+        f"Adapt to {target}'s observed texting style without claiming to be them.",
+        f"Use {avg_len} replies with {cadence}.",
+        f"Preserve punctuation texture: {punctuation}.",
+    ]
+    if fillers:
+        directive_bits.append("Use observed fillers/softeners sparingly: " + ", ".join(fillers[:10]) + ".")
+    if common_phrases:
+        directive_bits.append("Interpolate from observed short phrases: " + ", ".join(common_phrases[:8]) + ".")
+    directive_bits.append(
+        "If uncertain, stay simple and close to observed message shapes; do not invent new slang, catchphrases, or polished assistant prose."
+    )
+
+    compact_directive = " ".join(directive_bits)[:1200]
+
+    calibration_note = (
+        f"Fallback profile generated because extractor returned incomplete output ({reason}). "
+        "Usable but lower-confidence; improve with positive/negative calibration examples."
+    )
+
+    return StyleProfile(
+        display_name=target,
+        dominant_language=language,
+        language_mixing="observed from uploaded chat; use natural mixed wording only when supported",
+        formality_level="casual" if _looks_casual(snippets) else "unclear",
+        warmth_level="unclear",
+        directness_level="unclear",
+        humor_style="uses observed laugh/teasing markers" if laugh_snippets else "unclear",
+        emoji_usage=_infer_emoji_usage(snippets),
+        average_reply_length=avg_len,
+        greeting_style="unclear",
+        closing_style="observed short closings" if closing_snippets else "unclear",
+        conflict_style="unclear",
+        support_style="observed brief support/checking-in" if support_snippets else "unclear",
+        decision_making_style="unclear",
+        common_phrases=common_phrases[:10],
+        do_not_copy=[],
+        cadence_signature=cadence,
+        message_shape=_infer_message_shape(snippets),
+        punctuation_style=punctuation,
+        linguistic_texture=_infer_linguistic_texture(snippets),
+        filler_words=fillers[:16],
+        language_switching_behavior="unclear; follow observed examples only",
+        emotional_rhythm="unclear; prefer short natural reactions over polished advice",
+        teasing_pattern="observed laugh/teasing markers" if laugh_snippets else "unclear",
+        reassurance_pattern="brief and casual if present; avoid long advice",
+        question_style="uses short direct questions" if question_snippets else "unclear",
+        ai_polish_to_avoid=[
+            "overly complete assistant-like advice",
+            "new unsupported catchphrases",
+            "formal polished paragraphs",
+            "identity claims",
+        ],
+        exemplars=exemplars,
+        phrase_confidence=[
+            {"phrase": p, "evidence_count": _count_phrase(snippets, p), "confidence": "medium"}
+            for p in common_phrases[:10]
+        ],
+        style_calibration=StyleCalibration(
+            notes=[
+                calibration_note,
+                "Treat this as a partial profile. User calibration should override generic descriptors.",
+            ]
+        ),
+        compact_directive=compact_directive,
+    )
+
+
+def _extract_target_texts_from_rendered_sample(transcript: str) -> list[str]:
+    out: list[str] = []
+    for line in transcript.splitlines():
+        if line.startswith("[TARGET]"):
+            _, _, rest = line.partition(":")
+            if rest.strip():
+                out.append(rest.strip())
+    return out
+
+
+def _take(items: list[str], n: int) -> list[str]:
+    out: list[str] = []
+    for item in items:
+        item = _sanitize_short_snippet(item)
+        if item and item not in out:
+            out.append(item)
+        if len(out) >= n:
+            break
+    return out
+
+
+def _observed_fillers(snippets: list[str]) -> list[str]:
+    candidates = [
+        "wkwk", "wkwkwk", "haha", "hehe", "iyaa", "iyaah", "iyee", "iyaak",
+        "sih", "deh", "lah", "yaa", "ya", "nih", "dong", "dung", "plis",
+        "tar", "ntr", "bntr", "kaga", "kagaa", "gue", "gua", "gw", "lu",
+        "mas", "daa", "da", "yoy", "oke", "okay", "siapp", "baiq",
+    ]
+    low_text = "\n".join(snippets).lower()
+    found = []
+    for c in candidates:
+        if re.search(rf"(?<!\w){re.escape(c)}(?!\w)", low_text):
+            found.append(c)
+    return found
+
+
+def _observed_common_phrases(snippets: list[str], fillers: list[str]) -> list[str]:
+    out: list[str] = []
+    for f in fillers:
+        if f not in out:
+            out.append(f)
+
+    # Keep a few short natural one-liners as anchors.
+    for s in snippets:
+        compact = " ".join(s.split())
+        if 2 <= len(compact) <= 45 and compact.lower() not in [x.lower() for x in out]:
+            out.append(compact)
+        if len(out) >= 10:
+            break
+    return out
+
+
+def _count_phrase(snippets: list[str], phrase: str) -> int:
+    low = phrase.lower()
+    return sum(s.lower().count(low) for s in snippets)
+
+
+def _average_reply_length_label(snippets: list[str]) -> str:
+    if not snippets:
+        return "unclear"
+    avg = sum(len(s) for s in snippets) / max(1, len(snippets))
+    if avg < 25:
+        return "very short"
+    if avg < 60:
+        return "short"
+    if avg < 140:
+        return "short-medium"
+    return "varies"
+
+
+def _infer_cadence_signature(snippets: list[str]) -> str:
+    if not snippets:
+        return "unclear"
+    short_ratio = sum(1 for s in snippets if len(s) <= 45) / max(1, len(snippets))
+    laugh_count = sum(1 for s in snippets if any(w in s.lower() for w in ["wkwk", "haha", "hehe", "akwk"]))
+    if short_ratio >= 0.65:
+        base = "short, fragmented, chat-like bursts"
+    elif short_ratio >= 0.4:
+        base = "mix of short reactions and practical medium replies"
+    else:
+        base = "medium replies with occasional short reactions"
+    if laugh_count:
+        base += "; often softens with laugh markers"
+    return base
+
+
+def _infer_message_shape(snippets: list[str]) -> str:
+    if not snippets:
+        return "unclear"
+    has_repeats = any(re.search(r"(\w)\1{2,}", s.lower()) for s in snippets)
+    has_lower = sum(1 for s in snippets if s and s[0].islower()) > len(snippets) * 0.25
+    bits = ["natural WhatsApp-style short messages"]
+    if has_repeats:
+        bits.append("uses repeated letters")
+    if has_lower:
+        bits.append("often casual lowercase")
+    return "; ".join(bits)
+
+
+def _infer_punctuation_style(snippets: list[str]) -> str:
+    if not snippets:
+        return "unclear"
+    text = "\n".join(snippets)
+    bits = []
+    if "?" in text:
+        bits.append("uses direct question marks")
+    if "😭" in text:
+        bits.append("uses crying emoji for playful emotion")
+    if re.search(r"(\w)\1{2,}", text.lower()):
+        bits.append("uses repeated letters")
+    if "..." in text or "…" in text:
+        bits.append("uses ellipses")
+    if not bits:
+        bits.append("light punctuation")
+    return ", ".join(bits)
+
+
+def _infer_language_label(snippets: list[str]) -> str:
+    text = " ".join(snippets).lower()
+    indo_markers = ["yang", "aja", "sih", "deh", "iya", "ga", "gak", "gimana", "nanti", "besok", "makan", "jam"]
+    eng_markers = ["okay", "meeting", "wait", "style", "deal", "nice"]
+    indo = sum(1 for w in indo_markers if w in text)
+    eng = sum(1 for w in eng_markers if w in text)
+    if indo and eng:
+        return "Indonesian with some English/work terms"
+    if indo:
+        return "Indonesian"
+    return "mixed"
+
+
+def _infer_emoji_usage(snippets: list[str]) -> str:
+    text = " ".join(snippets)
+    emoji_count = len(re.findall(r"[\U0001F300-\U0001FAFF]", text))
+    if emoji_count == 0:
+        return "none or rare"
+    if emoji_count <= 3:
+        return "occasional"
+    return "frequent"
+
+
+def _infer_linguistic_texture(snippets: list[str]) -> list[str]:
+    texture = []
+    fillers = _observed_fillers(snippets)
+    if fillers:
+        texture.append("uses casual fillers/softeners: " + ", ".join(fillers[:8]))
+    if any("wkwk" in s.lower() for s in snippets):
+        texture.append("uses wkwk/laugh markers to soften tone")
+    if any(re.search(r"(\w)\1{2,}", s.lower()) for s in snippets):
+        texture.append("uses repeated letters for emphasis")
+    if any("?" in s for s in snippets):
+        texture.append("asks short direct questions")
+    return texture[:12]
+
+
+def _looks_casual(snippets: list[str]) -> bool:
+    text = " ".join(snippets).lower()
+    return any(w in text for w in ["wkwk", "gue", "gua", "gw", "lu", "sih", "deh", "yaa", "nih"])
 
 # ---------------------------------------------------------------------------
 # Helpers
