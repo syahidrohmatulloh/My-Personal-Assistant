@@ -533,6 +533,7 @@ export type AnalyzeResult = {
   sample_count: number;
   source_type: string;
   suggested_name: string;
+  warnings?: string[];
 };
 
 export async function analyzeStyle(
@@ -617,4 +618,81 @@ export async function setConversationStyle(
     throw new Error(detail);
   }
   return r.json();
+}
+
+export type Pacing = "immediate" | "fast" | "natural" | "slow";
+
+// -----------------------------------------------------------------------------
+// Style profile preview parsing
+// -----------------------------------------------------------------------------
+
+export type PreviewSender = {
+  name: string;
+  count: number;
+  is_likely_user?: boolean;
+  recommended?: boolean;
+};
+
+export type PreviewParseResult = {
+  source_type: string;
+  message_count: number;
+  senders: PreviewSender[];
+  recommended_target_name?: string | null;
+  too_long?: boolean;
+  warnings?: string[];
+};
+
+export async function previewParseStyle(input: string | {
+  transcript: string;
+  current_user_name?: string | null;
+  current_user_email?: string | null;
+  current_user_aliases?: string[];
+}): Promise<PreviewParseResult> {
+  const payload =
+    typeof input === "string"
+      ? { transcript: input, current_user_aliases: [] as string[] }
+      : {
+          transcript: input.transcript,
+          current_user_name: input.current_user_name ?? undefined,
+          current_user_email: input.current_user_email ?? undefined,
+          current_user_aliases: input.current_user_aliases ?? [],
+        };
+
+  const headers = await getAuthHeader();
+
+  const r = await fetch(`${API_URL}/style-profiles/preview-parse`, {
+    method: "POST",
+    headers: {
+      ...headers,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!r.ok) {
+    let message = `Preview parse failed (${r.status})`;
+
+    try {
+      const err = await r.json();
+      message = err?.detail || err?.message || message;
+    } catch {
+      try {
+        const txt = await r.text();
+        if (txt) message = txt;
+      } catch {}
+    }
+
+    throw new Error(message);
+  }
+
+  const data = (await r.json()) as Partial<PreviewParseResult>;
+
+  return {
+    source_type: data.source_type ?? "plain",
+    message_count: data.message_count ?? 0,
+    senders: data.senders ?? [],
+    recommended_target_name: data.recommended_target_name ?? null,
+    too_long: data.too_long ?? false,
+    warnings: data.warnings ?? [],
+  };
 }
