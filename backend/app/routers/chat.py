@@ -15,6 +15,7 @@ Perf shifts vs Phase 4:
 import asyncio
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
@@ -34,6 +35,66 @@ from app.services.supabase_client import get_supabase, safe_execute
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
+
+
+def _clean_assistant_name(name: str | None) -> str | None:
+    if not name:
+        return None
+    cleaned = re.sub(r"[^\w\s.'-]", "", name, flags=re.UNICODE).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    if not cleaned:
+        return None
+    # Keep it short so accidental long phrases don't become the app name.
+    if len(cleaned) > 32:
+        cleaned = cleaned[:32].strip()
+    # Avoid generic words becoming the name.
+    blocked = {"assistant", "asisten", "ai", "bot", "kamu", "you"}
+    if cleaned.lower() in blocked:
+        return None
+    return cleaned
+
+
+def _extract_assistant_name(user_message: str) -> str | None:
+    """Detect explicit requests to rename the assistant.
+
+    Examples:
+    - "nama kamu Aliyya"
+    - "aku panggil kamu Aliyya"
+    - "ganti nama kamu jadi Alya"
+    - "from now on your name is Aliyya"
+    """
+    text = (user_message or "").strip()
+    if not text:
+        return None
+
+    patterns = [
+        r"(?:mulai sekarang\s+)?(?:nama\s+kamu|namamu|nama\s+ai\s+ini|nama\s+assistant(?:\s+ini)?)\s+(?:adalah|jadi|itu|=|:)?\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s.'-]{1,31})",
+        r"(?:aku|saya)\s+(?:akan\s+)?(?:panggil|manggil|manggilmu|memanggil\s+kamu)\s+(?:kamu\s+)?(?:dengan\s+nama\s+)?([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s.'-]{1,31})",
+        r"(?:ganti|ubah)\s+nama\s+(?:kamu|assistant|asisten)\s+(?:jadi|ke|menjadi)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s.'-]{1,31})",
+        r"(?:from now on\s+)?your name is\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s.'-]{1,31})",
+        r"(?:call you|i will call you|i'll call you)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s.'-]{1,31})",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return _clean_assistant_name(match.group(1))
+    return None
+
+
+def _get_assistant_name_from_context(context: dict | None) -> str:
+    identity = (context or {}).get("identity") or {}
+    profile = identity.get("profile") or {}
+    name = _clean_assistant_name(str(profile.get("assistant_name") or ""))
+    return name or "Aliyya"
+
+
+async def _save_assistant_name_to_identity(user_id: str, context: dict, assistant_name: str) -> None:
+    identity = context.get("identity") or {}
+    profile = dict(identity.get("profile") or {})
+    narrative = identity.get("narrative")
+    profile["assistant_name"] = assistant_name
+    await life_model.upsert_identity(user_id, profile, narrative)
 
 
 def _mode_to_pacing(mode: str | None) -> str:
@@ -225,12 +286,39 @@ async def chat(
             )
         )
 
+    # Assistant display name is user-configurable and stored in identity.profile.assistant_name.
+    assistant_rename = _extract_assistant_name(body.message)
+    assistant_name = assistant_rename or _get_assistant_name_from_context(context)
+
+    if assistant_rename:
+        identity = context.get("identity") or {}
+        profile = dict(identity.get("profile") or {})
+        profile["assistant_name"] = assistant_name
+        identity["profile"] = profile
+        context["identity"] = identity
+        background_tasks.add_task(
+            _save_assistant_name_to_identity,
+            user_id,
+            context,
+            assistant_name,
+        )
+
     # === Phase 2: history (must be after save) ===
     messages = await _load_history(supabase, body.conversation_id)
     messages = trim_history(messages)
 
     # === Build prompt with cached base + volatile context ===
     volatile_context = render_context(context)
+    volatile_context += (
+        f"\n\n## Assistant identity\n"
+        f"- Your display name in this app is: {assistant_name}.\n"
+        f"- If the user asks your name or calls you by this name, respond naturally.\n"
+        f"- Do not introduce yourself repeatedly unless relevant."
+    )
+    if assistant_rename:
+        volatile_context += (
+            f"\n- The user just renamed you to {assistant_name}; acknowledge it briefly and then continue."
+        )
     ui_context_block = _render_ui_context(body.ui_context)
     if ui_context_block:
         volatile_context += "\n\n" + ui_context_block
@@ -315,6 +403,7 @@ async def chat(
             background_tasks=background_tasks,
             is_first_message=is_first_message,
             detected_mode=detected_mode,
+            assistant_name=assistant_name,
         ),
         media_type="text/event-stream",
         headers={
@@ -336,6 +425,7 @@ async def _stream_claude_response(
     background_tasks: BackgroundTasks,
     is_first_message: bool,
     detected_mode: str | None = None,
+    assistant_name: str = "Aliyya",
 ) -> AsyncIterator[str]:
     claude = get_claude()
     supabase = get_supabase()
@@ -361,7 +451,7 @@ async def _stream_claude_response(
         "pacing": _mode_to_pacing(detected_mode),
         "mood": mood,
         "background_palette_hint": _mood_to_palette(mood),
-        "assistant_name": "Assistant",
+        "assistant_name": assistant_name,
     }
     yield f"data: {json.dumps(meta_event)}\\n\\n"
     try:
