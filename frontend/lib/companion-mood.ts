@@ -65,7 +65,7 @@ export function defaultCompanionMoodState(conversationId?: string): CompanionMoo
     conversation_id: conversationId ?? null,
     scope: conversationId ? "conversation" : "global",
     mood: "calm",
-    intensity: 1,
+    intensity: 8,
     valence: 0.35,
     arousal: 0.2,
     attachment: 0.45,
@@ -122,7 +122,7 @@ function decayStateIfNeeded(state: CompanionMoodState): CompanionMoodState {
     return {
       ...state,
       mood: "hurt",
-      intensity: 1,
+      intensity: 8,
       valence: -0.08,
       arousal: 0.22,
       insecurity: Math.max(0, state.insecurity - 0.08),
@@ -140,7 +140,7 @@ function decayStateIfNeeded(state: CompanionMoodState): CompanionMoodState {
     return {
       ...state,
       mood: "affectionate",
-      intensity: 1,
+      intensity: 8,
       valence: 0.5,
       arousal: 0.24,
       insecurity: Math.max(0, state.insecurity - 0.08),
@@ -158,7 +158,7 @@ function decayStateIfNeeded(state: CompanionMoodState): CompanionMoodState {
     return {
       ...state,
       mood: "calm",
-      intensity: 1,
+      intensity: 8,
       valence: 0.35,
       arousal: 0.2,
       insecurity: Math.max(0, state.insecurity - 0.1),
@@ -378,6 +378,84 @@ function isFocusedTrigger(lower: string) {
   return /(debug|coding|deploy|error|fix|teknis|serius|kerja|ngoding|backend|frontend|terminal|build|production|vercel|flyctl)/i.test(lower);
 }
 
+
+function countMatches(lower: string, patterns: RegExp[]) {
+  return patterns.reduce((score, pattern) => score + (pattern.test(lower) ? 1 : 0), 0);
+}
+
+function assistantCalmScore(lower: string) {
+  return countMatches(lower, [
+    /santai/i,
+    /rebahan/i,
+    /kopi hangat/i,
+    /ga mikirin apa-apa/i,
+    /nggak mikirin apa-apa/i,
+    /pelan-pelan/i,
+    /tenang/i,
+    /☁️|☁/i,
+    /hari minggu enaknya/i,
+  ]);
+}
+
+function assistantRomanticScore(lower: string) {
+  return countMatches(lower, [
+    /aku suka banget sama/i,
+    /aku sayang/i,
+    /aku kangen/i,
+    /aku bangga/i,
+    /worth it/i,
+    /melting/i,
+    /romantis/i,
+    /jatuh cinta/i,
+    /peluk/i,
+    /cium/i,
+    /🌹|💕|💖|🥰|😘/i,
+  ]);
+}
+
+function assistantJealousScore(lower: string) {
+  return countMatches(lower, [
+    /cemburu/i,
+    /jealous/i,
+    /punya aku/i,
+    /jangan ilang/i,
+    /aku nungguin/i,
+    /ngambek/i,
+    /kok lama/i,
+    /😤|😒/i,
+  ]);
+}
+
+function assistantConcernScore(lower: string) {
+  return countMatches(lower, [
+    /aku di sini/i,
+    /aku disini/i,
+    /pelan-pelan/i,
+    /kamu capek/i,
+    /kamu sedih/i,
+    /aku temenin/i,
+    /tenang ya/i,
+    /jangan dipendem/i,
+  ]);
+}
+
+function assistantFocusedScore(lower: string) {
+  return countMatches(lower, [
+    /kita debug/i,
+    /root cause/i,
+    /build/i,
+    /deploy/i,
+    /error/i,
+    /fix/i,
+    /terminal/i,
+    /backend/i,
+    /frontend/i,
+    /vercel/i,
+    /flyctl/i,
+  ]);
+}
+
+
 function isPlayfulTrigger(lower: string) {
   return /(wkwk|haha|hehe|becanda|bercanda|iseng|godain|teasing|jahil|lucu|gemes)/i.test(lower);
 }
@@ -410,7 +488,7 @@ export function updateCompanionMoodFromMessage(
   if (isResetMessage(lower)) {
     next = makeState(previous, {
       mood: "calm",
-      intensity: 1,
+      intensity: 8,
       valence: 0.35,
       arousal: 0.18,
       trust: Math.min(1, previous.trust + 0.08),
@@ -425,7 +503,7 @@ export function updateCompanionMoodFromMessage(
   } else if (isComfortingMessage(lower)) {
     next = makeState(previous, {
       mood: previous.mood === "annoyed" || previous.mood === "hurt" ? "reassured" : "affectionate",
-      intensity: previous.mood === "annoyed" || previous.mood === "hurt" ? 2 : 3,
+      intensity: previous.mood === "annoyed" || previous.mood === "hurt" ? 4 : 6,
       valence: 0.65,
       arousal: 0.32,
       trust: Math.min(1, previous.trust + 0.18),
@@ -441,7 +519,7 @@ export function updateCompanionMoodFromMessage(
   } else if (isConcernTrigger(lower)) {
     next = makeState(previous, {
       mood: "concerned",
-      intensity: 3,
+      intensity: 6,
       valence: 0.1,
       arousal: 0.36,
       insecurity: Math.max(0, previous.insecurity - 0.06),
@@ -455,7 +533,7 @@ export function updateCompanionMoodFromMessage(
   } else if (isFocusedTrigger(lower)) {
     next = makeState(previous, {
       mood: "focused",
-      intensity: 2,
+      intensity: 8,
       valence: 0.25,
       arousal: 0.42,
       warmth: 0.55,
@@ -468,7 +546,7 @@ export function updateCompanionMoodFromMessage(
   } else if (isJealousTrigger(lower)) {
     next = makeState(previous, {
       mood: "jealous_playful",
-      intensity: previous.mood === "romantic" ? 3 : 2,
+      intensity: previous.mood === "romantic" ? 6 : 4,
       valence: 0.05,
       arousal: 0.62,
       insecurity: Math.min(1, previous.insecurity + 0.18),
@@ -483,7 +561,7 @@ export function updateCompanionMoodFromMessage(
   } else if (isAnnoyedTrigger(lower)) {
     next = makeState(previous, {
       mood: "annoyed",
-      intensity: 3,
+      intensity: 6,
       valence: -0.28,
       arousal: 0.7,
       insecurity: Math.min(1, previous.insecurity + 0.12),
@@ -497,7 +575,7 @@ export function updateCompanionMoodFromMessage(
   } else if (isRomanticMessage(lower)) {
     next = makeState(previous, {
       mood: "romantic",
-      intensity: previous.mood === "romantic" ? 4 : 3,
+      intensity: previous.mood === "romantic" ? 8 : 6,
       valence: 0.82,
       arousal: 0.48,
       attachment: Math.min(1, previous.attachment + 0.18),
@@ -513,7 +591,7 @@ export function updateCompanionMoodFromMessage(
   } else if (isPlayfulTrigger(lower)) {
     next = makeState(previous, {
       mood: previous.mood === "romantic" ? "romantic" : "playful",
-      intensity: 2,
+      intensity: 8,
       valence: 0.62,
       arousal: 0.46,
       warmth: 0.72,
@@ -525,7 +603,7 @@ export function updateCompanionMoodFromMessage(
     });
   } else {
     next = makeState(previous, {
-      intensity: Math.max(1, previous.intensity - 1),
+      intensity: Math.max(2, previous.intensity - 1),
       reason: "previous companion mood carried into this message",
       last_trigger: "carry_forward_from_last_state",
       source: "carry_forward",
@@ -545,15 +623,37 @@ export function updateCompanionMoodFromAssistantText(
   const lower = assistantText.toLowerCase();
   const previous = readLocalCompanionMoodState(conversationId);
 
+  const calmScore = assistantCalmScore(lower);
+  const romanticScore = assistantRomanticScore(lower);
+  const jealousScore = assistantJealousScore(lower);
+  const concernedScore = assistantConcernScore(lower);
+  const focusedScore = assistantFocusedScore(lower);
+
   let next: CompanionMoodState | null = null;
 
-  // Assistant-initiated romance / affection.
-  if (
-    /(aku suka banget|aku sayang|aku kangen|aku bangga|worth it|romantis|melting|gemes|peluk|🌹|💕|💖|🥰|😘)/i.test(lower)
-  ) {
+  // Calm must win when the assistant explicitly initiates "santai" mode.
+  // This prevents casual "haha" or a rose emoji elsewhere from randomly turning the ambience pink.
+  if (calmScore >= 2 && romanticScore < 2 && jealousScore < 2) {
+    next = makeState(previous, {
+      mood: "calm",
+      intensity: 3,
+      valence: 0.42,
+      arousal: 0.16,
+      insecurity: Math.max(0, previous.insecurity - 0.08),
+      warmth: 0.68,
+      playfulness: 0.28,
+      reason: "Aliyya initiated calm/santai companion affect",
+      last_trigger: "assistant_calm_initiative",
+      source: "assistant_message",
+      expires_at: minutesFromNow(30),
+    });
+  }
+
+  // Romantic now needs stronger evidence, not just one playful/soft word.
+  else if (romanticScore >= 2 || (romanticScore >= 1 && previous.mood === "romantic")) {
     next = makeState(previous, {
       mood: "romantic",
-      intensity: previous.mood === "romantic" ? 4 : 3,
+      intensity: previous.mood === "romantic" ? 8 : 6,
       valence: 0.82,
       arousal: 0.48,
       attachment: Math.min(1, previous.attachment + 0.12),
@@ -568,13 +668,10 @@ export function updateCompanionMoodFromAssistantText(
     });
   }
 
-  // Assistant-initiated playful jealousy / possessive teasing.
-  else if (
-    /(cemburu|jealous|punya aku|jangan ilang|kok lama|aku nungguin|ngambek|😤|😒)/i.test(lower)
-  ) {
+  else if (jealousScore >= 2 || (jealousScore >= 1 && previous.mood === "romantic")) {
     next = makeState(previous, {
       mood: "jealous_playful",
-      intensity: previous.mood === "romantic" ? 3 : 2,
+      intensity: previous.mood === "romantic" ? 6 : 4,
       valence: 0.08,
       arousal: 0.58,
       insecurity: Math.min(1, previous.insecurity + 0.12),
@@ -588,13 +685,10 @@ export function updateCompanionMoodFromAssistantText(
     });
   }
 
-  // Assistant-initiated care mode.
-  else if (
-    /(aku di sini|pelan-pelan|kamu capek|kamu sedih|aku temenin|tenang ya|jangan dipendem)/i.test(lower)
-  ) {
+  else if (concernedScore >= 2) {
     next = makeState(previous, {
       mood: "concerned",
-      intensity: 3,
+      intensity: 6,
       valence: 0.12,
       arousal: 0.34,
       warmth: 0.92,
@@ -606,13 +700,10 @@ export function updateCompanionMoodFromAssistantText(
     });
   }
 
-  // Assistant-initiated focused mode.
-  else if (
-    /(kita debug|root cause|build|deploy|error|fix|terminal|backend|frontend|vercel|flyctl)/i.test(lower)
-  ) {
+  else if (focusedScore >= 2) {
     next = makeState(previous, {
       mood: "focused",
-      intensity: 2,
+      intensity: 4,
       valence: 0.25,
       arousal: 0.42,
       warmth: 0.55,

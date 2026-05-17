@@ -23,7 +23,7 @@ class CompanionMoodIn(BaseModel):
     scope: Literal["global", "conversation"] = "global"
 
     mood: str = "calm"
-    intensity: int = Field(default=1, ge=0, le=5)
+    intensity: int = Field(default=1, ge=1, le=10)
 
     valence: float = 0.35
     arousal: float = 0.2
