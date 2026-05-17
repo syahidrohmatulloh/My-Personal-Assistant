@@ -640,6 +640,42 @@ function makeState(previous: CompanionMoodState, patch: Partial<CompanionMoodSta
   } as CompanionMoodState;
 }
 
+export function shouldDeferCompanionMoodToAssistant(message: string) {
+  const lower = message.toLowerCase();
+
+  // Direct mode commands should apply immediately.
+  // Example: "mode romantis dong", "aktifkan mode santai", "masuk mode fokus"
+  const directModeCommand =
+    /(mode|mood).{0,24}(romantis|romantic|santai|calm|fokus|focused|serius|cemburu|marah|playful)/i.test(lower) &&
+    !/(simulasi|simulate|testing|test|tes|coba kamu|kamu coba|inisiasi|trigger|tunjukin|demonstrate|pura-pura)/i.test(lower);
+
+  if (directModeCommand) return false;
+
+  // Simulation / assistant-initiation requests should NOT update ambience from the user message.
+  // Wait for Aliyya's actual response, then detect mood from the assistant output.
+  const asksAssistantToInitiate =
+    /(simulasi|simulate|testing|test|tes|pura-pura).{0,80}(romantis|romantic|santai|calm|cemburu|jealous|marah|angry|playful|posesif|mood|mode)/i.test(lower) ||
+    /(coba|tolong|please|pls|ayo|boleh).{0,40}(kamu|aliyya|ai).{0,80}(inisiasi|trigger|simulasi|simulate|masuk|jadi|bikin|tunjukin|demonstrate)/i.test(lower) ||
+    /(kamu|aliyya|ai).{0,50}(inisiasi|trigger|simulasi|simulate|masuk|jadi|bikin|tunjukin|demonstrate).{0,80}(mood|mode|romantis|romantic|cemburu|jealous|marah|angry|santai|calm|playful|posesif)/i.test(lower);
+
+  const asksForAssistantWords =
+    /(coba|tolong|please|pls).{0,70}(bilang|ngomong|jawab|respon|pakai kata|gunakan kata|ucapkan)/i.test(lower);
+
+  return asksAssistantToInitiate || asksForAssistantWords;
+}
+
+export function companionMoodNeedsRepairBeforeRomance(conversationId: string) {
+  const state = readCompanionMoodState(conversationId);
+
+  const negativeMood =
+    state.mood === "annoyed" ||
+    state.mood === "hurt" ||
+    state.mood === "jealous_playful" ||
+    state.mood === "withdrawn_soft";
+
+  return negativeMood && state.intensity >= 6;
+}
+
 export function updateCompanionMoodFromMessage(
   message: string,
   conversationId: string,

@@ -31,6 +31,7 @@ import {
 import {
   hydrateCompanionMoodForConversation,
   updateCompanionMoodFromMessage,
+  shouldDeferCompanionMoodToAssistant,
   updateCompanionMoodFromAssistantText,
   shouldRespectCompanionMoodOverride,
 } from "@/lib/companion-mood";
@@ -193,7 +194,9 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
   const handleSend = useCallback(
     async (attachmentIds: string[] = []) => {
       const text = input.trim();
-      updateCompanionMoodFromMessage(text, conversationId);
+      if (!shouldDeferCompanionMoodToAssistant(text)) {
+        updateCompanionMoodFromMessage(text, conversationId);
+      }
       const hasContent = text.length > 0 || attachmentIds.length > 0;
       if (!hasContent || sending) return;
 
