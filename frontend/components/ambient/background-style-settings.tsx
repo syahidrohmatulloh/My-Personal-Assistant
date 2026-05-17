@@ -2,12 +2,12 @@
 
 const BACKGROUND_EFFECT_LABELS: Record<string, string> = {
   standard: "Standard",
-  "fluid-webgl": "Fluid WebGL",
+  "fluid-webgl": "Fluid",
 };
 
 const BACKGROUND_EFFECT_DESCRIPTIONS: Record<string, string> = {
   standard: "Use the selected background as-is.",
-  "fluid-webgl": "Add a smooth GPU fluid layer on top of the selected background.",
+  "fluid-webgl": "Add a smooth fluid layer on top of the selected background.",
 };
 
 import { useEffect, useState } from "react";
@@ -52,7 +52,7 @@ export function BackgroundStyleSettings() {
   };
 
 return (
-    <div className="glass rounded-2xl p-4 sm:p-5 space-y-5">
+    <div className="background-style-settings glass rounded-2xl p-4 sm:p-5 space-y-5">
       <div>
         <h3 className="text-sm font-semibold text-fg">Background Style</h3>
         <p className="mt-1 text-xs leading-relaxed text-fg-muted">
