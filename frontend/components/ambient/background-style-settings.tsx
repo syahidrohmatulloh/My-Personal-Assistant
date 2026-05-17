@@ -61,6 +61,40 @@ return (
         </p>
       </div>
 
+
+      <div className="space-y-2">
+        <p className="text-[11px] font-semibold tracking-[0.16em] text-fg-muted uppercase">
+          Background Effect
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {(["standard", "fluid-webgl"] as const).map((effect) => {
+            const selected = settings.effect === effect;
+
+            return (
+              <button
+                key={effect}
+                type="button"
+                onClick={() => handleEffectChange(effect)}
+                aria-pressed={selected}
+                data-selected={selected ? "true" : "false"}
+                className={cn(
+                  "relative text-left rounded-xl border p-3 transition-all",
+                  selected
+                    ? "border-fg/70 bg-fg/10 shadow-[0_0_0_2px_rgba(0,0,0,0.08)]"
+                    : "border-border bg-card/50 opacity-80 hover:opacity-100",
+                )}
+              >
+                <p className="font-semibold pr-20">{BACKGROUND_EFFECT_LABELS[effect]}</p>
+                <p className="text-sm text-fg-muted mt-1">
+                  {BACKGROUND_EFFECT_DESCRIPTIONS[effect]}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         {BACKGROUND_STYLES.map((style) => {
           const active = settings.style === style;
