@@ -5,6 +5,7 @@ import {
   BACKGROUND_MOOD_EVENT,
   BACKGROUND_SETTINGS_EVENT,
   type BackgroundMoodHint,
+  type BackgroundPalette,
   type BackgroundSettings,
   DEFAULT_BACKGROUND_MOOD,
   DEFAULT_BACKGROUND_SETTINGS,
@@ -12,6 +13,7 @@ import {
   readBackgroundSettings,
 } from "@/lib/ambient-background";
 import { cn } from "@/lib/utils";
+import { CosmicFluidBackground } from "./cosmic-fluid-background";
 
 export function AmbientBackground() {
   const [settings, setSettings] = useState<BackgroundSettings>(DEFAULT_BACKGROUND_SETTINGS);
@@ -49,6 +51,9 @@ export function AmbientBackground() {
     [settings.mode, mood.palette],
   );
 
+  const isWebglBackground = settings.style === "cosmic-fluid-webgl";
+  const webglPalette = (effectivePalette ?? "calm-blue") as BackgroundPalette;
+
   if (settings.style === "off") return null;
 
   return (
@@ -66,9 +71,19 @@ export function AmbientBackground() {
         !settings.motion && "ambient-static",
       )}
     >
-      <span className="ambient-layer ambient-layer-a" />
-      <span className="ambient-layer ambient-layer-b" />
-      <span className="ambient-layer ambient-layer-c" />
+      {isWebglBackground ? (
+        <CosmicFluidBackground
+          palette={webglPalette}
+          intensity={settings.intensity}
+          motion={settings.motion}
+        />
+      ) : (
+        <>
+          <span className="ambient-layer ambient-layer-a" />
+          <span className="ambient-layer ambient-layer-b" />
+          <span className="ambient-layer ambient-layer-c" />
+        </>
+      )}
       <span className="ambient-readability-vignette" />
     </div>
   );

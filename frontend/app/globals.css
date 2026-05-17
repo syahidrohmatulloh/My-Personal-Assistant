@@ -713,3 +713,49 @@ button, a, [role="button"] {
   filter: blur(52px);
   animation: ambient-drift 34s ease-in-out infinite;
 }
+
+
+/* Cosmic Fluid WebGL background */
+.ambient-style-cosmic-fluid-webgl {
+  background:
+    radial-gradient(circle at 50% 0%, rgb(var(--accent) / 0.05), transparent 34%),
+    linear-gradient(135deg, rgb(var(--bg-deep)) 0%, rgb(var(--bg)) 52%, rgb(var(--bg-deep)) 100%);
+}
+
+.cosmic-fluid-mount {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+  transform: translateZ(0);
+}
+
+.cosmic-fluid-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0.92;
+  pointer-events: none;
+}
+
+.ambient-background.ambient-intensity-low .cosmic-fluid-canvas {
+  opacity: 0.66;
+}
+
+.ambient-background.ambient-intensity-medium .cosmic-fluid-canvas {
+  opacity: 0.94;
+}
+
+@media (max-width: 640px) {
+  .cosmic-fluid-canvas {
+    opacity: 0.72;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cosmic-fluid-canvas {
+    opacity: 0.62;
+  }
+}
+

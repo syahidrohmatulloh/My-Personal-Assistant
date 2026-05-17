@@ -10,6 +10,7 @@ export const BACKGROUND_MOOD_EVENT = "assistant-background-mood";
 export const BACKGROUND_STYLES = [
   "off",
   "cosmic-plasma",
+  "cosmic-fluid-webgl",
   "nebula-drift",
   "micro-particle-flow",
   "orbital-rings",
@@ -57,6 +58,7 @@ export const DEFAULT_BACKGROUND_MOOD: BackgroundMoodHint = {
 export const BACKGROUND_STYLE_LABELS: Record<BackgroundStyle, string> = {
   off: "Off",
   "cosmic-plasma": "Cosmic Plasma",
+  "cosmic-fluid-webgl": "Cosmic Fluid WebGL",
   "nebula-drift": "Nebula Drift",
   "micro-particle-flow": "Micro Particle Flow",
   "orbital-rings": "Orbital Rings",
@@ -66,6 +68,7 @@ export const BACKGROUND_STYLE_LABELS: Record<BackgroundStyle, string> = {
 export const BACKGROUND_STYLE_DESCRIPTIONS: Record<BackgroundStyle, string> = {
   off: "Disable the ambient layer entirely.",
   "cosmic-plasma": "A soft Opera Neon-inspired plasma aura.",
+  "cosmic-fluid-webgl": "GPU-rendered cosmic fluid with mood-reactive color blending.",
   "nebula-drift": "Slow atmospheric clouds with low-contrast color depth.",
   "micro-particle-flow": "A subtle dotted flow field behind the interface.",
   "orbital-rings": "Thin elliptical rings with very slow orbital motion.",
