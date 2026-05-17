@@ -108,6 +108,9 @@ return (
               key={style}
               type="button"
               onClick={() => update({ style })}
+              aria-pressed={active}
+              data-selected={active ? "true" : "false"}
+              data-setting-card="true"
               className={cn(
                 "text-left rounded-xl border px-3.5 py-3 transition-all",
                 "hover:bg-fg/5 active:scale-[0.99]",
@@ -137,6 +140,9 @@ return (
                 type="button"
                 onClick={() => update({ mode })}
                 disabled={settings.style === "off"}
+                aria-pressed={active}
+                data-selected={active ? "true" : "false"}
+                data-setting-card="true"
                 className={cn(
                   "rounded-xl border px-3.5 py-3 text-left transition-all",
                   "hover:bg-fg/5 active:scale-[0.99] disabled:opacity-45",
@@ -239,6 +245,9 @@ function SegmentedControl<T extends string | boolean>({
             type="button"
             disabled={disabled}
             onClick={() => onChange(option.value)}
+            aria-pressed={active}
+            data-selected={active ? "true" : "false"}
+            data-setting-card="true"
             className={cn(
               "flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
               active
