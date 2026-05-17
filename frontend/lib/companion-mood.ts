@@ -1,5 +1,9 @@
 import { setBackgroundMoodHint } from "@/lib/ambient-background";
 import {
+  classifyAssistantMessage,
+  classifyUserMessage,
+} from "@/lib/affect-classifier";
+import {
   getCompanionMoodState,
   putCompanionMoodState,
   type CompanionMoodStateApi,
@@ -186,8 +190,73 @@ function buildHybridPatch(
 const GLOBAL_STATE_KEY = "assistant.companionMood.global";
 const CONVERSATION_STATE_PREFIX = "assistant.companionMood.conversation.";
 const OVERRIDE_UNTIL_KEY = "assistant.background.companionMoodOverrideUntil";
+const PENDING_SIMULATION_TARGET_PREFIX = "assistant.companionMood.pendingSimulation.";
 
 const nowIso = () => new Date().toISOString();
+
+
+function pendingSimulationKey(conversationId: string) {
+  return `${PENDING_SIMULATION_TARGET_PREFIX}${conversationId}`;
+}
+
+type PendingSimulationTarget = {
+  target:
+    | "romantic"
+    | "calm"
+    | "jealous_playful"
+    | "annoyed"
+    | "playful"
+    | "focused"
+    | "concerned";
+  created_at: string;
+  user_message: string;
+};
+
+function consumePendingCompanionMoodSimulation(conversationId: string) {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const key = pendingSimulationKey(conversationId);
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return null;
+
+    window.sessionStorage.removeItem(key);
+
+    const parsed = JSON.parse(raw) as PendingSimulationTarget;
+    const createdAt = new Date(parsed.created_at).getTime();
+    const ageMs = Date.now() - createdAt;
+
+    if (!Number.isFinite(ageMs) || ageMs > 2 * 60_000) return null;
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function setPendingCompanionMoodSimulation(message: string, conversationId: string) {
+  if (typeof window === "undefined") return null;
+
+  const classified = classifyUserMessage(message);
+
+  if (classified.intent !== "simulation_request" || !classified.targetMood) {
+    return null;
+  }
+
+  const pending: PendingSimulationTarget = {
+    target: classified.targetMood as PendingSimulationTarget["target"],
+    created_at: new Date().toISOString(),
+    user_message: message,
+  };
+
+  window.sessionStorage.setItem(
+    pendingSimulationKey(conversationId),
+    JSON.stringify(pending),
+  );
+
+  return pending;
+}
+
 
 function conversationKey(conversationId: string) {
   return `${CONVERSATION_STATE_PREFIX}${conversationId}`;
@@ -641,27 +710,7 @@ function makeState(previous: CompanionMoodState, patch: Partial<CompanionMoodSta
 }
 
 export function shouldDeferCompanionMoodToAssistant(message: string) {
-  const lower = message.toLowerCase();
-
-  // Direct mode commands should apply immediately.
-  // Example: "mode romantis dong", "aktifkan mode santai", "masuk mode fokus"
-  const directModeCommand =
-    /(mode|mood).{0,24}(romantis|romantic|santai|calm|fokus|focused|serius|cemburu|marah|playful)/i.test(lower) &&
-    !/(simulasi|simulate|testing|test|tes|coba kamu|kamu coba|inisiasi|trigger|tunjukin|demonstrate|pura-pura)/i.test(lower);
-
-  if (directModeCommand) return false;
-
-  // Simulation / assistant-initiation requests should NOT update ambience from the user message.
-  // Wait for Aliyya's actual response, then detect mood from the assistant output.
-  const asksAssistantToInitiate =
-    /(simulasi|simulate|testing|test|tes|pura-pura).{0,80}(romantis|romantic|santai|calm|cemburu|jealous|marah|angry|playful|posesif|mood|mode)/i.test(lower) ||
-    /(coba|tolong|please|pls|ayo|boleh).{0,40}(kamu|aliyya|ai).{0,80}(inisiasi|trigger|simulasi|simulate|masuk|jadi|bikin|tunjukin|demonstrate)/i.test(lower) ||
-    /(kamu|aliyya|ai).{0,50}(inisiasi|trigger|simulasi|simulate|masuk|jadi|bikin|tunjukin|demonstrate).{0,80}(mood|mode|romantis|romantic|cemburu|jealous|marah|angry|santai|calm|playful|posesif)/i.test(lower);
-
-  const asksForAssistantWords =
-    /(coba|tolong|please|pls).{0,70}(bilang|ngomong|jawab|respon|pakai kata|gunakan kata|ucapkan)/i.test(lower);
-
-  return asksAssistantToInitiate || asksForAssistantWords;
+  return classifyUserMessage(message).intent === "simulation_request";
 }
 
 export function companionMoodNeedsRepairBeforeRomance(conversationId: string) {
@@ -682,6 +731,11 @@ export function updateCompanionMoodFromMessage(
 ): CompanionMoodState {
   const previous = readLocalCompanionMoodState(conversationId);
   const lower = message.toLowerCase();
+  const userClassification = classifyUserMessage(message);
+
+  if (userClassification.intent === "simulation_request" || !userClassification.shouldUpdate || userClassification.confidence < 0.45) {
+    return previous;
+  }
 
   let next = previous;
 
@@ -790,7 +844,7 @@ export function updateCompanionMoodFromMessage(
     });
   } else if (isPlayfulTrigger(lower)) {
     next = makeState(previous, {
-      mood: previous.mood === "romantic" ? "romantic" : "playful",
+      mood: "playful",
       intensity: 8,
       valence: 0.62,
       arousal: 0.46,
@@ -820,102 +874,37 @@ export function updateCompanionMoodFromAssistantText(
   assistantText: string,
   conversationId: string,
 ): CompanionMoodState | null {
-  const lower = assistantText.toLowerCase();
   const previous = readLocalCompanionMoodState(conversationId);
+  const pending = consumePendingCompanionMoodSimulation(conversationId);
 
-  const calmScore = assistantCalmScore(lower);
-  const romanticScore = assistantRomanticScore(lower);
-  const jealousScore = assistantJealousScore(lower);
-  const concernedScore = assistantConcernScore(lower);
-  const focusedScore = assistantFocusedScore(lower);
+  const classified = classifyAssistantMessage(assistantText, {
+    pendingTarget: pending?.target ?? null,
+    previousMood: previous.mood,
+  });
 
-  let next: CompanionMoodState | null = null;
-
-  // Calm must win when the assistant explicitly initiates "santai" mode.
-  // This prevents casual "haha" or a rose emoji elsewhere from randomly turning the ambience pink.
-  if (calmScore >= 2 && romanticScore < 2 && jealousScore < 2) {
-    next = makeState(previous, {
-      mood: "calm",
-      intensity: 3,
-      valence: 0.42,
-      arousal: 0.16,
-      insecurity: Math.max(0, previous.insecurity - 0.08),
-      warmth: 0.68,
-      playfulness: 0.28,
-      reason: "Aliyya initiated calm/santai companion affect",
-      last_trigger: "assistant_calm_initiative",
-      source: "assistant_message",
-      expires_at: minutesFromNow(30),
-    });
+  if (!classified.shouldUpdate || classified.confidence < 0.55) {
+    return null;
   }
 
-  // Romantic now needs stronger evidence, not just one playful/soft word.
-  else if (romanticScore >= 2 || (romanticScore >= 1 && previous.mood === "romantic")) {
-    next = makeState(previous, {
-      mood: "romantic",
-      intensity: previous.mood === "romantic" ? 8 : 6,
-      valence: 0.82,
-      arousal: 0.48,
-      attachment: Math.min(1, previous.attachment + 0.12),
-      trust: Math.min(1, previous.trust + 0.06),
-      insecurity: Math.max(0, previous.insecurity - 0.06),
-      warmth: 0.92,
-      playfulness: 0.58,
-      reason: "Aliyya initiated romantic companion affect",
-      last_trigger: "assistant_romantic_initiative",
-      source: "assistant_message",
-      expires_at: minutesFromNow(18),
-    });
-  }
-
-  else if (jealousScore >= 2 || (jealousScore >= 1 && previous.mood === "romantic")) {
-    next = makeState(previous, {
-      mood: "jealous_playful",
-      intensity: previous.mood === "romantic" ? 6 : 4,
-      valence: 0.08,
-      arousal: 0.58,
-      insecurity: Math.min(1, previous.insecurity + 0.12),
-      attachment: Math.min(1, previous.attachment + 0.06),
-      warmth: 0.72,
-      playfulness: 0.72,
-      reason: "Aliyya initiated playful jealousy affect",
-      last_trigger: "assistant_jealous_playful",
-      source: "assistant_message",
-      expires_at: minutesFromNow(12),
-    });
-  }
-
-  else if (concernedScore >= 2) {
-    next = makeState(previous, {
-      mood: "concerned",
-      intensity: 6,
-      valence: 0.12,
-      arousal: 0.34,
-      warmth: 0.92,
-      playfulness: 0.08,
-      reason: "Aliyya initiated caring companion affect",
-      last_trigger: "assistant_concerned",
-      source: "assistant_message",
-      expires_at: minutesFromNow(20),
-    });
-  }
-
-  else if (focusedScore >= 2) {
-    next = makeState(previous, {
-      mood: "focused",
-      intensity: 4,
-      valence: 0.25,
-      arousal: 0.42,
-      warmth: 0.55,
-      playfulness: 0.12,
-      reason: "Aliyya initiated focused companion affect",
-      last_trigger: "assistant_focused",
-      source: "assistant_message",
-      expires_at: minutesFromNow(30),
-    });
-  }
-
-  if (!next) return null;
+  const next = makeState(previous, {
+    ...buildHybridPatch(
+      previous,
+      classified.scores,
+      classified.reason,
+      classified.intent,
+      "assistant_message",
+      classified.primary === "focused" ? 30 : classified.primary === "calm" ? 30 : 18,
+      0.25,
+    ),
+    attachment:
+      classified.primary === "romantic" || classified.primary === "affectionate"
+        ? Math.min(1, previous.attachment + 0.12)
+        : previous.attachment,
+    trust:
+      classified.primary === "romantic" || classified.primary === "reassured"
+        ? Math.min(1, previous.trust + 0.06)
+        : previous.trust,
+  });
 
   saveCompanionMoodState(next, conversationId, true);
   applyCompanionMoodBackground(next);
