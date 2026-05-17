@@ -87,6 +87,21 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
 
+  const applyAssistantMoodAfterLatestMessagePaint = useCallback(
+    (assistantText: string) => {
+      // Let the final assistant bubble render first, then update ambience.
+      // This prevents the mood shift from feeling like it was triggered by the user's previous message.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          window.setTimeout(() => {
+            applyAssistantMoodAfterLatestMessagePaint(assistantText);
+          }, 350);
+        });
+      });
+    },
+    [conversationId],
+  );
+
   useEffect(() => {
     let unsubscribe: (() => void) | null = null;
     let cancelled = false;
@@ -294,7 +309,7 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
         ),
       );
 
-      updateCompanionMoodFromAssistantText(assistantText, conversationId);
+      applyAssistantMoodAfterLatestMessagePaint(assistantText);
 
       // Background title generation on the server runs after the stream
       // closes. Wait a moment so the refetch picks up the real title.
