@@ -520,9 +520,9 @@ function ConfirmStep({
           : `Detected ${preview.message_count} messages. Which person's style do you want to analyze?`}
       </p>
 
-      {preview.warnings.length > 0 && (
+      {(preview.warnings ?? []).length > 0 && (
         <div className="mb-3 p-2.5 rounded-lg bg-fg/5 border border-border space-y-1">
-          {preview.warnings.map((w, i) => (
+          {(preview.warnings ?? []).map((w, i) => (
             <p key={i} className="text-[11px] text-fg-soft flex items-start gap-1.5">
               <AlertCircle className="h-3 w-3 mt-0.5 shrink-0 text-fg-muted" />
               {w}
@@ -760,9 +760,9 @@ function PreviewStep({
         </div>
       )}
 
-      {result.warnings.length > 0 && (
+      {(result.warnings ?? []).length > 0 && (
         <div className="mb-3 p-2.5 rounded-lg bg-fg/5 border border-border space-y-1">
-          {result.warnings.map((w, i) => (
+          {(result.warnings ?? []).map((w, i) => (
             <p key={i} className="text-[11px] text-fg-soft flex items-start gap-1.5">
               <AlertCircle className="h-3 w-3 mt-0.5 shrink-0 text-fg-muted" />
               {w}
