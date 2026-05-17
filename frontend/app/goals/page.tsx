@@ -12,6 +12,7 @@ import {
   updateGoalStatus,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 
 const HORIZONS: Goal["horizon"][] = ["week", "month", "quarter", "year", "multi_year", "life"];
 const HORIZON_LABELS: Record<Goal["horizon"], string> = {
@@ -102,13 +103,7 @@ export default function GoalsPage() {
   return (
     <main className="min-h-dvh">
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 sm:py-8 fade-up">
-        <Link
-          href="/chat"
-          className="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-fg mb-6 transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to chat
-        </Link>
+        <BackToChatButton />
 
         <div className="flex items-start justify-between mb-2">
           <h1 className="text-3xl font-semibold text-fg tracking-tighter">Goals</h1>

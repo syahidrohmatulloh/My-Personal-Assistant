@@ -10,6 +10,7 @@ import {
   postJournal,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 
 type Scale = { value: number | null; set: (n: number | null) => void };
 
@@ -78,13 +79,7 @@ export default function JournalPage() {
   return (
     <main className="min-h-dvh">
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 sm:py-8 fade-up">
-        <Link
-          href="/chat"
-          className="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-fg mb-6 transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to chat
-        </Link>
+        <BackToChatButton />
 
         <h1 className="text-3xl font-semibold text-fg mb-1 tracking-tighter">
           How are you today?

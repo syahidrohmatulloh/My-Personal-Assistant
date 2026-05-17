@@ -11,6 +11,7 @@ import {
   listMemories,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 
 const KIND_LABELS: Record<Memory["kind"], string> = {
   fact: "Fact",
@@ -85,13 +86,7 @@ export default function MemoriesPage() {
     <main className="min-h-dvh">
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 sm:py-8 fade-up">
         <div className="flex items-center justify-between mb-6">
-          <Link
-            href="/chat"
-            className="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-fg transition-colors"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to chat
-          </Link>
+          <BackToChatButton />
           {memories.length > 0 && (
             <button
               onClick={handleClearAll}
