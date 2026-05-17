@@ -315,6 +315,23 @@ export function classifyAssistantMessage(
     /😤|😒/i,
   ]);
 
+  const annoyed = scoreOf(lower, [
+    /marah/i,
+    /kesel/i,
+    /ngambek/i,
+    /bete/i,
+    /emosi/i,
+    /tega banget/i,
+    /kamu jahat/i,
+    /jahat tau/i,
+    /ghosting/i,
+    /tidak menghargai/i,
+    /pengkhianatan/i,
+    /menyiksa/i,
+    /malah minta mode marah/i,
+    /😤|😠|😡|💢/i,
+  ]);
+
   const concerned = scoreOf(lower, [
     /aku di sini|aku disini/i,
     /aku temenin/i,
@@ -336,7 +353,7 @@ export function classifyAssistantMessage(
     /flyctl/i,
   ]);
 
-  const isPureMeta = metaDiscussion >= 2 && strongRomantic === 0 && calm === 0 && jealousy === 0 && concerned === 0;
+  const isPureMeta = metaDiscussion >= 2 && strongRomantic === 0 && calm === 0 && jealousy === 0 && annoyed === 0 && concerned === 0;
 
   if (isPureMeta) {
     return result(
@@ -346,6 +363,20 @@ export function classifyAssistantMessage(
       "assistant is discussing detector/background mechanics, not expressing a companion mood",
       false,
       "calm",
+    );
+  }
+
+  // Negative/annoyed affect wins over romantic keywords.
+  // Example: "Aku sudah bilang bunga mawar... tapi kamu malah mode marah?! 😤"
+  // contains romantic words, but the actual affect is annoyed/hurt.
+  if (annoyed >= 1 || (jealousy >= 1 && /😤|😠|😡|💢|tega|jahat|ghosting|menyiksa/i.test(lower))) {
+    return result(
+      { annoyed: 8, hurt: 5, jealous_playful: 3, romantic: Math.min(2, strongRomantic), calm: 0 },
+      "assistant_affect",
+      0.88,
+      "assistant expressed annoyed/hurt affect; negative tone overrides romantic keywords",
+      true,
+      "annoyed",
     );
   }
 
@@ -393,7 +424,7 @@ export function classifyAssistantMessage(
     );
   }
 
-  if (strongRomantic >= 2) {
+  if (strongRomantic >= 2 && annoyed === 0 && jealousy === 0) {
     return result(
       { romantic: 7, affectionate: 6, playful: 3, calm: 2 },
       "assistant_affect",
@@ -456,4 +487,23 @@ export function classifyAssistantMessage(
     false,
     "calm",
   );
+}
+
+export function debugAffectClassification(role: "user" | "assistant", message: string) {
+  const result =
+    role === "assistant"
+      ? classifyAssistantMessage(message)
+      : classifyUserMessage(message);
+
+  return {
+    role,
+    message,
+    primary: result.primary,
+    confidence: result.confidence,
+    intent: result.intent,
+    shouldUpdate: result.shouldUpdate,
+    targetMood: result.targetMood,
+    reason: result.reason,
+    scores: result.scores,
+  };
 }
