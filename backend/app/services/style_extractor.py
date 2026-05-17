@@ -47,6 +47,7 @@ _MAX_EXEMPLAR_CHARS = 120
 _MAX_EXEMPLARS_PER_BUCKET = 5
 
 
+
 class StyleExemplars(BaseModel):
     """Short style anchors grouped by behavior.
 
@@ -340,13 +341,293 @@ async def extract_style(
         log.warning("style extract: bad JSON: %s; raw=%r", exc, raw[:400])
         return None, sample_count
 
-    try:
-        profile = StyleProfile.model_validate(parsed_json)
-    except ValidationError as exc:
-        log.warning("style extract: schema mismatch: %s", exc)
+    profile, normalization_warnings = _validate_or_repair_profile(
+        parsed_json, fallback_name=target_sender or _infer_target_name_from_transcript(transcript)
+    )
+    if profile is None:
+        log.warning(
+            "style extract: unusable schema after repair; warnings=%s raw_keys=%s",
+            normalization_warnings,
+            sorted(parsed_json.keys()) if isinstance(parsed_json, dict) else type(parsed_json).__name__,
+        )
         return None, sample_count
 
+    if normalization_warnings:
+        log.info(
+            "style extract: normalized partial output; display=%s warnings=%s confidence_hint=partial",
+            profile.display_name,
+            normalization_warnings[:8],
+        )
+
     return profile, sample_count
+
+
+
+# ---------------------------------------------------------------------------
+# JSON repair / tolerant validation
+# ---------------------------------------------------------------------------
+
+
+def _validate_or_repair_profile(raw_profile: Any, *, fallback_name: str | None) -> tuple[StyleProfile | None, list[str]]:
+    """Validate extractor output, repairing harmless partial/misaligned JSON.
+
+    LLM JSON occasionally misses one optional field or uses a legacy/frontend
+    field name such as ``language_mixing_pattern``. A single optional mismatch
+    should not block the user. We normalize to the canonical StyleProfile
+    schema, lower confidence through a warning, and only fail when the minimum
+    usable profile is absent.
+    """
+    warnings: list[str] = []
+    if not isinstance(raw_profile, dict):
+        return None, ["profile_not_object"]
+
+    data = dict(raw_profile)
+
+    # Common aliases from earlier prompts/UI copy.
+    aliases = {
+        "person": "display_name",
+        "profile_display_name": "display_name",
+        "language_mixing_pattern": "language_mixing",
+        "emoji_usage_pattern": "emoji_usage",
+        "emoji_sticker_usage_pattern": "emoji_usage",
+        "average_message_length": "average_reply_length",
+        "reply_length": "average_reply_length",
+        "communication_directive": "compact_directive",
+        "style_directive": "compact_directive",
+        "style_examples": "exemplars",
+        "style_exemplars": "exemplars",
+    }
+    for src, dst in aliases.items():
+        if dst not in data and src in data:
+            data[dst] = data[src]
+            warnings.append(f"alias:{src}->{dst}")
+
+    # Minimum required fields: enough to make a preview/saveable profile.
+    if not data.get("display_name"):
+        data["display_name"] = fallback_name or "Unknown"
+        warnings.append("default:display_name")
+    if not data.get("dominant_language"):
+        data["dominant_language"] = "mixed"
+        warnings.append("default:dominant_language")
+
+    # Fill string fields with safe values. List/dict values are converted to
+    # compact strings for legacy string fields.
+    string_defaults = {
+        "language_mixing": "unclear",
+        "formality_level": "unclear",
+        "warmth_level": "unclear",
+        "directness_level": "unclear",
+        "humor_style": "unclear",
+        "emoji_usage": "unclear",
+        "average_reply_length": "unclear",
+        "greeting_style": "unclear",
+        "closing_style": "unclear",
+        "conflict_style": "unclear",
+        "support_style": "unclear",
+        "decision_making_style": "unclear",
+        "cadence_signature": "unclear",
+        "message_shape": "unclear",
+        "punctuation_style": "unclear",
+        "language_switching_behavior": "unclear",
+        "emotional_rhythm": "unclear",
+        "teasing_pattern": "unclear",
+        "reassurance_pattern": "unclear",
+        "question_style": "unclear",
+    }
+    for key, default in string_defaults.items():
+        if data.get(key) in (None, ""):
+            data[key] = default
+            warnings.append(f"default:{key}")
+        elif not isinstance(data.get(key), str):
+            data[key] = _coerce_to_short_string(data.get(key), default=default)
+            warnings.append(f"coerce:{key}")
+
+    list_defaults = {
+        "common_phrases": [],
+        "do_not_copy": [],
+        "linguistic_texture": [],
+        "filler_words": [],
+        "ai_polish_to_avoid": [],
+        "phrase_confidence": [],
+    }
+    for key, default in list_defaults.items():
+        value = data.get(key)
+        if value is None:
+            data[key] = list(default)
+            warnings.append(f"default:{key}")
+        elif isinstance(value, str):
+            data[key] = [value] if value.strip() else []
+            warnings.append(f"coerce:{key}:str_to_list")
+        elif not isinstance(value, list):
+            data[key] = []
+            warnings.append(f"coerce:{key}:nonlist_to_empty")
+
+    # Normalize exemplars/calibration nested objects.
+    data["exemplars"] = _normalize_exemplars(data.get("exemplars"), warnings)
+    data["style_calibration"] = _normalize_calibration(data.get("style_calibration"), warnings)
+
+    if not data.get("compact_directive") or not isinstance(data.get("compact_directive"), str):
+        data["compact_directive"] = _fallback_compact_directive(data)
+        warnings.append("default:compact_directive")
+    elif len(str(data["compact_directive"]).strip()) < 20:
+        data["compact_directive"] = _fallback_compact_directive(data)
+        warnings.append("replace:compact_directive_too_short")
+
+    # Strip risky accidental payload fields that should never be stored.
+    for risky_key in ("raw_transcript", "transcript", "messages", "full_chat", "samples_raw"):
+        if risky_key in data:
+            data.pop(risky_key, None)
+            warnings.append(f"strip:{risky_key}")
+
+    try:
+        return StyleProfile.model_validate(data), warnings
+    except ValidationError as exc:
+        # Last-resort repair: truncate overlong strings and retry once.
+        warnings.append("validation_retry_after_truncate")
+        data = _truncate_profile_fields(data)
+        try:
+            return StyleProfile.model_validate(data), warnings
+        except ValidationError as exc2:
+            warnings.append(f"validation_failed:{len(exc2.errors())}_issues")
+            log.warning("style extract: schema mismatch after repair: %s", exc2)
+            return None, warnings
+
+
+def _coerce_to_short_string(value: Any, *, default: str = "unclear", max_chars: int = 220) -> str:
+    if value is None:
+        return default
+    if isinstance(value, list):
+        parts = [str(v).strip() for v in value if str(v).strip()]
+        text = ", ".join(parts)
+    elif isinstance(value, dict):
+        parts = [f"{k}: {v}" for k, v in value.items() if v not in (None, "", [], {})]
+        text = "; ".join(parts)
+    else:
+        text = str(value).strip()
+    return (text or default)[:max_chars]
+
+
+def _normalize_exemplars(value: Any, warnings: list[str]) -> dict[str, list[str]]:
+    fields = StyleExemplars.model_fields.keys()
+    out = {key: [] for key in fields}
+    if value is None:
+        warnings.append("default:exemplars")
+        return out
+    if isinstance(value, list):
+        # Some models return one flat exemplar list; put it under casual_reaction.
+        out["casual_reaction"] = [_sanitize_short_snippet(str(v)) for v in value[:5] if str(v).strip()]
+        warnings.append("coerce:exemplars:list_to_casual_reaction")
+        return out
+    if not isinstance(value, dict):
+        warnings.append("coerce:exemplars:invalid_to_empty")
+        return out
+    for key in fields:
+        item = value.get(key)
+        if item is None:
+            continue
+        if isinstance(item, str):
+            out[key] = [_sanitize_short_snippet(item)] if item.strip() else []
+            warnings.append(f"coerce:exemplars.{key}:str_to_list")
+        elif isinstance(item, list):
+            out[key] = [_sanitize_short_snippet(str(v)) for v in item[:5] if str(v).strip()]
+        else:
+            warnings.append(f"coerce:exemplars.{key}:invalid_to_empty")
+    return out
+
+
+def _normalize_calibration(value: Any, warnings: list[str]) -> dict[str, Any]:
+    empty = {
+        "positive_examples": [],
+        "negative_examples": [],
+        "preferred_rewrites": [],
+        "banned_phrases": [],
+        "notes": [],
+    }
+    if value is None:
+        warnings.append("default:style_calibration")
+        return empty
+    if not isinstance(value, dict):
+        warnings.append("coerce:style_calibration:invalid_to_empty")
+        return empty
+
+    out = dict(empty)
+    for key in ("positive_examples", "negative_examples", "banned_phrases", "notes"):
+        item = value.get(key)
+        if item is None:
+            continue
+        if isinstance(item, str):
+            out[key] = [_sanitize_short_snippet(item, max_chars=180)] if item.strip() else []
+            warnings.append(f"coerce:style_calibration.{key}:str_to_list")
+        elif isinstance(item, list):
+            out[key] = [_sanitize_short_snippet(str(v), max_chars=180) for v in item[:30] if str(v).strip()]
+        else:
+            warnings.append(f"coerce:style_calibration.{key}:invalid_to_empty")
+
+    rewrites: list[dict[str, str]] = []
+    for item in value.get("preferred_rewrites") or []:
+        if not isinstance(item, dict):
+            continue
+        bad = _sanitize_short_snippet(str(item.get("bad") or ""), max_chars=160)
+        better = _sanitize_short_snippet(str(item.get("better") or ""), max_chars=160)
+        if bad and better:
+            rewrites.append({"bad": bad, "better": better})
+        if len(rewrites) >= 20:
+            break
+    out["preferred_rewrites"] = rewrites
+    return out
+
+
+def _fallback_compact_directive(data: dict[str, Any]) -> str:
+    name = _coerce_to_short_string(data.get("display_name"), default="the target", max_chars=80)
+    bits = [
+        f"Adapt to {name}'s texting style without claiming to be them.",
+        f"Language: {_coerce_to_short_string(data.get('dominant_language'), default='mixed', max_chars=80)}.",
+        f"Cadence: {_coerce_to_short_string(data.get('cadence_signature'), default='short natural chat rhythm', max_chars=180)}.",
+        f"Message shape: {_coerce_to_short_string(data.get('message_shape'), default='casual short replies when appropriate', max_chars=180)}.",
+        "Avoid polished assistant prose; interpolate from observed patterns and do not invent unsupported catchphrases.",
+    ]
+    return " ".join(bits)[:1200]
+
+
+def _truncate_profile_fields(data: dict[str, Any]) -> dict[str, Any]:
+    limits = {
+        "display_name": 80,
+        "dominant_language": 40,
+        "language_mixing": 200,
+        "formality_level": 60,
+        "warmth_level": 60,
+        "directness_level": 60,
+        "humor_style": 200,
+        "emoji_usage": 200,
+        "average_reply_length": 120,
+        "greeting_style": 200,
+        "closing_style": 200,
+        "conflict_style": 220,
+        "support_style": 220,
+        "decision_making_style": 220,
+        "cadence_signature": 500,
+        "message_shape": 500,
+        "punctuation_style": 350,
+        "language_switching_behavior": 350,
+        "emotional_rhythm": 500,
+        "teasing_pattern": 350,
+        "reassurance_pattern": 350,
+        "question_style": 350,
+        "compact_directive": 1200,
+    }
+    out = dict(data)
+    for key, limit in limits.items():
+        if isinstance(out.get(key), str) and len(out[key]) > limit:
+            out[key] = out[key][:limit].rstrip()
+    return out
+
+
+def _infer_target_name_from_transcript(transcript: str) -> str | None:
+    for line in transcript.splitlines():
+        if line.startswith("TARGET PERSON:"):
+            value = line.split(":", 1)[1].strip()
+            return value or None
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -404,7 +685,8 @@ def _format_representative_transcript(
     if budget <= 1000:
         return header
 
-    selected = _select_representative_lines(parsed_lines, target=target, max_lines=260)
+    cleaned_lines = _drop_style_noise(parsed_lines, target=target)
+    selected = _select_representative_lines(cleaned_lines or parsed_lines, target=target, max_lines=260)
     rendered = _render_lines(selected, target=target)
 
     if len(rendered) <= budget:
@@ -417,6 +699,59 @@ def _format_representative_transcript(
         return header + rendered_target + "\n[context omitted due to size]\n"
 
     return header + rendered_target[:budget] + "\n[transcript sampled/truncated]\n"
+
+
+
+
+def _drop_style_noise(parsed_lines: list[ParsedLine], *, target: str) -> list[ParsedLine]:
+    """Remove low-signal artifacts before style sampling.
+
+    WhatsApp exports often contain media placeholders and pasted formal notices.
+    Those are useful as conversation history but harmful as style exemplars,
+    especially when the target's real style is short casual chat.
+    """
+    cleaned: list[ParsedLine] = []
+    for sender, text in parsed_lines:
+        if _is_style_noise(text, is_target=(sender == target)):
+            continue
+        cleaned.append((sender, text))
+    # Never return an empty set if we accidentally filtered too aggressively.
+    return cleaned if len(cleaned) >= _MIN_TARGET_MESSAGES else parsed_lines
+
+
+def _is_style_noise(text: str, *, is_target: bool) -> bool:
+    compact = " ".join(text.strip().split())
+    low = compact.lower()
+    if not compact:
+        return True
+    media_terms = (
+        "image omitted",
+        "sticker omitted",
+        "video omitted",
+        "audio omitted",
+        "document omitted",
+        "contact card omitted",
+        "this message was edited",
+    )
+    if any(term in low for term in media_terms):
+        return True
+
+    # Long copied/formal announcements distort chat style. Drop them from target
+    # style analysis, but keep ordinary work logistics and short notes.
+    formal_markers = (
+        "dear ",
+        "sehubungan",
+        "demikian kami sampaikan",
+        "atas bantuan dan kerjasamanya",
+        "hari/tanggal",
+        "tempat",
+        "opening meeting",
+        "assalamu'alaikum",
+        "wassalamualaikum",
+    )
+    if is_target and len(compact) > 280 and sum(marker in low for marker in formal_markers) >= 2:
+        return True
+    return False
 
 
 def _select_representative_lines(
@@ -498,7 +833,7 @@ def _category_target_samples(target_lines: list[ParsedLine], *, per_category: in
             buckets["affection"].append(line)
         if any(x in compact for x in ["ttyl", "bye", "dadah", "good night", "gn", "yauda", "yaudah"]):
             buckets["closing"].append(line)
-        if any(x in text for x in ["😭", "😂", "🤣", "…", "...", "!!"]) or re.search(r"(\w){2,}", text):
+        if any(x in text for x in ["😭", "😂", "🤣", "…", "...", "!!"]) or re.search(r"(\w)\1{2,}", text):
             buckets["punctuation_texture"].append(line)
 
     selected: list[ParsedLine] = []
