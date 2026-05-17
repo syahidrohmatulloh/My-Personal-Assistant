@@ -138,8 +138,21 @@ def _companion_mood_repair_gate_text(
     user_id: str,
     conversation_id: str | None,
     user_message: str | None,
+    ui_context: dict | None = None,
 ) -> str:
-    state = _fetch_companion_mood_for_prompt(supabase, user_id, conversation_id)
+    # Prefer the latest frontend companion mood state because it is more current
+    # than the async backend sync. Fall back to DB only if ui_context is missing.
+    ui_companion = None
+    if isinstance(ui_context, dict):
+        maybe_companion = ui_context.get("companion_mood")
+        if isinstance(maybe_companion, dict):
+            ui_companion = maybe_companion
+
+    state = ui_companion or _fetch_companion_mood_for_prompt(
+        supabase,
+        user_id,
+        conversation_id,
+    )
 
     mood = state.get("mood", "calm")
     intensity = int(state.get("intensity") or 1)
@@ -156,11 +169,22 @@ def _companion_mood_repair_gate_text(
         "withdrawn_soft",
     }
 
+    negative_score = 0
+    if isinstance(mood_scores, dict):
+        negative_score = max(
+            int(mood_scores.get("annoyed") or 0),
+            int(mood_scores.get("hurt") or 0),
+            int(mood_scores.get("jealous_playful") or 0),
+            int(mood_scores.get("withdrawn_soft") or 0),
+        )
+
     repair_required = (
         romantic_simulation_requested
-        and negative_mood
-        and intensity >= 6
         and not user_is_repairing
+        and (
+            (negative_mood and intensity >= 6)
+            or negative_score >= 6
+        )
     )
 
     lines = [
@@ -497,6 +521,7 @@ async def chat(
         user_id,
         body.conversation_id,
         body.message,
+        body.ui_context,
     )
     if companion_mood_repair_gate_text:
         volatile_context += "\n\n" + companion_mood_repair_gate_text
