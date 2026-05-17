@@ -117,7 +117,7 @@ function scrollContainerToBottom(el: HTMLDivElement | null, smooth = false) {
 }
 
 export function ConversationPageClient({ conversationId }: { conversationId: string }) {
-const qc = useQueryClient();
+  const qc = useQueryClient();
 
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [input, setInput] = useState("");
