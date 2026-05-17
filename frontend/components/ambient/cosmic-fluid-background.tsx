@@ -137,6 +137,8 @@ export function CosmicFluidBackground({ palette, intensity, motion }: Props) {
       return;
     }
 
+    mount.querySelectorAll("canvas").forEach((canvas) => canvas.remove());
+
     renderer.setClearColor(0x000000, 0);
     renderer.domElement.className = "cosmic-fluid-canvas";
     renderer.domElement.setAttribute("aria-hidden", "true");
@@ -223,9 +225,7 @@ export function CosmicFluidBackground({ palette, intensity, motion }: Props) {
       geometry.dispose();
       material.dispose();
 
-      if (renderer.domElement.parentNode === mount) {
-        mount.removeChild(renderer.domElement);
-      }
+      mount.querySelectorAll("canvas").forEach((canvas) => canvas.remove());
 
       renderer.dispose();
       renderer.forceContextLoss();

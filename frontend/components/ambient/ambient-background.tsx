@@ -76,6 +76,7 @@ export function AmbientBackground() {
 
       {useFluidEffect && (
         <CosmicFluidBackground
+          key={`${settings.style}-${settings.effect}-${webglPalette}-${settings.intensity}-${settings.motion ? "motion" : "static"}`}
           palette={webglPalette}
           intensity={settings.intensity}
           motion={settings.motion}

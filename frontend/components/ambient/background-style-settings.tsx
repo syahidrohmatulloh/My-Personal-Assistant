@@ -48,7 +48,11 @@ export function BackgroundStyleSettings() {
     const next = { ...settings, effect };
     setSettings(next);
     saveBackgroundEffect(effect);
-    window.dispatchEvent(new Event("assistant.background.settings.changed"));
+    window.dispatchEvent(
+      new CustomEvent("assistant.background.settings.changed", {
+        detail: { reason: "effect-change", effect },
+      }),
+    );
   };
 
 return (
@@ -78,6 +82,7 @@ return (
                 onClick={() => handleEffectChange(effect)}
                 aria-pressed={selected}
                 data-selected={selected ? "true" : "false"}
+                data-setting-card="true"
                 className={cn(
                   "relative text-left rounded-xl border p-3 transition-all",
                   selected
