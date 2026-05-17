@@ -165,28 +165,6 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
   }, [identity]);
 
 
-  // Load messages, then scroll the container to bottom on next frame.
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    // Reset to "stick to bottom" on each navigation — new conversation
-    // should land at the latest message.
-    stickToBottomRef.current = true;
-
-    listMessages(conversationId)
-      .then((msgs) => {
-        if (cancelled) return;
-        setMessages(msgs);
-        // Two rAFs to ensure layout has flushed before scrolling.
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            scrollContainerToBottom(scrollRef.current);
-          });
-        });
-      })
-      .catch(console.error)
-      .finally(() => !cancelled && setLoading(false));
-  
   useEffect(() => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(
@@ -194,9 +172,33 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
         window.location.pathname,
       );
     }
-  }, []);
+  }, [conversationId]);
 
-  return () => {
+  // Load messages, then scroll the container to bottom on next frame.
+  useEffect(() => {
+    let cancelled = false;
+
+    setLoading(true);
+    stickToBottomRef.current = true;
+
+    listMessages(conversationId)
+      .then((msgs) => {
+        if (cancelled) return;
+
+        setMessages(msgs);
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            scrollContainerToBottom(scrollRef.current);
+          });
+        });
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
       cancelled = true;
     };
   }, [conversationId]);
