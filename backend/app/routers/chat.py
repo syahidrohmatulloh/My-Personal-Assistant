@@ -10,6 +10,20 @@ Perf shifts vs Phase 4:
     cost by 90% and TTFT by ~30-50%.
   * History is trimmed to a token budget so long chats don't blow up.
   * Title generation runs in background after first message.
+
+Phase 4.12 — typing meta event (additive, non-breaking):
+
+  * A single SSE event `{"type":"meta", ...}` is emitted at the START of
+    the stream, before any `delta`. It carries the detected companion mode
+    and a derived `pacing` hint so the frontend can humanize reveal speed
+    and show "Assistant is typing".
+  * `detected_mode` is REUSED from the existing companion_mode.detect_mode
+    call (which already runs in parallel) — no extra latency, no LLM call
+    duplication, no new service file.
+  * If detection returns None or fails, we emit `pacing: "natural"` and
+    `mode: "unknown"`. Frontend falls back to its own heuristic.
+  * Metadata is NEVER persisted as a message and NEVER appears in chat
+    text. It is purely a presentation-layer hint.
 """
 
 import asyncio
@@ -34,6 +48,40 @@ from app.services.supabase_client import get_supabase, safe_execute
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
+
+
+# ---------------------------------------------------------------------------
+# Companion mode → pacing mapping
+# ---------------------------------------------------------------------------
+#
+# Frontend pacing values:
+#   - "immediate" : no artificial delay, render tokens as they arrive
+#   - "fast"      : minimal delay, for practical/coding/strategy contexts
+#   - "natural"   : human-like default
+#   - "slow"      : slight extra delay, for listener/reflective space
+#
+# Defensive defaults — if backend mode is unknown or None, frontend gets
+# "natural" and applies its own heuristic.
+
+_MODE_TO_PACING: dict[str, str] = {
+    "practical": "fast",
+    "strategist": "fast",
+    "motivator": "fast",
+    "challenger": "natural",
+    "listener": "slow",
+    "reflective": "slow",
+}
+
+
+def _mode_to_pacing(mode: str | None) -> str:
+    if mode is None:
+        return "natural"
+    return _MODE_TO_PACING.get(mode, "natural")
+
+
+# Hardcoded for now — will be wired to user settings in a later phase.
+# Keeping this here as a single point of change.
+_ASSISTANT_NAME = "Assistant"
 
 
 async def _check_ownership(_supabase, conversation_id: str, user_id: str):
@@ -224,6 +272,7 @@ async def chat(
             user_message=body.message,
             background_tasks=background_tasks,
             is_first_message=is_first_message,
+            detected_mode=detected_mode,
         ),
         media_type="text/event-stream",
         headers={
@@ -244,10 +293,25 @@ async def _stream_claude_response(
     user_message: str,
     background_tasks: BackgroundTasks,
     is_first_message: bool,
+    detected_mode: str | None,
 ) -> AsyncIterator[str]:
     claude = get_claude()
     supabase = get_supabase()
     assistant_text = ""
+
+    # --- Phase 4.12: emit typing meta as the very first SSE event ---
+    # Frontend uses this to:
+    #   - decide pacing (slow / natural / fast / immediate)
+    #   - show "Assistant is typing" indicator with a name
+    # If frontend doesn't recognize this event, it should ignore it safely.
+    # Persistence is unaffected — this is presentation only.
+    meta_payload = {
+        "type": "meta",
+        "mode": detected_mode if detected_mode else "unknown",
+        "pacing": _mode_to_pacing(detected_mode),
+        "assistant_name": _ASSISTANT_NAME,
+    }
+    yield f"data: {json.dumps(meta_payload)}\n\n"
 
     # System prompt as two blocks:
     #   - BASE_PROMPT: stable, cached for 5 min (ephemeral cache)

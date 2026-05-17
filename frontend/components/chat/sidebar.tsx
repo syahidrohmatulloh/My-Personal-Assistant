@@ -231,8 +231,13 @@ export function Sidebar() {
           </div>
         ) : (
           groups.map((g) => (
-            <div key={g.label} className="mb-2">
-              <p className="px-2.5 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-fg-subtle">
+            <div key={g.label} className="mb-3">
+              {/* Section header — clearly heavier and slightly larger than
+                  chat titles below. Title rows use text-sm font-normal (14px),
+                  this is text-[13px] font-semibold which reads as the heavier
+                  element due to weight + the breathing spacing above.
+                  Sentence-case (Today, not TODAY) — calmer than uppercase. */}
+              <p className="px-2.5 pt-3 pb-1.5 text-[13px] font-semibold text-fg">
                 {g.label}
               </p>
               {g.conversations.map((c) => (

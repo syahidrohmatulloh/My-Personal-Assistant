@@ -100,6 +100,14 @@ export function Composer({ value, onChange, onSubmit, disabled }: Props) {
 
   return (
     <div className="sticky bottom-0 px-3 sm:px-6 pb-2 sm:pb-4 pb-safe">
+      {/* Pi.ai-feel composer (Phase 4.12 polish):
+          - max-w-3xl matches the message column above for visual continuity
+          - rounded-3xl + glass + soft floating shadow gives the floating
+            composer effect without leaving the calm aesthetic
+          - focus-within ring is gentler than before (ring-1 on the accent
+            with a lower alpha) and the shadow lifts a hair
+          - desktop text-[17px] / mobile text-base (16px) — mobile must stay
+            at 16px to avoid iOS auto-zoom; globals.css enforces this. */}
       <div className="max-w-3xl mx-auto">
         {/* Attachment chips above the input */}
         {pending.length > 0 && (
@@ -114,12 +122,22 @@ export function Composer({ value, onChange, onSubmit, disabled }: Props) {
           </div>
         )}
 
-        <div className="glass-strong rounded-2xl p-1.5 sm:p-2 flex items-end gap-1.5 sm:gap-2 focus-within:ring-2 focus-within:ring-accent/30 transition-all">
+        <div
+          className={[
+            "glass-strong rounded-3xl p-1.5 sm:p-2 flex items-end gap-1.5 sm:gap-2",
+            // Soft floating shadow — uses existing accent token so theme stays consistent.
+            // Subtle in idle state; gains a touch of glow on focus-within.
+            "shadow-[0_8px_24px_-12px_rgb(0_0_0_/_0.18)]",
+            "focus-within:shadow-[0_12px_32px_-12px_rgb(0_0_0_/_0.22)]",
+            "focus-within:ring-1 focus-within:ring-accent/25",
+            "transition-shadow duration-200 ease-out",
+          ].join(" ")}
+        >
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={disabled}
-            className="h-10 w-10 sm:h-9 sm:w-9 shrink-0 grid place-items-center rounded-xl text-fg-muted hover:text-fg hover:bg-fg/5 active:bg-fg/10 disabled:opacity-30 transition-colors"
+            className="h-10 w-10 sm:h-9 sm:w-9 shrink-0 grid place-items-center rounded-2xl text-fg-muted hover:text-fg hover:bg-fg/5 active:bg-fg/10 disabled:opacity-30 transition-colors"
             aria-label="Attach file"
           >
             <Paperclip className="h-4 w-4" />
@@ -146,12 +164,15 @@ export function Composer({ value, onChange, onSubmit, disabled }: Props) {
             autoCapitalize="sentences"
             autoCorrect="on"
             spellCheck
-            className="flex-1 resize-none bg-transparent px-2 py-2.5 text-base sm:text-[15px] text-fg placeholder:text-fg-subtle focus:outline-none max-h-[160px] leading-relaxed"
+            // text-base on mobile (16px — avoids iOS auto-zoom; globals.css
+            // forces 16px on <640px regardless).
+            // sm:text-[17px] on desktop — premium, readable, calm.
+            className="flex-1 resize-none bg-transparent px-2.5 py-2.5 text-base sm:text-[17px] text-fg placeholder:text-fg-subtle focus:outline-none max-h-[160px] leading-[1.6]"
           />
           <button
             onClick={trySubmit}
             disabled={!canSend}
-            className="h-10 w-10 sm:h-9 sm:w-9 shrink-0 grid place-items-center rounded-xl bg-accent text-on-accent hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 shadow-md shadow-accent/25"
+            className="h-10 w-10 sm:h-9 sm:w-9 shrink-0 grid place-items-center rounded-2xl bg-accent text-on-accent hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 shadow-md shadow-accent/25"
             aria-label="Send"
           >
             <ArrowUp className="h-4 w-4" strokeWidth={2.5} />

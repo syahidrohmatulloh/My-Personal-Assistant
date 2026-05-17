@@ -106,19 +106,75 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
   return r.json();
 }
 
+// ---------------------------------------------------------------------------
+// Streaming chat — Phase 4.12 emits typing meta as the first SSE event.
+// ---------------------------------------------------------------------------
+
 /**
- * Stream a chat response. Returns an async iterable of text deltas.
+ * Companion mode names known to the backend (Phase 4.11).
+ * Frontend treats anything outside this set as "unknown" and applies
+ * heuristic pacing.
+ */
+export type CompanionMode =
+  | "strategist"
+  | "listener"
+  | "motivator"
+  | "challenger"
+  | "reflective"
+  | "practical"
+  | "unknown";
+
+/**
+ * Pacing hint from backend. Frontend maps these to reveal-speed presets,
+ * with `prefers-reduced-motion` forcing "immediate" regardless.
+ */
+export type Pacing = "immediate" | "fast" | "natural" | "slow";
+
+export type ChatStreamEvent =
+  | { type: "meta"; mode: CompanionMode; pacing: Pacing; assistantName: string }
+  | { type: "delta"; text: string }
+  | { type: "error"; message: string }
+  | { type: "done" };
+
+const VALID_MODES: ReadonlySet<string> = new Set<CompanionMode>([
+  "strategist",
+  "listener",
+  "motivator",
+  "challenger",
+  "reflective",
+  "practical",
+  "unknown",
+]);
+
+const VALID_PACINGS: ReadonlySet<string> = new Set<Pacing>([
+  "immediate",
+  "fast",
+  "natural",
+  "slow",
+]);
+
+/**
+ * Stream a chat response. Returns an async iterable of typed events.
+ *
+ * Backward compatibility:
+ *   - If the backend doesn't emit `meta`, we never yield one — consumers
+ *     should handle the absence.
+ *   - If the backend emits an event with an unknown `type`, we skip it
+ *     silently. Future backend additions won't break older frontends.
+ *   - Malformed JSON lines are skipped (matches previous behaviour).
+ *   - On `error`, we still throw — preserves previous try/catch semantics.
  *
  * Usage:
- *   for await (const delta of streamChat(convoId, "hello")) {
- *     setText(prev => prev + delta);
+ *   for await (const evt of streamChat(convoId, "hello")) {
+ *     if (evt.type === "delta") setText(prev => prev + evt.text);
+ *     else if (evt.type === "meta") setPacing(evt.pacing);
  *   }
  */
 export async function* streamChat(
   conversationId: string,
   message: string,
   attachmentIds: string[] = [],
-): AsyncGenerator<string, void, unknown> {
+): AsyncGenerator<ChatStreamEvent, void, unknown> {
   // Use the edge proxy at /api/chat instead of hitting Fly directly.
   // The proxy attaches the JWT server-side from cookies, so we don't need
   // to call getAuthHeader() here — saves a getSession() round-trip on every send.
@@ -154,14 +210,48 @@ export async function* streamChat(
       if (!line.startsWith("data: ")) continue;
 
       const payload = line.slice(6);
+      let parsed: unknown;
       try {
-        const parsed = JSON.parse(payload);
-        if (parsed.type === "delta") yield parsed.text;
-        else if (parsed.type === "error") throw new Error(parsed.message);
-      } catch (err) {
-        if (err instanceof SyntaxError) continue;
-        throw err;
+        parsed = JSON.parse(payload);
+      } catch {
+        // Malformed JSON line — skip silently (same as previous behaviour).
+        continue;
       }
+
+      if (!parsed || typeof parsed !== "object") continue;
+      const obj = parsed as Record<string, unknown>;
+      const type = obj.type;
+
+      if (type === "delta" && typeof obj.text === "string") {
+        yield { type: "delta", text: obj.text };
+      } else if (type === "error" && typeof obj.message === "string") {
+        // Surface as an event AND throw — keeps the previous throw semantics
+        // so existing try/catch in the chat page still works.
+        yield { type: "error", message: obj.message };
+        throw new Error(obj.message);
+      } else if (type === "done") {
+        yield { type: "done" };
+      } else if (type === "meta") {
+        // Defensive narrowing — backend may evolve. We only forward the
+        // event if mode & pacing land in our known sets, otherwise fall
+        // through to a safe default the frontend treats as "use heuristic".
+        const rawMode = typeof obj.mode === "string" ? obj.mode : "unknown";
+        const rawPacing = typeof obj.pacing === "string" ? obj.pacing : "natural";
+        const rawName =
+          typeof obj.assistant_name === "string" && obj.assistant_name.trim()
+            ? obj.assistant_name.trim()
+            : "Assistant";
+
+        const mode: CompanionMode = VALID_MODES.has(rawMode)
+          ? (rawMode as CompanionMode)
+          : "unknown";
+        const pacing: Pacing = VALID_PACINGS.has(rawPacing)
+          ? (rawPacing as Pacing)
+          : "natural";
+
+        yield { type: "meta", mode, pacing, assistantName: rawName };
+      }
+      // Unknown event types: ignore silently. Future-proof.
     }
   }
 }
