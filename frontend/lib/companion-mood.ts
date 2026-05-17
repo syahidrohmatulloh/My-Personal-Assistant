@@ -722,7 +722,7 @@ export function companionMoodNeedsRepairBeforeRomance(conversationId: string) {
     state.mood === "jealous_playful" ||
     state.mood === "withdrawn_soft";
 
-  return negativeMood && state.intensity >= 6;
+  return negativeMood && state.intensity >= 4;
 }
 
 export function updateCompanionMoodFromMessage(

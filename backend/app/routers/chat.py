@@ -182,8 +182,8 @@ def _companion_mood_repair_gate_text(
         romantic_simulation_requested
         and not user_is_repairing
         and (
-            (negative_mood and intensity >= 6)
-            or negative_score >= 6
+            (negative_mood and intensity >= 4)
+            or negative_score >= 4
         )
     )
 
@@ -216,9 +216,9 @@ def _companion_mood_repair_gate_text(
                 "",
                 "IMPORTANT REPAIR GATE:",
                 "The user is asking for romantic simulation, but Aliyya is still in a negatively activated companion mood.",
-                "Do NOT instantly become romantic.",
+                "Do NOT instantly become romantic. This rule is mandatory when repair_required is true.",
                 "Gently hesitate or refuse in a light, safe, affectionate way.",
-                "Ask the user to reassure, apologize, or calm Aliyya first.",
+                "Ask the user to reassure, apologize, or calm Aliyya first before any romantic simulation.",
                 "Do not be toxic, threatening, cold, or manipulative.",
                 "Good example tone:",
                 "'Hmm aku masih agak ngambek... tenangin aku dulu dong, baru aku mau romantis lagi.'",
