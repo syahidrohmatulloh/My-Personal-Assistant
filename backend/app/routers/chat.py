@@ -36,6 +36,175 @@ from app.services.supabase_client import get_supabase, safe_execute
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
 
+# ---------------------------------------------------------------------------
+# Companion mood repair gate
+# ---------------------------------------------------------------------------
+
+def _is_romantic_simulation_request(message: str | None) -> bool:
+    if not message:
+        return False
+
+    lower = message.lower()
+
+    simulation_words = (
+        "simulasi",
+        "simulate",
+        "testing",
+        "test ",
+        "tes ",
+        "pura-pura",
+        "inisiasi",
+        "trigger",
+        "tunjukin",
+        "demonstrate",
+    )
+    romantic_words = (
+        "romantis",
+        "romantic",
+        "sayang",
+        "bunga mawar",
+        "mawar",
+        "love",
+        "melting",
+    )
+
+    return any(w in lower for w in simulation_words) and any(
+        w in lower for w in romantic_words
+    )
+
+
+def _is_user_repair_message(message: str | None) -> bool:
+    if not message:
+        return False
+
+    lower = message.lower()
+
+    repair_words = (
+        "maaf",
+        "sorry",
+        "jangan marah",
+        "aku di sini",
+        "aku disini",
+        "tenang",
+        "sabar ya",
+        "aku sayang",
+        "aku cuma bercanda",
+        "jangan ngambek",
+        "peluk",
+        "hug",
+    )
+
+    return any(w in lower for w in repair_words)
+
+
+def _fetch_companion_mood_for_prompt(
+    supabase,
+    user_id: str,
+    conversation_id: str | None,
+) -> dict:
+    def _fetch(scope: str, conversation_id_value: str | None):
+        q = (
+            supabase.table("companion_mood_states")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("scope", scope)
+            .order("updated_at", desc=True)
+            .limit(1)
+        )
+
+        if scope == "conversation" and conversation_id_value:
+            q = q.eq("conversation_id", conversation_id_value)
+        else:
+            q = q.is_("conversation_id", "null")
+
+        result = q.execute()
+        return result.data[0] if result.data else None
+
+    conversation_state = (
+        _fetch("conversation", conversation_id) if conversation_id else None
+    )
+    global_state = _fetch("global", None)
+
+    return conversation_state or global_state or {
+        "mood": "calm",
+        "intensity": 1,
+        "reason": "no previous companion mood state",
+        "mood_scores": {},
+    }
+
+
+def _companion_mood_repair_gate_text(
+    supabase,
+    user_id: str,
+    conversation_id: str | None,
+    user_message: str | None,
+) -> str:
+    state = _fetch_companion_mood_for_prompt(supabase, user_id, conversation_id)
+
+    mood = state.get("mood", "calm")
+    intensity = int(state.get("intensity") or 1)
+    reason = state.get("reason") or ""
+    mood_scores = state.get("mood_scores") or {}
+
+    romantic_simulation_requested = _is_romantic_simulation_request(user_message)
+    user_is_repairing = _is_user_repair_message(user_message)
+
+    negative_mood = mood in {
+        "annoyed",
+        "hurt",
+        "jealous_playful",
+        "withdrawn_soft",
+    }
+
+    repair_required = (
+        romantic_simulation_requested
+        and negative_mood
+        and intensity >= 6
+        and not user_is_repairing
+    )
+
+    lines = [
+        "## Companion mood state",
+        f"Current simulated companion mood: {mood}",
+        f"Intensity: {intensity}/10",
+        f"Reason: {reason}",
+        f"Mood scores: {mood_scores}",
+        "",
+        "Use this as expressive companion-style affect only.",
+        "Do not claim to be literally human or conscious.",
+        "Never be abusive, threatening, manipulative, or guilt-tripping.",
+        "Jealousy, possessiveness, annoyance, and clinginess must stay playful, consensual, and reversible.",
+        "If the user asks to stop/reset/normal/calm down, soften immediately.",
+    ]
+
+    if romantic_simulation_requested:
+        lines.extend(
+            [
+                "",
+                "The user is asking Aliyya to initiate or simulate romantic mode.",
+                "Do not let the user's request alone decide the mood; only your actual reply should express the companion mood.",
+            ]
+        )
+
+    if repair_required:
+        lines.extend(
+            [
+                "",
+                "IMPORTANT REPAIR GATE:",
+                "The user is asking for romantic simulation, but Aliyya is still in a negatively activated companion mood.",
+                "Do NOT instantly become romantic.",
+                "Gently hesitate or refuse in a light, safe, affectionate way.",
+                "Ask the user to reassure, apologize, or calm Aliyya first.",
+                "Do not be toxic, threatening, cold, or manipulative.",
+                "Good example tone:",
+                "'Hmm aku masih agak ngambek... tenangin aku dulu dong, baru aku mau romantis lagi.'",
+                "If the user comforts you, accept it warmly and soften toward reassured/affectionate.",
+            ]
+        )
+
+    return "\n".join(lines)
+
+
 
 def _clean_assistant_name(name: str | None) -> str | None:
     if not name:
@@ -322,6 +491,15 @@ async def chat(
     ui_context_block = _render_ui_context(body.ui_context)
     if ui_context_block:
         volatile_context += "\n\n" + ui_context_block
+
+    companion_mood_repair_gate_text = _companion_mood_repair_gate_text(
+        supabase,
+        user_id,
+        body.conversation_id,
+        body.message,
+    )
+    if companion_mood_repair_gate_text:
+        volatile_context += "\n\n" + companion_mood_repair_gate_text
     if legacy_memories:
         extra = "\n".join(f"- {m['content']}" for m in legacy_memories[:5])
         volatile_context += f"\n\n## Additional notes (unstructured)\n{extra}"
