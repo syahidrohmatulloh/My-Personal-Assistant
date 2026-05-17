@@ -1,17 +1,17 @@
 """Style profile endpoints.
 
-  POST   /style-profiles/preview-parse
-         Parses transcript, returns sender list + recommendation. NO LLM call.
-         Used by frontend to show "whose style?" picker.
+  POST   /style-profiles/analyze    body: {transcript, target_name?, profile_name?}
+         -> {profile: StyleProfile, sample_count, source_type, suggested_name}
+         The transcript is NOT persisted.
 
-  POST   /style-profiles/analyze
-         Builds sample (begin/mid/end), calls Haiku, returns structured profile.
-         Transcript NOT persisted.
+  POST   /style-profiles            body: {profile_name, source_type, extracted_style, sample_count, confidence?}
+         -> created row
+         Frontend flow: call /analyze, show preview, user clicks Save → call this.
 
-  POST   /style-profiles            Save the previewed profile.
-  GET    /style-profiles            List user's profiles.
-  PATCH  /style-profiles/{id}       Rename.
-  DELETE /style-profiles/{id}       Remove.
+  GET    /style-profiles            -> list of user's profiles (without sample transcripts; we never had them)
+  PATCH  /style-profiles/{id}       body: {profile_name}
+         -> rename
+  DELETE /style-profiles/{id}       -> 204
 """
 
 from __future__ import annotations
@@ -21,9 +21,9 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from app.config import settings
 from app.core.auth import get_current_user_id
 from app.services import style_extractor, style_parser
-from app.services.style_extractor import MAX_UPLOAD_CHARS
 from app.services.supabase_client import get_supabase
 
 log = logging.getLogger(__name__)
@@ -35,38 +35,10 @@ router = APIRouter(prefix="/style-profiles", tags=["style-profiles"])
 # ---------------------------------------------------------------------------
 
 
-class PreviewParseIn(BaseModel):
-    transcript: str = Field(min_length=1)
-    # Optional caller-provided context for user detection. If omitted, the
-    # endpoint loads user_identity.profile.name from the database.
-    current_user_name: str | None = None
-    current_user_email: str | None = None
-    current_user_aliases: list[str] = Field(default_factory=list)
-
-
-class PreviewParseSender(BaseModel):
-    name: str
-    count: int
-    is_likely_user: bool
-    recommended: bool
-
-
-class PreviewParseOut(BaseModel):
-    source_type: str
-    message_count: int
-    senders: list[PreviewParseSender]
-    recommended_target_name: str | None
-    too_long: bool
-    warnings: list[str]
-
-
 class AnalyzeIn(BaseModel):
-    transcript: str = Field(min_length=20)
+    transcript: str = Field(min_length=20, max_length=settings.STYLE_ANALYSIS_UPLOAD_MAX_CHARS)
     target_name: str | None = Field(default=None, max_length=80)
-    # User identity for fallback target picking. Same as preview-parse.
-    current_user_name: str | None = None
-    current_user_email: str | None = None
-    current_user_aliases: list[str] = Field(default_factory=list)
+    # profile_name unused at analyze time — name is set on save
 
 
 class AnalyzeOut(BaseModel):
@@ -74,7 +46,6 @@ class AnalyzeOut(BaseModel):
     sample_count: int
     source_type: str
     suggested_name: str
-    warnings: list[str]
 
 
 class CreateIn(BaseModel):
@@ -89,61 +60,18 @@ class RenameIn(BaseModel):
     profile_name: str = Field(min_length=1, max_length=80)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+class PreferredRewriteIn(BaseModel):
+    bad: str = Field(min_length=1, max_length=160)
+    better: str = Field(min_length=1, max_length=160)
 
 
-def _load_user_context(
-    user_id: str,
-    *,
-    override_name: str | None,
-    override_email: str | None,
-    override_aliases: list[str],
-) -> tuple[str | None, str | None, list[str]]:
-    """Resolve current user's name + email + aliases for sender detection.
-
-    Order of precedence:
-    1. Explicit caller overrides (frontend-supplied)
-    2. user_identity.profile.name + user_identity.profile.email
-    3. Empty fallback (sender detection will only catch "Me"/"Saya" labels)
-    """
-    name = override_name
-    email = override_email
-    aliases = list(override_aliases or [])
-
-    if not name or not email:
-        try:
-            supabase = get_supabase()
-            row = (
-                supabase.table("user_identity")
-                .select("profile")
-                .eq("user_id", user_id)
-                .maybe_single()
-                .execute()
-            )
-            if row and row.data and isinstance(row.data.get("profile"), dict):
-                profile = row.data["profile"]
-                if not name:
-                    name = profile.get("name") or profile.get("preferred_name")
-                if not email:
-                    email = profile.get("email")
-                nickname = profile.get("nickname")
-                if nickname and nickname not in aliases:
-                    aliases.append(nickname)
-        except Exception as exc:
-            log.warning("style: user_identity lookup failed: %s", exc)
-
-    return name, email, aliases
-
-
-def _check_size(transcript: str) -> None:
-    if len(transcript) > MAX_UPLOAD_CHARS:
-        raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            f"Transcript too large ({len(transcript) // 1024} KB). "
-            f"Maximum is {MAX_UPLOAD_CHARS // 1024} KB.",
-        )
+class CalibrationIn(BaseModel):
+    positive_examples: list[str] = Field(default_factory=list, max_length=20)
+    negative_examples: list[str] = Field(default_factory=list, max_length=20)
+    preferred_rewrites: list[PreferredRewriteIn] = Field(default_factory=list, max_length=20)
+    banned_phrases: list[str] = Field(default_factory=list, max_length=30)
+    notes: list[str] = Field(default_factory=list, max_length=20)
+    merge: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -151,111 +79,41 @@ def _check_size(transcript: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@router.post("/preview-parse", response_model=PreviewParseOut)
-async def preview_parse(
-    body: PreviewParseIn,
-    user_id: str = Depends(get_current_user_id),
-):
-    """Parse transcript and identify senders. No LLM call, no storage."""
-    _check_size(body.transcript)
-
-    user_name, user_email, user_aliases = _load_user_context(
-        user_id,
-        override_name=body.current_user_name,
-        override_email=body.current_user_email,
-        override_aliases=body.current_user_aliases,
-    )
-
-    source_type, parsed = style_parser.parse_transcript(body.transcript)
-    warnings: list[str] = []
-    too_long = len(body.transcript) > 1_000_000  # advisory only — already passed hard cap
-
-    if not parsed:
-        # Plain text — no senders to enumerate.
-        warnings.append(
-            "Transcript format not recognized. Will be analyzed as plain text."
-        )
-        return PreviewParseOut(
-            source_type=source_type,
-            message_count=0,
-            senders=[],
-            recommended_target_name=None,
-            too_long=too_long,
-            warnings=warnings,
-        )
-
-    sender_dicts = style_parser.summarize_senders(
-        parsed,
-        user_name=user_name,
-        user_aliases=user_aliases,
-        user_email=user_email,
-    )
-    recommended = style_parser.recommend_target(sender_dicts)
-
-    if recommended is None and sender_dicts:
-        warnings.append(
-            "All detected senders look like you. You can still analyze, but it "
-            "will be your own writing sample, not someone else's style."
-        )
-
-    senders = [
-        PreviewParseSender(
-            name=s["name"],
-            count=s["count"],
-            is_likely_user=s["is_likely_user"],
-            recommended=(s["name"] == recommended),
-        )
-        for s in sender_dicts
-    ]
-
-    return PreviewParseOut(
-        source_type=source_type,
-        message_count=len(parsed),
-        senders=senders,
-        recommended_target_name=recommended,
-        too_long=too_long,
-        warnings=warnings,
-    )
-
-
 @router.post("/analyze", response_model=AnalyzeOut)
 async def analyze(
     body: AnalyzeIn,
     user_id: str = Depends(get_current_user_id),
 ):
-    _check_size(body.transcript)
-
-    user_name, user_email, user_aliases = _load_user_context(
-        user_id,
-        override_name=body.current_user_name,
-        override_email=body.current_user_email,
-        override_aliases=body.current_user_aliases,
-    )
-
     source_type, parsed = style_parser.parse_transcript(body.transcript)
 
-    profile, sample_count, warnings = await style_extractor.extract_style(
+    log.info(
+        "style analyze request: user=%s chars=%d source=%s parsed_lines=%d sample_cap=%d",
+        user_id[:8],
+        len(body.transcript),
+        source_type,
+        len(parsed),
+        settings.STYLE_ANALYSIS_SAMPLE_CHARS,
+    )
+
+    profile, sample_count = await style_extractor.extract_style(
         source_type=source_type,
         parsed_lines=parsed,
         raw_text=body.transcript,
         target_sender=body.target_name,
-        user_name=user_name,
-        user_email=user_email,
-        user_aliases=user_aliases,
     )
 
     if profile is None:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            (warnings[0] if warnings else "Could not extract a meaningful style profile."),
+            "Could not extract a meaningful style profile from this transcript. "
+            "Try pasting more messages from the target person.",
         )
 
     log.info(
-        "style analyze: user=%s source=%s sample_count=%d target=%s display_name=%s",
+        "style analyze: user=%s source=%s sample_count=%d display_name=%s",
         user_id[:8],
         source_type,
         sample_count,
-        body.target_name or "(auto)",
         profile.display_name,
     )
 
@@ -264,7 +122,6 @@ async def analyze(
         sample_count=sample_count,
         source_type=source_type,
         suggested_name=profile.display_name,
-        warnings=warnings,
     )
 
 
@@ -305,6 +162,7 @@ async def create_profile(
             .execute()
         )
     except Exception as exc:
+        # Most common: unique-name conflict.
         if "duplicate" in str(exc).lower() or "unique" in str(exc).lower():
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -343,6 +201,91 @@ async def rename_profile(
     if not result.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Profile not found")
     return result.data[0]
+
+
+@router.patch("/{profile_id}/calibration")
+async def update_profile_calibration(
+    profile_id: str,
+    body: CalibrationIn,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Add or replace human calibration feedback for a style profile.
+
+    Stored inside extracted_style.style_calibration to avoid a DB migration.
+    This is explicit user feedback (accurate/miss/rewrite), not raw transcript.
+    """
+    supabase = get_supabase()
+    current = (
+        supabase.table("style_profiles")
+        .select("id, extracted_style")
+        .eq("id", profile_id)
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+    )
+    if not current or not current.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Profile not found")
+
+    extracted_style = current.data.get("extracted_style") or {}
+    existing = extracted_style.get("style_calibration") or {}
+    incoming = body.model_dump(exclude={"merge"})
+
+    if body.merge:
+        merged = _merge_calibration(existing, incoming)
+    else:
+        merged = incoming
+
+    extracted_style["style_calibration"] = merged
+    result = (
+        supabase.table("style_profiles")
+        .update({"extracted_style": extracted_style, "updated_at": "now()"})
+        .eq("id", profile_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Failed to update calibration")
+    return result.data[0]
+
+
+def _merge_calibration(existing: dict, incoming: dict) -> dict:
+    def merge_list(key: str, limit: int) -> list:
+        out = []
+        for item in (existing.get(key) or []) + (incoming.get(key) or []):
+            if isinstance(item, str):
+                cleaned = " ".join(item.strip().split())[:180]
+                if cleaned and cleaned not in out:
+                    out.append(cleaned)
+            if len(out) >= limit:
+                break
+        return out
+
+    def merge_rewrites() -> list[dict]:
+        out: list[dict] = []
+        seen: set[tuple[str, str]] = set()
+        for item in (existing.get("preferred_rewrites") or []) + (incoming.get("preferred_rewrites") or []):
+            if not isinstance(item, dict):
+                continue
+            bad = " ".join(str(item.get("bad") or "").strip().split())[:160]
+            better = " ".join(str(item.get("better") or "").strip().split())[:160]
+            if not bad or not better:
+                continue
+            key = (bad, better)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"bad": bad, "better": better})
+            if len(out) >= 20:
+                break
+        return out
+
+    return {
+        "positive_examples": merge_list("positive_examples", 20),
+        "negative_examples": merge_list("negative_examples", 20),
+        "preferred_rewrites": merge_rewrites(),
+        "banned_phrases": merge_list("banned_phrases", 30),
+        "notes": merge_list("notes", 20),
+    }
 
 
 @router.delete("/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)

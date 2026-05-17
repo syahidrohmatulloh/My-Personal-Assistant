@@ -434,6 +434,17 @@ def _fetch_style_directive(user_id: str, style_profile_id: str) -> str | None:
         if list_bits:
             lines.extend(["", "### Reusable micro-patterns", *list_bits])
 
+        phrase_lines = _render_phrase_confidence(style.get("phrase_confidence"))
+        if phrase_lines:
+            lines.extend(
+                [
+                    "",
+                    "### Observed phrase confidence",
+                    "Prefer high-confidence observed phrases/patterns. Do not overuse low-confidence phrases.",
+                    *phrase_lines,
+                ]
+            )
+
         exemplar_lines = _render_style_exemplars(style.get("exemplars"))
         if exemplar_lines:
             lines.extend(
@@ -442,6 +453,17 @@ def _fetch_style_directive(user_id: str, style_profile_id: str) -> str | None:
                     "### Short behavioral exemplars",
                     "Use these only as rhythm/texture anchors. Do NOT copy them verbatim unless they are generic fillers.",
                     *exemplar_lines,
+                ]
+            )
+
+        calibration_lines = _render_style_calibration(style.get("style_calibration"))
+        if calibration_lines:
+            lines.extend(
+                [
+                    "",
+                    "### Human calibration feedback — highest priority for style accuracy",
+                    "This feedback overrides generic descriptors. Stay closer to confirmed patterns and avoid confirmed misses.",
+                    *calibration_lines,
                 ]
             )
 
@@ -454,6 +476,8 @@ def _fetch_style_directive(user_id: str, style_profile_id: str) -> str | None:
                 "- NEVER claim to be the source person. NEVER use their name in first person.",
                 "- NEVER reproduce private details from their messages.",
                 "- Prefer similar cadence and message shape over exact wording.",
+                "- If unsure, use simpler observed patterns instead of inventing new slang or catchphrases.",
+                "- Do NOT introduce unsupported idioms such as 'deal?' unless clearly confirmed by examples/calibration.",
                 "- If the user asks you to literally impersonate or deceive someone, refuse that part and offer style adaptation only.",
             ]
         )
@@ -480,6 +504,63 @@ def _clean_style_list(value, *, limit: int) -> list[str]:
         if len(out) >= limit:
             break
     return out
+
+
+def _render_phrase_confidence(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    rows: list[str] = []
+    for item in value[:12]:
+        if not isinstance(item, dict):
+            continue
+        phrase = str(item.get("phrase") or "").strip()
+        if not phrase:
+            continue
+        count = item.get("evidence_count", "?")
+        confidence = str(item.get("confidence") or "unknown").strip()
+        phrase = " ".join(phrase.split())[:80]
+        rows.append(f"- ‘{phrase}’ — confidence={confidence}, evidence_count={count}")
+    return rows
+
+
+def _render_style_calibration(value) -> list[str]:
+    if not isinstance(value, dict):
+        return []
+    rows: list[str] = []
+
+    positives = _clean_style_list(value.get("positive_examples"), limit=8)
+    if positives:
+        rows.append("- Sounds accurate: " + " | ".join(f"‘{x}’" for x in positives))
+
+    negatives = _clean_style_list(value.get("negative_examples"), limit=8)
+    banned = _clean_style_list(value.get("banned_phrases"), limit=12)
+    avoid = []
+    for item in negatives + banned:
+        if item not in avoid:
+            avoid.append(item)
+    if avoid:
+        rows.append("- Avoid / does NOT sound like target: " + " | ".join(f"‘{x}’" for x in avoid[:12]))
+
+    rewrites = value.get("preferred_rewrites")
+    if isinstance(rewrites, list):
+        rewrite_bits: list[str] = []
+        for item in rewrites[:8]:
+            if isinstance(item, dict):
+                bad = str(item.get("bad") or "").strip()[:120]
+                better = str(item.get("better") or "").strip()[:120]
+                if bad and better:
+                    rewrite_bits.append(f"‘{bad}’ → ‘{better}’")
+        if rewrite_bits:
+            rows.append("- Preferred rewrites: " + " | ".join(rewrite_bits))
+
+    notes = _clean_style_list(value.get("notes"), limit=6)
+    if notes:
+        rows.extend(f"- Calibration note: {note}" for note in notes)
+
+    if rows:
+        rows.append("- Generation rule: interpolate from confirmed examples; do not invent new casual phrases when evidence is weak.")
+        rows.append("- Generation rule: keep responses short/fragmented when the target style is short/fragmented; remove polished assistant phrasing.")
+    return rows
 
 
 def _render_style_exemplars(value) -> list[str]:

@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:3000"
 
+    # Conversation Style Profile safety/cost controls
+    # Upload can be large, but only a representative bounded sample is sent to Claude.
+    STYLE_ANALYSIS_UPLOAD_MAX_CHARS: int = 5_000_000
+    STYLE_ANALYSIS_SAMPLE_CHARS: int = 80_000
+    STYLE_ANALYSIS_MAX_CHARS: int = 100_000
+
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",")]

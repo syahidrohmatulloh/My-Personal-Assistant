@@ -24,16 +24,18 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from app.config import settings
 from app.services.claude import get_claude
 from app.services.style_parser import ParsedLine, SourceType
 
 log = logging.getLogger(__name__)
 
 
-# Maximum transcript size we'll send to Haiku. Larger = more context = better
-# extraction, but more cost and tokens. 30k chars is enough for style signals
-# while still keeping analyze latency/cost bounded.
-_MAX_TRANSCRIPT_CHARS = 30_000
+# Maximum transcript size we send to Haiku. Uploads can be much larger, but
+# style analysis must stay bounded for cost/latency safety. These are env-backed
+# via Settings so we can tune quality without code edits.
+_DEFAULT_SAMPLE_CHARS = 80_000
+_DEFAULT_MAX_SAMPLE_CHARS = 100_000
 
 # Minimum messages from the target before we'll attempt extraction. Below
 # this, the profile would be guesswork.
@@ -74,6 +76,43 @@ class StyleExemplars(BaseModel):
                 cleaned.append(item)
             if len(cleaned) >= _MAX_EXEMPLARS_PER_BUCKET:
                 break
+        return cleaned
+
+
+class PreferredRewrite(BaseModel):
+    """User-supplied calibration: a generated phrase and a better target-like rewrite."""
+
+    bad: str = Field(min_length=1, max_length=160)
+    better: str = Field(min_length=1, max_length=160)
+
+    @field_validator("bad", "better", mode="after")
+    @classmethod
+    def _clean_text(cls, value: str) -> str:
+        return _sanitize_short_snippet(value, max_chars=160)
+
+
+class StyleCalibration(BaseModel):
+    """Human feedback that calibrates a style profile over time.
+
+    This lives inside extracted_style JSONB to avoid a migration. It is not raw
+    transcript storage; it is explicit user feedback about what sounds accurate
+    or inaccurate.
+    """
+
+    positive_examples: list[str] = Field(default_factory=list, max_length=20)
+    negative_examples: list[str] = Field(default_factory=list, max_length=20)
+    preferred_rewrites: list[PreferredRewrite] = Field(default_factory=list, max_length=20)
+    banned_phrases: list[str] = Field(default_factory=list, max_length=30)
+    notes: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("positive_examples", "negative_examples", "banned_phrases", "notes", mode="after")
+    @classmethod
+    def _clean_lists(cls, values: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for value in values or []:
+            item = _sanitize_short_snippet(str(value), max_chars=180)
+            if item and item not in cleaned:
+                cleaned.append(item)
         return cleaned
 
 
@@ -120,6 +159,8 @@ class StyleProfile(BaseModel):
     question_style: str = Field(default="unclear", max_length=350)
     ai_polish_to_avoid: list[str] = Field(default_factory=list, max_length=10)
     exemplars: StyleExemplars = Field(default_factory=StyleExemplars)
+    phrase_confidence: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    style_calibration: StyleCalibration = Field(default_factory=StyleCalibration)
 
     # Compact prose directive used by the chat prompt.
     compact_directive: str = Field(min_length=20, max_length=1200)
@@ -174,6 +215,9 @@ punctuation habits, emotional rhythm, and short style examples.
   "decision_making_style": "how they reason, commit, hedge, or decide",
 
   "common_phrases": ["up to 8 short snippets actually present; no full private sentences"],
+  "phrase_confidence": [
+    {"phrase": "short phrase actually present", "evidence_count": 3, "confidence": "high|medium|low"}
+  ],
   "do_not_copy": ["private names, secrets, sensitive details, intimate references to avoid"],
 
   "cadence_signature": "how messages flow: bursty, fragmented, follow-ups, pauses, question density",
@@ -201,6 +245,14 @@ punctuation habits, emotional rhythm, and short style examples.
     "fragmented_followup": ["short non-sensitive snippets"]
   },
 
+  "style_calibration": {
+    "positive_examples": [],
+    "negative_examples": [],
+    "preferred_rewrites": [],
+    "banned_phrases": [],
+    "notes": []
+  },
+
   "compact_directive": "A strong style directive for future chat. Include cadence, fragmentation, punctuation, language switching, emotional rhythm, and anti-polish guidance. Never say to be or pretend to be the person."
 }
 
@@ -212,6 +264,7 @@ punctuation habits, emotional rhythm, and short style examples.
 - Never store or output secrets, phone numbers, addresses, exact long messages, or private details.
 - If an exemplar contains a private name/detail, replace it with [name] or skip it.
 - Do NOT invent common phrases. If uncertain, return [].
+- For phrase_confidence, include only phrases observed in TARGET lines. evidence_count must reflect observed occurrences.
 - The compact_directive is important. It should be stronger than generic tone labels. \
   It must tell the assistant HOW to shape messages: e.g. fragmented short bursts, \
   lowercase, softeners, teasing-then-reassurance, rarely uses periods.
@@ -251,14 +304,14 @@ async def extract_style(
         transcript = _format_representative_transcript(
             parsed_lines=parsed_lines,
             target=target,
-            max_chars=_MAX_TRANSCRIPT_CHARS,
+            max_chars=_analysis_sample_chars(),
         )
         sample_count = len(target_lines)
     else:
         transcript = _format_plain_text_sample(
             raw_text=raw_text,
             target_sender=target_sender,
-            max_chars=_MAX_TRANSCRIPT_CHARS,
+            max_chars=_analysis_sample_chars(),
         )
         sample_count = max(1, len(raw_text) // 80)  # rough estimate
 
@@ -299,6 +352,23 @@ async def extract_style(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _analysis_sample_chars() -> int:
+    """Return bounded sample size for LLM style analysis.
+
+    Uploads can be up to STYLE_ANALYSIS_UPLOAD_MAX_CHARS, but the actual LLM
+    sample must stay within STYLE_ANALYSIS_MAX_CHARS. Defaults are chosen to
+    improve imitation quality versus the old 30k limit while keeping cost safe.
+    """
+    requested = getattr(settings, "STYLE_ANALYSIS_SAMPLE_CHARS", _DEFAULT_SAMPLE_CHARS)
+    hard_max = getattr(settings, "STYLE_ANALYSIS_MAX_CHARS", _DEFAULT_MAX_SAMPLE_CHARS)
+    try:
+        requested_i = int(requested)
+        hard_max_i = int(hard_max)
+    except Exception:
+        return _DEFAULT_SAMPLE_CHARS
+    return max(12_000, min(requested_i, hard_max_i))
 
 
 def _pick_target_sender(parsed_lines: list[ParsedLine]) -> str | None:
@@ -355,11 +425,11 @@ def _select_representative_lines(
     if len(parsed_lines) <= max_lines:
         return parsed_lines
 
-    # Three windows: early, middle, recent. Recent is slightly larger because
-    # it often reflects the current communication style better.
-    early_n = max_lines // 4
-    mid_n = max_lines // 4
-    recent_n = max_lines - early_n - mid_n
+    # Three timeline windows: early, middle, recent. Recent is slightly larger
+    # because it often reflects the current communication style better.
+    early_n = max_lines // 5
+    mid_n = max_lines // 5
+    recent_n = max_lines // 3
 
     mid_start = max(0, (len(parsed_lines) // 2) - (mid_n // 2))
     windows = [
@@ -369,26 +439,74 @@ def _select_representative_lines(
     ]
 
     combined: list[ParsedLine] = []
-    seen_positions: set[int] = set()
     for window in windows:
         for line in window:
-            # Use object position by first matching index from current search.
-            # Duplicated messages can occur; de-dup by tuple only to avoid huge
-            # repeated export artifacts.
             if line not in combined:
                 combined.append(line)
 
-    # If target is underrepresented, add evenly spaced target messages.
+    # Balanced target-speaker samples. This matters more than raw character
+    # count: style is revealed across situations (questions, teasing, support,
+    # planning, short replies, long replies), not only in chronological order.
     target_lines = [(s, t) for s, t in parsed_lines if s == target]
+    category_samples = _category_target_samples(target_lines, per_category=12)
+    for line in category_samples:
+        if line not in combined:
+            combined.append(line)
+
+    # If target is still underrepresented, add evenly spaced target messages.
     target_in_combined = sum(1 for s, _ in combined if s == target)
-    desired_target = min(120, max(40, max_lines // 2), len(target_lines))
+    desired_target = min(180, max(80, (max_lines * 2) // 3), len(target_lines))
     if target_in_combined < desired_target:
         additions = _evenly_spaced(target_lines, desired_target - target_in_combined)
         for line in additions:
             if line not in combined:
                 combined.append(line)
 
-    return combined[: max_lines + 80]
+    return combined[: max_lines + 120]
+
+
+def _category_target_samples(target_lines: list[ParsedLine], *, per_category: int) -> list[ParsedLine]:
+    buckets: dict[str, list[ParsedLine]] = {
+        "short": [],
+        "long": [],
+        "question": [],
+        "teasing_laugh": [],
+        "support": [],
+        "planning": [],
+        "affection": [],
+        "closing": [],
+        "punctuation_texture": [],
+    }
+    for line in target_lines:
+        _sender, text = line
+        low = text.lower()
+        compact = " ".join(low.split())
+
+        if len(compact) <= 28:
+            buckets["short"].append(line)
+        if len(compact) >= 110:
+            buckets["long"].append(line)
+        if "?" in text or any(x in compact for x in ["apa", "siapa", "gimana", "kenapa", "jadi", "when", "where", "what"]):
+            buckets["question"].append(line)
+        if any(x in compact for x in ["wkwk", "haha", "hehe", "cie", "anj", "lol", "lmao"]):
+            buckets["teasing_laugh"].append(line)
+        if any(x in compact for x in ["jangan lupa", "istirahat", "semangat", "gapapa", "gpp", "take care", "tidur", "makan dulu"]):
+            buckets["support"].append(line)
+        if any(x in compact for x in ["jam", "nanti", "besok", "jadi", "meeting", "dinner", "makan", "where", "when"]):
+            buckets["planning"].append(line)
+        if any(x in compact for x in ["beb", "sayang", "dear", "love", "miss", "hid"]):
+            buckets["affection"].append(line)
+        if any(x in compact for x in ["ttyl", "bye", "dadah", "good night", "gn", "yauda", "yaudah"]):
+            buckets["closing"].append(line)
+        if any(x in text for x in ["😭", "😂", "🤣", "…", "...", "!!"]) or re.search(r"(\w){2,}", text):
+            buckets["punctuation_texture"].append(line)
+
+    selected: list[ParsedLine] = []
+    for items in buckets.values():
+        for line in _evenly_spaced(items, per_category):
+            if line not in selected:
+                selected.append(line)
+    return selected
 
 
 def _evenly_spaced(items: list[ParsedLine], count: int) -> list[ParsedLine]:
