@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import { buildUiContextSnapshot } from "@/lib/ambient-background";
+import { buildCompanionMoodUiContext } from "@/lib/companion-mood";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL!;
 
@@ -140,7 +141,10 @@ export async function* streamChat(
       conversation_id: conversationId,
       message,
       attachment_ids: attachmentIds,
-      ui_context: buildUiContextSnapshot(),
+      ui_context: {
+        ...buildUiContextSnapshot(),
+        companion_mood: buildCompanionMoodUiContext(conversationId, message),
+      },
     }),
   });
 

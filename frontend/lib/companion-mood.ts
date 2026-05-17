@@ -911,3 +911,66 @@ export function updateCompanionMoodFromAssistantText(
 
   return next;
 }
+
+// Build the latest companion mood context for backend prompt/repair gate.
+// This is intentionally read from local state first because it is fresher
+// than async backend sync.
+
+export function isRomanticSimulationRequest(message: string) {
+  const classified = classifyUserMessage(message);
+
+  return (
+    classified.intent === "simulation_request" &&
+    classified.targetMood === "romantic"
+  );
+}
+
+export function buildCompanionMoodUiContext(
+  conversationId: string,
+  pendingUserMessage?: string,
+) {
+  const state = readCompanionMoodState(conversationId);
+  const romanticSimulationRequested = pendingUserMessage
+    ? isRomanticSimulationRequest(pendingUserMessage)
+    : false;
+
+  const scores = state.mood_scores ?? {};
+  const negativeScore = Math.max(
+    Number(scores.annoyed ?? 0),
+    Number(scores.hurt ?? 0),
+    Number(scores.jealous_playful ?? 0),
+    Number(scores.withdrawn_soft ?? 0),
+  );
+
+  const negativeMood =
+    state.mood === "annoyed" ||
+    state.mood === "hurt" ||
+    state.mood === "jealous_playful" ||
+    state.mood === "withdrawn_soft";
+
+  const repairRequiredBeforeRomance =
+    romanticSimulationRequested &&
+    (
+      (negativeMood && state.intensity >= 4) ||
+      negativeScore >= 4
+    );
+
+  return {
+    mood: state.mood,
+    intensity: state.intensity,
+    mood_scores: scores,
+    valence: state.valence,
+    arousal: state.arousal,
+    attachment: state.attachment,
+    trust: state.trust,
+    insecurity: state.insecurity,
+    warmth: state.warmth,
+    playfulness: state.playfulness,
+    reason: state.reason,
+    last_trigger: state.last_trigger,
+    source: state.source,
+    romantic_simulation_requested: romanticSimulationRequested,
+    negative_score: negativeScore,
+    repair_required_before_romance: repairRequiredBeforeRomance,
+  };
+}
