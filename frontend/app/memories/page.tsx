@@ -89,6 +89,21 @@ type MemoryQualityPayload = {
   review_items: MemoryQualityReviewItem[]
 }
 
+type MemoryHealthSchedulerStatus = {
+  enabled: boolean
+  running: boolean
+  interval_minutes: number
+  last_started_at?: string | null
+  last_finished_at?: string | null
+  last_error?: string | null
+  user_summary?: {
+    needs_review?: number
+    duplicate_groups?: number
+    conflict_groups?: number
+    low_quality_memories?: number
+  } | null
+}
+
 type EditState = {
   memory: MemoryItem
   content: string
@@ -170,6 +185,7 @@ const GROUP_ORDER = [
 export default function MemoriesPage() {
   const [data, setData] = useState<MemoryReviewPayload | null>(null)
   const [quality, setQuality] = useState<MemoryQualityPayload | null>(null)
+  const [memoryHealthStatus, setMemoryHealthStatus] = useState<MemoryHealthSchedulerStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<string | null>(null)
   const [consolidating, setConsolidating] = useState(false)
@@ -215,6 +231,7 @@ export default function MemoriesPage() {
       }
       setOpenGroups((prev) => ({ ...nextOpen, ...prev }))
       await loadQuality()
+      await loadMemoryHealthStatus()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load memories")
     } finally {
@@ -236,6 +253,20 @@ export default function MemoriesPage() {
     }
   }
 
+  async function loadMemoryHealthStatus() {
+    try {
+      const res = await fetch("/api/memory-review/quality/scheduler/status", {
+        cache: "no-store",
+      })
+
+      if (!res.ok) return
+
+      setMemoryHealthStatus((await res.json()) as MemoryHealthSchedulerStatus)
+    } catch {
+      setMemoryHealthStatus(null)
+    }
+  }
+
   async function loadPinStatus() {
     try {
       const res = await fetch("/api/memory-review/pin/status", { cache: "no-store" })
@@ -249,6 +280,7 @@ export default function MemoriesPage() {
   useEffect(() => {
     void load()
     void loadPinStatus()
+    void loadMemoryHealthStatus()
   }, [])
 
   const currentGroups = tab === "review" ? {} : data?.[tab] || {}
@@ -482,6 +514,10 @@ export default function MemoriesPage() {
   const activeCount = data?.counts?.active ?? 0
   const archivedCount = data?.counts?.archived ?? 0
   const reviewCount = quality?.summary?.needs_review ?? 0
+  const schedulerReviewCount = Math.max(
+    0,
+    Number(memoryHealthStatus?.user_summary?.needs_review || 0),
+  )
 
   return (
     <main className="min-h-screen px-4 py-6 text-slate-950 dark:text-slate-900 dark:text-zinc-100 sm:px-6 lg:px-8">
@@ -571,6 +607,14 @@ export default function MemoriesPage() {
             <StatCard label="Needs Review" value={reviewCount} />
             <StatCard label="Total" value={data?.counts?.total ?? 0} />
           </div>
+
+          {schedulerReviewCount > 0 ? (
+            <div className="mt-4 rounded-2xl border border-amber-200/70 bg-amber-50/80 p-4 text-sm leading-6 text-amber-900 shadow-sm shadow-amber-900/5 dark:border-amber-300/15 dark:bg-amber-300/10 dark:text-amber-100">
+              Memory health check found {schedulerReviewCount} memor
+              {schedulerReviewCount === 1 ? "y" : "ies"} that may need review.
+              Open the Needs Review tab to inspect and resolve them.
+            </div>
+          ) : null}
         </header>
 
         <section className="flex flex-col gap-3 rounded-[1.5rem] border border-slate-200/70 bg-white/70 p-4 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035] md:flex-row md:items-center md:justify-between">
