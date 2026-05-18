@@ -48,6 +48,7 @@ async def list_memories(user_id: str = Depends(get_current_user_id)):
         supabase.table("memories")
         .select("id, content, kind, source, created_at")
         .eq("user_id", user_id)
+        .eq("superseded", False)
         .order("created_at", desc=True)
         .execute()
     )

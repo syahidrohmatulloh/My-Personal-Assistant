@@ -48,6 +48,7 @@ from app.services import (
     user_mood,
 )
 from app.services.user_mood_prompt import render_user_mood_block
+from app.services.deterministic_profile import render_profile_runtime_context
 from app.services.claude import get_claude
 from app.services.prompt_builder import (
     BASE_PROMPT,
@@ -523,6 +524,16 @@ async def chat(
     user_mood_block = render_user_mood_block(user_mood_ctx)
     if user_mood_block:
         volatile_context += "\n\n" + user_mood_block
+
+    # Deterministic profile context (Phase 4.15) — computes age from
+    # browser local date so the LLM doesn't have to. Reads identity
+    # already fetched via life_model.get_context.
+    profile_runtime_block = render_profile_runtime_context(
+        context.get("identity") if isinstance(context, dict) else None,
+        body.ui_context,
+    )
+    if profile_runtime_block:
+        volatile_context += "\n\n" + profile_runtime_block
 
     # Companion mood block — ONLY injected if user has dynamic mood enabled.
     # Default users (professional/friendly/affectionate or stable realism) get
