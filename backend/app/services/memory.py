@@ -270,3 +270,255 @@ def format_for_prompt(memories: list[dict]) -> str:
     for m in memories:
         lines.append(f"- {m['content']}")
     return "\n".join(lines)
+
+# --- Memory Retrieval Ranking 2.0 (managed block) ---
+# This block intentionally overrides retrieve_relevant() and format_for_prompt()
+# defined above. It is additive/rollback-safe and avoids touching extraction.
+# Goal: retrieve the right memories, ignore superseded memories, and prioritize
+# structured/high-confidence memories without changing the database schema.
+
+from datetime import datetime, timezone
+from math import exp
+from typing import Any
+
+
+HIGH_PRIORITY_STRUCTURED_FIELDS = {
+    "birthday": 0.20,
+    "birthdate": 0.20,
+    "timezone": 0.20,
+    "preferred_name": 0.18,
+    "nickname": 0.18,
+    "assistant_name": 0.18,
+    "daughter_name": 0.17,
+    "child_name": 0.17,
+    "spouse_name": 0.16,
+    "location": 0.14,
+}
+
+CATEGORY_PRIORITY = {
+    "identity": 0.18,
+    "important_dates": 0.17,
+    "preferences": 0.15,
+    "constraints": 0.14,
+    "relationships": 0.13,
+    "goals": 0.12,
+    "routines": 0.10,
+    "projects": 0.10,
+    "context": 0.05,
+}
+
+SOURCE_PRIORITY = {
+    "user_correction": 0.10,
+    "explicit_user_statement": 0.09,
+    "user_answer_in_context": 0.08,
+    "repeated_pattern": 0.04,
+    "assistant_confirmation": -0.04,
+}
+
+KIND_PRIORITY = {
+    "preference": 0.05,
+    "fact": 0.04,
+    "plan": 0.03,
+    "context": 0.01,
+}
+
+
+def _mi_as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _mi_as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "t", "1", "yes"}
+    return bool(value)
+
+
+def _mi_parse_dt(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    raw = value.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(raw)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    except Exception:
+        return None
+
+
+def _mi_age_days(row: dict) -> float | None:
+    created = _mi_parse_dt(row.get("last_confirmed_at") or row.get("created_at"))
+    if not created:
+        return None
+    return max(0.0, (datetime.now(timezone.utc) - created).total_seconds() / 86400.0)
+
+
+def _mi_recency_score(row: dict) -> float:
+    age = _mi_age_days(row)
+    if age is None:
+        return 0.0
+    # Smooth decay: strong for recent context, but does not erase old identity facts.
+    return 0.08 * exp(-age / 45.0)
+
+
+def _mi_confidence_score(row: dict) -> float:
+    # Legacy rows may not have confidence. Treat them as medium confidence, not zero.
+    confidence = _mi_as_float(row.get("confidence"), 0.68)
+    confidence = max(0.0, min(1.0, confidence))
+    return 0.14 * confidence
+
+
+def _mi_salience_score(row: dict) -> float:
+    # Optional future column/metadata. Safe no-op if absent.
+    salience = _mi_as_float(row.get("salience"), 0.0)
+    if salience <= 0:
+        return 0.0
+    # Accept either 0..1 or 0..10.
+    if salience > 1:
+        salience = salience / 10.0
+    return 0.10 * max(0.0, min(1.0, salience))
+
+
+def _mi_metadata_priority(row: dict) -> float:
+    category = str(row.get("category") or "").strip().lower()
+    structured_field = str(row.get("structured_field") or "").strip().lower()
+    source_priority = str(row.get("source_priority") or "").strip().lower()
+    kind = str(row.get("kind") or "").strip().lower()
+
+    return (
+        CATEGORY_PRIORITY.get(category, 0.0)
+        + HIGH_PRIORITY_STRUCTURED_FIELDS.get(structured_field, 0.0)
+        + SOURCE_PRIORITY.get(source_priority, 0.0)
+        + KIND_PRIORITY.get(kind, 0.0)
+    )
+
+
+def _mi_is_active_memory(row: dict) -> bool:
+    return not _mi_as_bool(row.get("superseded"))
+
+
+def _mi_similarity_score(row: dict) -> float:
+    similarity = _mi_as_float(row.get("similarity"), 0.0)
+    similarity = max(0.0, min(1.0, similarity))
+    # Similarity remains the primary signal.
+    return similarity
+
+
+def memory_retrieval_score(row: dict) -> float:
+    if not _mi_is_active_memory(row):
+        return -999.0
+
+    score = (
+        _mi_similarity_score(row)
+        + _mi_confidence_score(row)
+        + _mi_metadata_priority(row)
+        + _mi_recency_score(row)
+        + _mi_salience_score(row)
+    )
+
+    return round(score, 6)
+
+
+def rank_memory_rows(rows: list[dict]) -> list[dict]:
+    active_rows = [r for r in rows if _mi_is_active_memory(r)]
+    ranked: list[dict] = []
+    seen_keys: set[tuple[str, str, str]] = set()
+
+    for row in active_rows:
+        if _mi_similarity_score(row) < MIN_SIMILARITY:
+            continue
+
+        # Lightweight dedup within the retrieved set.
+        content_key = str(row.get("content") or "").strip().lower()
+        field_key = str(row.get("structured_field") or "").strip().lower()
+        value_key = str(row.get("structured_value") or "").strip().lower()
+        key = (field_key, value_key, content_key)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+
+        enriched = dict(row)
+        enriched["retrieval_score"] = memory_retrieval_score(row)
+        ranked.append(enriched)
+
+    ranked.sort(
+        key=lambda r: (
+            _mi_as_float(r.get("retrieval_score"), 0.0),
+            _mi_as_float(r.get("similarity"), 0.0),
+            _mi_as_float(r.get("confidence"), 0.0),
+        ),
+        reverse=True,
+    )
+    return ranked
+
+
+def _mi_prompt_label(row: dict) -> str:
+    parts: list[str] = []
+    category = row.get("category")
+    structured_field = row.get("structured_field")
+    confidence = row.get("confidence")
+
+    if category:
+        parts.append(str(category))
+    if structured_field:
+        parts.append(str(structured_field))
+    if confidence is not None:
+        parts.append(f"confidence={_mi_as_float(confidence):.2f}")
+
+    return f" [{' | '.join(parts)}]" if parts else ""
+
+
+async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> list[dict]:
+    """Find and rank memories relevant to the current user message.
+
+    Ranking combines semantic similarity, confidence, structured-field/category
+    priority, source priority, recency, and optional salience. Superseded rows are
+    excluded both by SQL RPC when available and again in Python for safety.
+    """
+    try:
+        query_embedding = await embed_query(query_text)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("memory retrieval: embed failed: %s", exc)
+        return []
+
+    supabase = get_supabase()
+    # Ask for more candidates than final limit so reranking has room to work.
+    match_count = min(max(limit * 4, limit), 32)
+    result = supabase.rpc(
+        "match_memories",
+        {
+            "p_user_id": user_id,
+            "p_query_embedding": query_embedding,
+            "p_match_count": match_count,
+        },
+    ).execute()
+
+    rows = result.data or []
+    ranked = rank_memory_rows(rows)
+    return ranked[:limit]
+
+
+def format_for_prompt(memories: list[dict]) -> str:
+    """Render retrieved memories into a system-prompt-ready string."""
+    ranked = rank_memory_rows(memories)
+    if not ranked:
+        return ""
+
+    lines = [
+        "What you know about the user from past conversations:",
+        "Use higher-confidence and structured memories first. Ignore any archived/superseded memories.",
+    ]
+    for m in ranked:
+        label = _mi_prompt_label(m)
+        lines.append(f"- {m['content']}{label}")
+    return "\n".join(lines)
+
+# --- End Memory Retrieval Ranking 2.0 ---
+
