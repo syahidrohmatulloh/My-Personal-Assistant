@@ -1464,3 +1464,99 @@ html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-voice-
   }
 }
 
+
+/* --------------------------------------------------------------------------
+   Opera Neon magnetic orbital center v3
+   This makes the orbital ring composition itself follow the cursor,
+   not just translate the whole pseudo-layer.
+-------------------------------------------------------------------------- */
+
+:root {
+  --ambient-orbital-center-x: 50%;
+  --ambient-orbital-center-y: 50%;
+  --ambient-orbital-far-center-x: 50%;
+  --ambient-orbital-far-center-y: 50%;
+}
+
+/* Rebuild orbital rings with cursor-following gradient centers. */
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings::before {
+  opacity: 0.82 !important;
+  background:
+    radial-gradient(
+      ellipse at var(--ambient-orbital-center-x) var(--ambient-orbital-center-y),
+      transparent 0%,
+      transparent 34%,
+      rgb(105 175 255 / 0.22) 35.8%,
+      rgb(105 175 255 / 0.30) 37.2%,
+      transparent 39.2%,
+      transparent 52%,
+      rgb(160 120 255 / 0.18) 53.4%,
+      rgb(160 120 255 / 0.26) 55.2%,
+      transparent 57.4%,
+      transparent 70%,
+      rgb(70 230 220 / 0.16) 71.2%,
+      rgb(70 230 220 / 0.22) 72.6%,
+      transparent 74.8%
+    ) !important;
+  transform:
+    translate3d(var(--ambient-orbital-x), var(--ambient-orbital-y), 0)
+    rotateX(var(--ambient-tilt-x))
+    rotateY(var(--ambient-tilt-y))
+    scale(1.08) !important;
+  filter: blur(0.06px) saturate(1.26) contrast(1.12);
+  will-change: transform, background, opacity;
+}
+
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings::after {
+  opacity: 0.66 !important;
+  background:
+    radial-gradient(
+      ellipse at var(--ambient-orbital-far-center-x) var(--ambient-orbital-far-center-y),
+      transparent 0%,
+      transparent 28%,
+      rgb(255 150 210 / 0.14) 29.2%,
+      rgb(255 150 210 / 0.22) 31.2%,
+      transparent 33.4%,
+      transparent 61%,
+      rgb(130 160 255 / 0.16) 62.4%,
+      rgb(130 160 255 / 0.24) 64.1%,
+      transparent 66.4%
+    ) !important;
+  transform:
+    translate3d(var(--ambient-orbital-far-x), var(--ambient-orbital-far-y), 0)
+    rotateX(calc(var(--ambient-tilt-x) * 0.55))
+    rotateY(calc(var(--ambient-tilt-y) * 0.55))
+    scale(1.045) !important;
+  filter: blur(0.12px) saturate(1.18) contrast(1.08);
+  will-change: transform, background, opacity;
+}
+
+/* Fluid becomes softer and farther back. */
+html[data-ambient-neon-parallax="true"] .ambient-background .cosmic-fluid-mount,
+html[data-ambient-neon-parallax="true"] .cosmic-fluid-mount {
+  opacity: 0.18 !important;
+  filter: blur(24px) saturate(1.03) contrast(0.98) !important;
+  transform:
+    translate3d(var(--ambient-fluid-x), var(--ambient-fluid-y), 0)
+    scale(1.01) !important;
+}
+
+/* Light theme: avoid washed-out liquid, keep orbital visible. */
+@media (prefers-color-scheme: light) {
+  html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings::before {
+    opacity: 0.88 !important;
+    filter: blur(0.04px) saturate(1.3) contrast(1.18);
+  }
+
+  html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings::after {
+    opacity: 0.72 !important;
+  }
+
+  html[data-ambient-neon-parallax="true"] .ambient-background .cosmic-fluid-mount,
+  html[data-ambient-neon-parallax="true"] .cosmic-fluid-mount {
+    opacity: 0.14 !important;
+    filter: blur(26px) saturate(1) contrast(0.96) !important;
+    mix-blend-mode: multiply !important;
+  }
+}
+

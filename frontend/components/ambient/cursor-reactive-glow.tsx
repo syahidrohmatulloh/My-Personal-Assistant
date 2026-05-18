@@ -59,17 +59,27 @@ export function CursorReactiveGlow() {
       pointer.currentX = lerp(pointer.currentX, pointer.targetX, 0.09);
       pointer.currentY = lerp(pointer.currentY, pointer.targetY, 0.09);
 
-      const orbitalX = pointer.currentX * 72;
-      const orbitalY = pointer.currentY * 56;
+      // Stronger Opera Neon magnetic feel:
+      // ring composition center follows the cursor, while the full layer also parallax-shifts.
+      const orbitalX = pointer.currentX * 118;
+      const orbitalY = pointer.currentY * 88;
 
-      const orbitalFarX = pointer.currentX * 34;
-      const orbitalFarY = pointer.currentY * 24;
+      const orbitalFarX = pointer.currentX * 56;
+      const orbitalFarY = pointer.currentY * 40;
 
-      const fluidX = pointer.currentX * 6;
-      const fluidY = pointer.currentY * 4;
+      // Keep fluid subtle. It should feel like background liquid, not the main moving object.
+      const fluidX = pointer.currentX * 4;
+      const fluidY = pointer.currentY * 3;
 
-      const tiltX = pointer.currentY * -4;
-      const tiltY = pointer.currentX * 5;
+      const tiltX = pointer.currentY * -5;
+      const tiltY = pointer.currentX * 7;
+
+      // Move actual gradient center too, not only the entire layer.
+      const centerX = 50 + pointer.currentX * 18;
+      const centerY = 50 + pointer.currentY * 14;
+
+      const farCenterX = 50 + pointer.currentX * 10;
+      const farCenterY = 50 + pointer.currentY * 8;
 
       root.style.setProperty("--ambient-orbital-x", `${orbitalX}px`);
       root.style.setProperty("--ambient-orbital-y", `${orbitalY}px`);
@@ -79,6 +89,10 @@ export function CursorReactiveGlow() {
       root.style.setProperty("--ambient-fluid-y", `${fluidY}px`);
       root.style.setProperty("--ambient-tilt-x", `${tiltX}deg`);
       root.style.setProperty("--ambient-tilt-y", `${tiltY}deg`);
+      root.style.setProperty("--ambient-orbital-center-x", `${centerX}%`);
+      root.style.setProperty("--ambient-orbital-center-y", `${centerY}%`);
+      root.style.setProperty("--ambient-orbital-far-center-x", `${farCenterX}%`);
+      root.style.setProperty("--ambient-orbital-far-center-y", `${farCenterY}%`);
 
       raf = window.requestAnimationFrame(tick);
     };
