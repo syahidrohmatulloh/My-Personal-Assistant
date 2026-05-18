@@ -1,47 +1,56 @@
-"use client";
+"use client"
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { ArrowLeft, Heart, Plus, Trash2, Users } from "lucide-react";
+import { type FormEvent, useEffect, useState } from "react"
+import { Heart, Plus, Trash2, Users, X } from "lucide-react"
 import {
   type Person,
   type PersonInput,
   createPerson,
   deletePerson,
   listPeople,
-} from "@/lib/api";
-import { cn } from "@/lib/utils";
-import { BackToChatButton } from "@/components/settings/back-to-chat-button";
+} from "@/lib/api"
+import {
+  AppHeaderAction,
+  AppPageShell,
+  AppPanel,
+  AppStatCard,
+  AppStatGrid,
+} from "@/components/ui/app-page-shell"
+
+const inputCls =
+  "mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
 
 export default function PeoplePage() {
-  const [people, setPeople] = useState<Person[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [people, setPeople] = useState<Person[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const [name, setName] = useState("");
-  const [relationship, setRelationship] = useState("");
-  const [importance, setImportance] = useState(5);
-  const [emotional, setEmotional] = useState(5);
-  const [birthday, setBirthday] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [name, setName] = useState("")
+  const [relationship, setRelationship] = useState("")
+  const [importance, setImportance] = useState(5)
+  const [emotional, setEmotional] = useState(5)
+  const [birthday, setBirthday] = useState("")
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    let cancelled = false;
+    let cancelled = false
     listPeople()
       .then((data) => !cancelled && setPeople(data))
       .catch((e) => !cancelled && setError(String(e)))
-      .finally(() => !cancelled && setLoading(false));
+      .finally(() => !cancelled && setLoading(false))
     return () => {
-      cancelled = true;
-    };
-  }, []);
+      cancelled = true
+    }
+  }, [])
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim()) return;
-    setSaving(true);
-    setError(null);
+  async function handleCreate(e: FormEvent) {
+    e.preventDefault()
+    if (!name.trim()) return
+
+    setSaving(true)
+    setError(null)
+
     try {
       const input: PersonInput = {
         name: name.trim(),
@@ -49,199 +58,235 @@ export default function PeoplePage() {
         importance,
         emotional_significance: emotional,
         birthday: birthday || null,
-      };
-      const created = await createPerson(input);
+      }
+
+      const created = await createPerson(input)
       setPeople((prev) =>
         [...prev, created].sort((a, b) => b.importance - a.importance),
-      );
-      setName("");
-      setRelationship("");
-      setImportance(5);
-      setEmotional(5);
-      setBirthday("");
-      setShowForm(false);
+      )
+      setName("")
+      setRelationship("")
+      setImportance(5)
+      setEmotional(5)
+      setBirthday("")
+      setShowForm(false)
     } catch (e) {
-      setError(String(e));
+      setError(String(e))
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Remove this person and all notes about them?")) return;
-    const prev = people;
-    setPeople((p) => p.filter((x) => x.id !== id));
+    if (!confirm("Remove this person and all notes about them?")) return
+
+    const prev = people
+    setPeople((p) => p.filter((x) => x.id !== id))
+
     try {
-      await deletePerson(id);
+      await deletePerson(id)
     } catch (e) {
-      setPeople(prev);
-      setError(String(e));
+      setPeople(prev)
+      setError(String(e))
     }
   }
 
+  const avgImportance = people.length
+    ? Math.round(people.reduce((sum, p) => sum + p.importance, 0) / people.length)
+    : 0
+
+  const birthdays = people.filter((p) => p.birthday).length
+
   return (
-    <main className="min-h-dvh">
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 sm:py-8 fade-up">
-        <BackToChatButton />
-
-        <div className="flex items-start justify-between mb-2">
-          <h1 className="text-3xl font-semibold text-fg tracking-tighter">People</h1>
-          <button
+    <AppPageShell
+      eyebrow="Aliyya People"
+      title="People"
+      description="People who matter in your life. Aliyya uses this to remember relationship context, names, and meaningful dates."
+      maxWidthClassName="max-w-5xl"
+      actions={
+        <>
+          <AppHeaderAction href="/chat">Back to chat</AppHeaderAction>
+          <AppHeaderAction
             onClick={() => setShowForm((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-accent text-on-accent px-3 py-1.5 text-sm font-medium hover:bg-accent-hover transition-all active:scale-[0.98] shadow-md shadow-accent/25"
+            variant="primary"
+            icon={showForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
           >
-            <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
-            Add person
-          </button>
-        </div>
-        <p className="text-base text-fg-muted mb-6">
-          People who matter in your life. The assistant uses this to remember context.
-        </p>
-
-        {showForm && (
-          <form onSubmit={handleCreate} className="glass rounded-2xl p-5 mb-6 fade-up">
-            <div className="grid sm:grid-cols-2 gap-4 mb-4">
-              <label className="block">
-                <span className="text-sm font-medium text-fg">Name</span>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Anna"
-                  className={inputCls}
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-fg">Relationship</span>
-                <input
-                  type="text"
-                  value={relationship}
-                  onChange={(e) => setRelationship(e.target.value)}
-                  placeholder="wife, co-founder, mother…"
-                  className={inputCls}
-                />
-              </label>
-            </div>
-
-            <div className="grid sm:grid-cols-2 gap-4 mb-4">
-              <label className="block">
-                <span className="text-sm font-medium text-fg">
-                  Importance ({importance}/10)
-                </span>
-                <span className="block text-xs text-fg-muted mt-0.5">
-                  How present in your daily life
-                </span>
-                <input
-                  type="range"
-                  min={1}
-                  max={10}
-                  value={importance}
-                  onChange={(e) => setImportance(Number(e.target.value))}
-                  className="mt-2 w-full accent-accent"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-fg">
-                  Emotional significance ({emotional}/10)
-                </span>
-                <span className="block text-xs text-fg-muted mt-0.5">
-                  How much they matter, regardless of frequency
-                </span>
-                <input
-                  type="range"
-                  min={1}
-                  max={10}
-                  value={emotional}
-                  onChange={(e) => setEmotional(Number(e.target.value))}
-                  className="mt-2 w-full accent-accent"
-                />
-              </label>
-            </div>
-
-            <label className="block mb-4">
-              <span className="text-sm font-medium text-fg">Birthday (optional)</span>
+            {showForm ? "Close form" : "Add person"}
+          </AppHeaderAction>
+        </>
+      }
+      stats={
+        <AppStatGrid>
+          <AppStatCard label="People" value={people.length} icon={Users} />
+          <AppStatCard label="Avg importance" value={avgImportance ? `${avgImportance}/10` : "—"} />
+          <AppStatCard label="Birthdays" value={birthdays} />
+        </AppStatGrid>
+      }
+    >
+      {showForm ? (
+        <form onSubmit={handleCreate} className="rounded-[1.5rem] border border-slate-200/70 bg-white/75 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04]">
+          <div className="mb-4 grid gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-sm font-medium text-slate-900 dark:text-white">Name</span>
               <input
-                type="date"
-                value={birthday}
-                onChange={(e) => setBirthday(e.target.value)}
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Anna"
                 className={inputCls}
               />
             </label>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-border">
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="px-3 py-1.5 rounded-lg text-sm text-fg-muted hover:bg-fg/5"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={saving || !name.trim()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-accent text-on-accent px-3 py-1.5 text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition-all"
-              >
-                {saving ? "Saving…" : "Add"}
-              </button>
-            </div>
-          </form>
-        )}
+            <label className="block">
+              <span className="text-sm font-medium text-slate-900 dark:text-white">Relationship</span>
+              <input
+                type="text"
+                value={relationship}
+                onChange={(e) => setRelationship(e.target.value)}
+                placeholder="wife, co-founder, mother…"
+                className={inputCls}
+              />
+            </label>
+          </div>
 
-        {error && <p className="text-sm text-danger mb-4">{error}</p>}
+          <div className="mb-4 grid gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-sm font-medium text-slate-900 dark:text-white">
+                Importance ({importance}/10)
+              </span>
+              <span className="mt-0.5 block text-xs text-slate-500 dark:text-zinc-400">
+                How present they are in your daily life.
+              </span>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                value={importance}
+                onChange={(e) => setImportance(Number(e.target.value))}
+                className="mt-3 w-full accent-cyan-400"
+              />
+            </label>
 
-        {loading ? (
-          <p className="text-sm text-fg-muted">Loading…</p>
-        ) : people.length === 0 ? (
-          <div className="text-center py-12 glass rounded-2xl">
-            <Users className="h-6 w-6 text-fg-subtle mx-auto mb-2 opacity-60" />
-            <p className="text-sm text-fg-muted">No one added yet.</p>
-            <p className="text-xs text-fg-subtle mt-1">
+            <label className="block">
+              <span className="text-sm font-medium text-slate-900 dark:text-white">
+                Emotional significance ({emotional}/10)
+              </span>
+              <span className="mt-0.5 block text-xs text-slate-500 dark:text-zinc-400">
+                How much they matter, regardless of frequency.
+              </span>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                value={emotional}
+                onChange={(e) => setEmotional(Number(e.target.value))}
+                className="mt-3 w-full accent-cyan-400"
+              />
+            </label>
+          </div>
+
+          <label className="mb-4 block">
+            <span className="text-sm font-medium text-slate-900 dark:text-white">
+              Birthday optional
+            </span>
+            <input
+              type="date"
+              value={birthday}
+              onChange={(e) => setBirthday(e.target.value)}
+              className={inputCls}
+            />
+          </label>
+
+          <div className="flex flex-col gap-2 border-t border-slate-200/70 pt-4 dark:border-white/10 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="min-h-10 rounded-full border border-slate-200/70 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !name.trim()}
+              className="inline-flex min-h-10 items-center justify-center rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-300 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Add person"}
+            </button>
+          </div>
+        </form>
+      ) : null}
+
+      {error ? (
+        <div className="rounded-2xl border border-red-400/40 bg-red-50 p-4 text-sm text-red-700 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-100">
+          {error}
+        </div>
+      ) : null}
+
+      {loading ? (
+        <AppPanel>
+          <div className="p-6 text-sm text-slate-600 dark:text-zinc-300">Loading…</div>
+        </AppPanel>
+      ) : people.length === 0 ? (
+        <AppPanel>
+          <div className="py-12 text-center">
+            <Users className="mx-auto mb-2 h-6 w-6 text-slate-400 opacity-70 dark:text-zinc-500" />
+            <p className="text-sm text-slate-500 dark:text-zinc-400">No one added yet.</p>
+            <p className="mt-1 text-xs text-slate-400 dark:text-zinc-500">
               Start with the few people closest to you.
             </p>
           </div>
-        ) : (
-          <ul className="space-y-2">
-            {people.map((p) => (
-              <li key={p.id} className="group glass rounded-xl p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-fg">{p.name}</p>
-                    {p.relationship && (
-                      <p className="text-xs text-fg-muted mt-0.5">{p.relationship}</p>
-                    )}
-                    <div className="mt-2 flex items-center gap-3 text-xs text-fg-muted">
-                      <span>importance {p.importance}/10</span>
-                      <span className="inline-flex items-center gap-1">
-                        <Heart className="h-3 w-3" />
-                        {p.emotional_significance}/10
-                      </span>
-                      {p.birthday && (
-                        <span className="text-fg-subtle">
-                          🎂 {new Date(p.birthday).toLocaleDateString(undefined, {
-                            month: "short",
-                            day: "numeric",
-                          })}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleDelete(p.id)}
-                    className="opacity-0 group-hover:opacity-100 text-fg-subtle hover:text-danger transition-opacity"
-                    aria-label="Delete person"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </main>
-  );
-}
+        </AppPanel>
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {people.map((person) => (
+            <article
+              key={person.id}
+              className="group rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-lg shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-black/20"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="break-words text-sm font-semibold text-slate-950 dark:text-white">
+                    {person.name}
+                  </p>
+                  {person.relationship ? (
+                    <p className="mt-1 text-xs text-slate-600 dark:text-zinc-400">
+                      {person.relationship}
+                    </p>
+                  ) : null}
 
-const inputCls =
-  "mt-1.5 w-full rounded-xl border border-border-strong bg-bg/40 backdrop-blur-sm px-3 py-2 text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-all";
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
+                    <span className="rounded-full border border-cyan-500/20 bg-cyan-50 px-2 py-1 text-[10px] font-medium text-cyan-800 dark:border-cyan-300/20 dark:bg-cyan-300/10 dark:text-cyan-100">
+                      importance {person.importance}/10
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-rose-400/20 bg-rose-50 px-2 py-1 text-[10px] font-medium text-rose-700 dark:border-rose-300/20 dark:bg-rose-300/10 dark:text-rose-100">
+                      <Heart className="h-3 w-3" />
+                      {person.emotional_significance}/10
+                    </span>
+                    {person.birthday ? (
+                      <span>
+                        🎂{" "}
+                        {new Date(person.birthday).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => void handleDelete(person.id)}
+                  className="rounded-full border border-red-400/40 p-2 text-red-700 opacity-100 transition hover:bg-red-50 dark:border-red-400/30 dark:text-red-200 dark:hover:bg-red-500/10 sm:opacity-0 sm:group-hover:opacity-100"
+                  aria-label="Delete person"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </AppPageShell>
+  )
+}

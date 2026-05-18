@@ -1,21 +1,26 @@
-"use client";
+"use client"
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { ArrowLeft, Save } from "lucide-react";
-import { getIdentity, putIdentity } from "@/lib/api";
-import { BackToChatButton } from "@/components/settings/back-to-chat-button";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react"
+import { Save, UserRound } from "lucide-react"
+import { getIdentity, putIdentity } from "@/lib/api"
+import {
+  AppHeaderAction,
+  AppPageShell,
+  AppPanel,
+  AppStatCard,
+  AppStatGrid,
+} from "@/components/ui/app-page-shell"
 
 type FormState = {
-  name: string;
-  location: string;
-  role: string;
-  industry: string;
-  values: string;
-  communication: string;
-  timezone: string;
-  narrative: string;
-};
+  name: string
+  location: string
+  role: string
+  industry: string
+  values: string
+  communication: string
+  timezone: string
+  narrative: string
+}
 
 const EMPTY: FormState = {
   name: "",
@@ -26,108 +31,147 @@ const EMPTY: FormState = {
   communication: "",
   timezone: "",
   narrative: "",
-};
+}
+
+const inputCls =
+  "w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
+const textareaCls = inputCls + " resize-none"
 
 function profileToForm(profile: Record<string, unknown>, narrative: string | null): FormState {
-  const work = (profile.work ?? {}) as Record<string, unknown>;
-  const comm = (profile.communication_preferences ?? {}) as Record<string, unknown>;
-  // Default to the browser's timezone if user hasn't set one.
+  const work = (profile.work ?? {}) as Record<string, unknown>
+  const comm = (profile.communication_preferences ?? {}) as Record<string, unknown>
   const fallbackTz =
     typeof Intl !== "undefined"
       ? Intl.DateTimeFormat().resolvedOptions().timeZone
-      : "UTC";
+      : "UTC"
+
   return {
     name: (profile.name as string) ?? "",
     location: (profile.location as string) ?? "",
     role: (work.role as string) ?? "",
     industry: (work.industry as string) ?? "",
-    values: Array.isArray(profile.values) ? (profile.values as string[]).join(", ") : "",
+    values: Array.isArray(profile.values)
+      ? (profile.values as string[]).join(", ")
+      : "",
     communication: (comm.tone as string) ?? "",
     timezone: (profile.timezone as string) ?? fallbackTz,
     narrative: narrative ?? "",
-  };
+  }
 }
 
-function formToProfile(f: FormState): { profile: Record<string, unknown>; narrative: string | null } {
-  const profile: Record<string, unknown> = {};
-  if (f.name) profile.name = f.name;
-  if (f.location) profile.location = f.location;
+function formToProfile(f: FormState): {
+  profile: Record<string, unknown>
+  narrative: string | null
+} {
+  const profile: Record<string, unknown> = {}
+
+  if (f.name) profile.name = f.name
+  if (f.location) profile.location = f.location
   if (f.role || f.industry) {
     profile.work = {
       ...(f.role ? { role: f.role } : {}),
       ...(f.industry ? { industry: f.industry } : {}),
-    };
+    }
   }
   if (f.values) {
     profile.values = f.values
       .split(",")
       .map((v) => v.trim())
-      .filter(Boolean);
+      .filter(Boolean)
   }
   if (f.communication) {
-    profile.communication_preferences = { tone: f.communication };
+    profile.communication_preferences = { tone: f.communication }
   }
   if (f.timezone) {
-    profile.timezone = f.timezone;
+    profile.timezone = f.timezone
   }
-  return { profile, narrative: f.narrative || null };
+
+  return { profile, narrative: f.narrative || null }
 }
 
 export default function IdentityPage() {
-  const [form, setForm] = useState<FormState>(EMPTY);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [savedAt, setSavedAt] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState<FormState>(EMPTY)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    let cancelled = false;
+    let cancelled = false
+
     getIdentity()
       .then((data) => {
-        if (cancelled) return;
-        setForm(profileToForm(data.profile, data.narrative));
-        setSavedAt(data.updated_at);
+        if (cancelled) return
+        setForm(profileToForm(data.profile, data.narrative))
+        setSavedAt(data.updated_at)
       })
       .catch((e) => !cancelled && setError(String(e)))
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+      .finally(() => !cancelled && setLoading(false))
 
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  async function handleSave(e: FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    setError(null)
+
     try {
-      const { profile, narrative } = formToProfile(form);
-      const updated = await putIdentity(profile, narrative);
-      setSavedAt(updated.updated_at);
+      const { profile, narrative } = formToProfile(form)
+      const updated = await putIdentity(profile, narrative)
+      setSavedAt(updated.updated_at)
     } catch (e) {
-      setError(String(e));
+      setError(String(e))
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
   }
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => ({ ...prev, [key]: value }))
   }
 
+  const filledFields = [
+    form.name,
+    form.location,
+    form.role,
+    form.industry,
+    form.values,
+    form.communication,
+    form.timezone,
+    form.narrative,
+  ].filter((value) => value.trim()).length
+
   return (
-    <main className="min-h-dvh">
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 sm:py-8 fade-up">
-        <BackToChatButton />
-
-        <h1 className="text-3xl font-semibold text-fg mb-1 tracking-tighter">Who you are</h1>
-        <p className="text-base text-fg-muted mb-8">
-          The grounding the assistant uses to know you. Everything is optional. Edit anytime.
-        </p>
-
-        {loading ? (
-          <p className="text-sm text-fg-muted">Loading…</p>
-        ) : (
-          <form onSubmit={handleSave} className="glass rounded-2xl p-6 space-y-5">
+    <AppPageShell
+      eyebrow="Aliyya Identity"
+      title="Who you are"
+      description="The grounding Aliyya uses to understand you. Everything is optional, editable, and meant to make conversations more consistent."
+      maxWidthClassName="max-w-5xl"
+      actions={<AppHeaderAction href="/chat">Back to chat</AppHeaderAction>}
+      stats={
+        <AppStatGrid>
+          <AppStatCard label="Profile fields" value={`${filledFields}/8`} icon={UserRound} />
+          <AppStatCard label="Timezone" value={form.timezone || "—"} />
+          <AppStatCard
+            label="Last saved"
+            value={savedAt ? new Date(savedAt).toLocaleDateString() : "—"}
+          />
+        </AppStatGrid>
+      }
+    >
+      {loading ? (
+        <AppPanel>
+          <div className="p-6 text-sm text-slate-600 dark:text-zinc-300">Loading…</div>
+        </AppPanel>
+      ) : (
+        <form
+          onSubmit={handleSave}
+          className="rounded-[1.5rem] border border-slate-200/70 bg-white/75 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04] sm:p-6"
+        >
+          <div className="grid gap-5 lg:grid-cols-2">
             <Field label="Name">
               <input
                 type="text"
@@ -148,26 +192,25 @@ export default function IdentityPage() {
               />
             </Field>
 
-            <div className="grid sm:grid-cols-2 gap-4">
-              <Field label="Role">
-                <input
-                  type="text"
-                  value={form.role}
-                  onChange={(e) => update("role", e.target.value)}
-                  placeholder="Founder, designer, student…"
-                  className={inputCls}
-                />
-              </Field>
-              <Field label="Industry / context">
-                <input
-                  type="text"
-                  value={form.industry}
-                  onChange={(e) => update("industry", e.target.value)}
-                  placeholder="AI startup, healthcare, etc."
-                  className={inputCls}
-                />
-              </Field>
-            </div>
+            <Field label="Role">
+              <input
+                type="text"
+                value={form.role}
+                onChange={(e) => update("role", e.target.value)}
+                placeholder="Founder, banker, designer, student…"
+                className={inputCls}
+              />
+            </Field>
+
+            <Field label="Industry / context">
+              <input
+                type="text"
+                value={form.industry}
+                onChange={(e) => update("industry", e.target.value)}
+                placeholder="Banking, AI, consulting, etc."
+                className={inputCls}
+              />
+            </Field>
 
             <Field
               label="Values"
@@ -197,7 +240,7 @@ export default function IdentityPage() {
 
             <Field
               label="Your timezone"
-              hint="So I get dates right in our conversations. Defaults to your browser's timezone."
+              hint="So Aliyya gets dates and greetings right."
             >
               <input
                 type="text"
@@ -208,59 +251,65 @@ export default function IdentityPage() {
               />
             </Field>
 
-            <Field
-              label="Anything else worth knowing"
-              hint="A few sentences of context."
-            >
-              <textarea
-                value={form.narrative}
-                onChange={(e) => update("narrative", e.target.value)}
-                rows={5}
-                placeholder="I'm building an AI assistant alongside my main work. I tend to be most clear-headed in the morning."
-                className={textareaCls}
-              />
-            </Field>
-
-            {error && <p className="text-sm text-danger">{error}</p>}
-
-            <div className="flex items-center justify-between pt-2 border-t border-border">
-              <p className="text-xs text-fg-subtle">
-                {savedAt ? `Last saved ${new Date(savedAt).toLocaleString()}` : "Not saved yet"}
-              </p>
-              <button
-                type="submit"
-                disabled={saving}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-accent text-on-accent px-4 py-2 text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition-all active:scale-[0.98] shadow-md shadow-accent/25"
+            <div className="lg:col-span-2">
+              <Field
+                label="Anything else worth knowing"
+                hint="A few sentences of context."
               >
-                <Save className="h-3.5 w-3.5" strokeWidth={2.5} />
-                {saving ? "Saving…" : "Save"}
-              </button>
+                <textarea
+                  value={form.narrative}
+                  onChange={(e) => update("narrative", e.target.value)}
+                  rows={5}
+                  placeholder="I'm building an AI assistant alongside my main work. I tend to prefer direct, practical help."
+                  className={textareaCls}
+                />
+              </Field>
             </div>
-          </form>
-        )}
-      </div>
-    </main>
-  );
-}
+          </div>
 
-const inputCls =
-  "w-full rounded-xl border border-border-strong bg-bg/40 backdrop-blur-sm px-3 py-2 text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-all";
-const textareaCls = inputCls + " resize-none";
+          {error ? (
+            <p className="mt-5 text-sm text-red-700 dark:text-red-300">{error}</p>
+          ) : null}
+
+          <div className="mt-6 flex flex-col gap-3 border-t border-slate-200/70 pt-4 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-slate-500 dark:text-zinc-500">
+              {savedAt ? `Last saved ${new Date(savedAt).toLocaleString()}` : "Not saved yet"}
+            </p>
+            <button
+              type="submit"
+              disabled={saving}
+              className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-300 disabled:opacity-50 active:scale-[0.98] sm:w-auto"
+            >
+              <Save className="h-3.5 w-3.5" strokeWidth={2.5} />
+              {saving ? "Saving…" : "Save identity"}
+            </button>
+          </div>
+        </form>
+      )}
+    </AppPageShell>
+  )
+}
 
 function Field({
   label,
   hint,
   children,
 }: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
+  label: string
+  hint?: string
+  children: ReactNode
 }) {
   return (
     <label className="block">
-      <span className="text-sm font-medium text-fg">{label}</span>
-      {hint && <span className="block text-xs text-fg-muted mt-0.5">{hint}</span>}
+      <span className="text-sm font-medium text-slate-900 dark:text-white">
+        {label}
+      </span>
+      {hint ? (
+        <span className="mt-0.5 block text-xs text-slate-500 dark:text-zinc-400">
+          {hint}
+        </span>
+      ) : null}
       <div className="mt-2">{children}</div>
     </label>
-  );
+  )
 }

@@ -19,6 +19,7 @@ type AppHeaderActionProps = {
   children: ReactNode
   icon?: ReactNode
   variant?: "primary" | "secondary" | "danger"
+  type?: "button" | "submit"
 }
 
 type AppStatCardProps = {
@@ -78,6 +79,7 @@ export function AppHeaderAction({
   children,
   icon,
   variant = "secondary",
+  type = "button",
 }: AppHeaderActionProps) {
   const className = [
     "inline-flex min-h-10 items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60",
@@ -99,7 +101,7 @@ export function AppHeaderAction({
   }
 
   return (
-    <button onClick={onClick} disabled={disabled} className={className}>
+    <button type={type} onClick={onClick} disabled={disabled} className={className}>
       {icon}
       {children}
     </button>
