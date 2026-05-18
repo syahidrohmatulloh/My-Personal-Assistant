@@ -47,6 +47,7 @@ from app.services import (
     memory_intelligence,
     mood_memory_feedback,
     relationship_memory,
+    interaction_preferences,
     user_mood,
 )
 from app.services.user_mood_prompt import render_user_mood_block
@@ -524,8 +525,12 @@ async def chat(
     # higher in the context. User mood informs how the assistant should
     # behave; companion mood is the assistant's own affect.
     user_mood_block = render_user_mood_block(user_mood_ctx)
+    interaction_pref_block = await interaction_preferences.get_interaction_preferences_block(user_id=user_id)
     if user_mood_block:
         volatile_context += "\n\n" + user_mood_block
+
+    if interaction_pref_block:
+        volatile_context += "\n\n" + interaction_pref_block
 
     # Deterministic profile context (Phase 4.15) — computes age from
     # browser local date so the LLM doesn't have to. Reads identity
