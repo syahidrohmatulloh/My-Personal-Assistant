@@ -1675,3 +1675,192 @@ html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbita
   }
 }
 
+
+/* --------------------------------------------------------------------------
+   Opera Neon object-magnet v5
+   No new particle canvas. Cursor only alters the existing selected background object.
+-------------------------------------------------------------------------- */
+
+:root {
+  --ambient-object-center-x: 50%;
+  --ambient-object-center-y: 50%;
+  --ambient-object-far-center-x: 50%;
+  --ambient-object-far-center-y: 50%;
+  --ambient-object-x: 0px;
+  --ambient-object-y: 0px;
+  --ambient-object-far-x: 0px;
+  --ambient-object-far-y: 0px;
+  --ambient-object-speed: 1;
+  --ambient-object-pulse: 1;
+  --ambient-object-blur: 0.1px;
+}
+
+/* Kill the previous separate particle canvas/object completely. */
+.ambient-opera-neon-field,
+.ambient-opera-neon-canvas,
+.ambient-cursor-reactive-glow {
+  display: none !important;
+}
+
+/* Fluid should stay as a soft supporting layer, not the main visual. */
+html[data-ambient-neon-parallax="true"] .ambient-background .cosmic-fluid-mount,
+html[data-ambient-neon-parallax="true"] .cosmic-fluid-mount {
+  opacity: 0.12 !important;
+  filter: blur(28px) saturate(0.95) contrast(0.95) !important;
+  transform: scale(1.01) !important;
+  mix-blend-mode: normal !important;
+}
+
+/* ORBITAL RINGS: existing object gets magnetic center + stronger movement. */
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings::before {
+  opacity: 0.9 !important;
+  background:
+    radial-gradient(
+      ellipse at var(--ambient-object-center-x) var(--ambient-object-center-y),
+      transparent 0%,
+      transparent 33%,
+      rgb(105 175 255 / 0.22) 35.4%,
+      rgb(105 175 255 / 0.34) 37.6%,
+      transparent 40.2%,
+      transparent 51%,
+      rgb(160 120 255 / 0.2) 52.8%,
+      rgb(160 120 255 / 0.32) 55.4%,
+      transparent 58.2%,
+      transparent 69%,
+      rgb(70 230 220 / 0.18) 71%,
+      rgb(70 230 220 / 0.28) 73.4%,
+      transparent 76%
+    ) !important;
+  transform:
+    translate3d(var(--ambient-object-x), var(--ambient-object-y), 0)
+    scale(var(--ambient-object-pulse)) !important;
+  transform-origin: center;
+  filter: blur(var(--ambient-object-blur)) saturate(1.28) contrast(1.14);
+  will-change: transform, background, filter;
+}
+
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings::after {
+  opacity: 0.68 !important;
+  background:
+    radial-gradient(
+      ellipse at var(--ambient-object-far-center-x) var(--ambient-object-far-center-y),
+      transparent 0%,
+      transparent 28%,
+      rgb(255 150 210 / 0.15) 29.4%,
+      rgb(255 150 210 / 0.24) 31.6%,
+      transparent 34.2%,
+      transparent 60%,
+      rgb(130 160 255 / 0.16) 62%,
+      rgb(130 160 255 / 0.26) 64.4%,
+      transparent 67%
+    ) !important;
+  transform:
+    translate3d(var(--ambient-object-far-x), var(--ambient-object-far-y), 0)
+    scale(calc(var(--ambient-object-pulse) * 0.98)) !important;
+  transform-origin: center;
+  filter: blur(calc(var(--ambient-object-blur) + 0.1px)) saturate(1.14);
+  will-change: transform, background, filter;
+}
+
+/* COSMIC PLASMA: the plasma's core follows cursor, not a new object. */
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-cosmic-plasma::before {
+  opacity: 0.74 !important;
+  background:
+    radial-gradient(
+      circle at var(--ambient-object-center-x) var(--ambient-object-center-y),
+      rgb(110 255 235 / 0.22) 0%,
+      rgb(120 170 255 / 0.16) 24%,
+      rgb(255 120 220 / 0.12) 46%,
+      transparent 72%
+    ) !important;
+  transform:
+    translate3d(var(--ambient-object-x), var(--ambient-object-y), 0)
+    scale(var(--ambient-object-pulse)) !important;
+  filter: blur(calc(18px + var(--ambient-object-blur))) saturate(1.28);
+  will-change: transform, background, filter;
+}
+
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-cosmic-plasma::after {
+  transform:
+    translate3d(var(--ambient-object-far-x), var(--ambient-object-far-y), 0)
+    scale(calc(var(--ambient-object-pulse) * 0.98)) !important;
+}
+
+/* NEBULA DRIFT: cloud mass follows cursor. */
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-nebula-drift::before {
+  opacity: 0.7 !important;
+  background:
+    radial-gradient(
+      ellipse at var(--ambient-object-center-x) var(--ambient-object-center-y),
+      rgb(120 190 255 / 0.18) 0%,
+      rgb(170 120 255 / 0.12) 32%,
+      rgb(255 150 210 / 0.09) 52%,
+      transparent 76%
+    ) !important;
+  transform:
+    translate3d(var(--ambient-object-x), var(--ambient-object-y), 0)
+    scale(var(--ambient-object-pulse)) !important;
+  filter: blur(calc(22px + var(--ambient-object-blur))) saturate(1.18);
+}
+
+/* MICRO PARTICLE FLOW: particle field center and drift follows cursor. */
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-micro-particle-flow::before {
+  opacity: 0.76 !important;
+  background-position:
+    var(--ambient-object-x) var(--ambient-object-y),
+    var(--ambient-object-far-x) var(--ambient-object-far-y) !important;
+  transform:
+    translate3d(calc(var(--ambient-object-x) * 0.35), calc(var(--ambient-object-y) * 0.35), 0)
+    scale(var(--ambient-object-pulse)) !important;
+  filter: blur(var(--ambient-object-blur)) saturate(1.18);
+}
+
+/* VOICE WAVE: waveform origin follows cursor. */
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-voice-wave::before {
+  opacity: 0.78 !important;
+  background:
+    radial-gradient(
+      ellipse at var(--ambient-object-center-x) var(--ambient-object-center-y),
+      rgb(110 210 255 / 0.16) 0%,
+      transparent 58%
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgb(120 220 255 / 0.14) 0px,
+      rgb(120 220 255 / 0.14) 2px,
+      transparent 2px,
+      transparent 24px
+    ) !important;
+  transform:
+    translate3d(var(--ambient-object-x), var(--ambient-object-y), 0)
+    scale(var(--ambient-object-pulse)) !important;
+  filter: blur(calc(0.4px + var(--ambient-object-blur))) saturate(1.16);
+}
+
+/* Movement should feel faster when cursor moves. */
+html[data-ambient-neon-parallax="true"] .ambient-background::before {
+  animation-duration: calc(18s / var(--ambient-object-speed)) !important;
+}
+
+html[data-ambient-neon-parallax="true"] .ambient-background::after {
+  animation-duration: calc(26s / var(--ambient-object-speed)) !important;
+}
+
+/* Light mode tuning. */
+@media (prefers-color-scheme: light) {
+  html[data-ambient-neon-parallax="true"] .ambient-background .cosmic-fluid-mount,
+  html[data-ambient-neon-parallax="true"] .cosmic-fluid-mount {
+    opacity: 0.06 !important;
+    filter: blur(32px) saturate(0.9) contrast(0.92) !important;
+    mix-blend-mode: multiply !important;
+  }
+
+  html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings::before {
+    opacity: 0.94 !important;
+  }
+
+  html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings::after {
+    opacity: 0.74 !important;
+  }
+}
+
