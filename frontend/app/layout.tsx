@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import Providers from "./providers";
 import { AmbientBackground } from "@/components/ambient/ambient-background";
+import { CursorReactiveGlow } from "@/components/ambient/cursor-reactive-glow";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -38,6 +39,7 @@ export default function RootLayout({
     <html lang="en" className={inter.variable}>
       <body className="font-sans antialiased">
         <AmbientBackground />
+          <CursorReactiveGlow />
         <div className="relative z-[1]">
           <Providers>{children}</Providers>
         </div>
