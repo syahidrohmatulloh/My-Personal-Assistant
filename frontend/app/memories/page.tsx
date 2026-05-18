@@ -90,12 +90,13 @@ type MemoryQualityPayload = {
 }
 
 type MemoryHealthSchedulerStatus = {
-  enabled: boolean
-  running: boolean
-  interval_minutes: number
+  enabled?: boolean
+  running?: boolean
+  interval_minutes?: number
   last_started_at?: string | null
   last_finished_at?: string | null
   last_error?: string | null
+  health_source?: "scheduler" | "live" | "none"
   user_summary?: {
     needs_review?: number
     duplicate_groups?: number
@@ -255,13 +256,41 @@ export default function MemoriesPage() {
 
   async function loadMemoryHealthStatus() {
     try {
-      const res = await fetch("/api/memory-review/quality/scheduler/status", {
+      const schedulerRes = await fetch("/api/memory-review/quality/scheduler/status", {
         cache: "no-store",
       })
 
-      if (!res.ok) return
+      if (schedulerRes.ok) {
+        const schedulerJson = (await schedulerRes.json()) as MemoryHealthSchedulerStatus
 
-      setMemoryHealthStatus((await res.json()) as MemoryHealthSchedulerStatus)
+        if (typeof schedulerJson.user_summary?.needs_review === "number") {
+          setMemoryHealthStatus({
+            ...schedulerJson,
+            health_source: "scheduler",
+          })
+          return
+        }
+      }
+
+      const liveRes = await fetch("/api/memory-review/quality", {
+        cache: "no-store",
+      })
+
+      if (!liveRes.ok) {
+        setMemoryHealthStatus(null)
+        return
+      }
+
+      const liveJson = (await liveRes.json()) as MemoryQualityPayload
+      setMemoryHealthStatus({
+        health_source: "live",
+        user_summary: {
+          needs_review: liveJson.summary.needs_review,
+          duplicate_groups: liveJson.summary.duplicate_groups,
+          conflict_groups: liveJson.summary.conflict_groups,
+          low_quality_memories: liveJson.summary.low_quality_memories,
+        },
+      })
     } catch {
       setMemoryHealthStatus(null)
     }
@@ -610,7 +639,7 @@ export default function MemoriesPage() {
 
           {schedulerReviewCount > 0 ? (
             <div className="mt-4 rounded-2xl border border-amber-200/70 bg-amber-50/80 p-4 text-sm leading-6 text-amber-900 shadow-sm shadow-amber-900/5 dark:border-amber-300/15 dark:bg-amber-300/10 dark:text-amber-100">
-              Memory health check found {schedulerReviewCount} memor
+              Memory review found {schedulerReviewCount} memor
               {schedulerReviewCount === 1 ? "y" : "ies"} that may need review.
               Open the Needs Review tab to inspect and resolve them.
             </div>
