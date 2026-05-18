@@ -23,6 +23,7 @@ from app.core.auth import get_current_user_id
 from app.services.embeddings import embed_document
 from app.services.supabase_client import get_supabase, safe_execute
 from app.services import memory_consolidation, memory_pin
+from app.services.memory_quality import assess_memory_quality
 
 
 router = APIRouter(prefix="/memory-review", tags=["memory_review"])
@@ -201,6 +202,22 @@ async def list_memory_review(
 
     rows = result.data or []
     return _build_review_payload(rows)
+
+
+@router.get("/quality")
+async def memory_quality(
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    result = await asyncio.to_thread(
+        lambda: safe_execute(
+            lambda sb: sb.table("memories")
+            .select("*")
+            .eq("user_id", user_id)
+            .execute()
+        )
+    )
+
+    return assess_memory_quality(result.data or [])
 
 
 @router.post("/{memory_id}/confirm", response_model=MemoryActionOut)
