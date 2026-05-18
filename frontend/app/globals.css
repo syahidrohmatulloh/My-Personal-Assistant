@@ -756,49 +756,49 @@ button[data-selected="true"]::after {
 /* App sidebar readable hover
    Scoped only to the sidebar container. It keeps light mode soft,
    and forces dark-mode sidebar hover text/icons to stay readable. */
-.app-sidebar a:not([class*="bg-accent"]):hover,
-.app-sidebar button:not([class*="bg-accent"]):hover {
+.app-sidebar a:not([class~="bg-accent"]):hover,
+.app-sidebar button:not([class~="bg-accent"]):hover {
   background-color: rgb(15 23 42 / 0.06) !important;
   color: inherit !important;
 }
 
-.app-sidebar a:not([class*="bg-accent"]):hover svg,
-.app-sidebar button:not([class*="bg-accent"]):hover svg,
-.app-sidebar a:not([class*="bg-accent"]):hover span,
-.app-sidebar button:not([class*="bg-accent"]):hover span {
+.app-sidebar a:not([class~="bg-accent"]):hover svg,
+.app-sidebar button:not([class~="bg-accent"]):hover svg,
+.app-sidebar a:not([class~="bg-accent"]):hover span,
+.app-sidebar button:not([class~="bg-accent"]):hover span {
   color: inherit !important;
 }
 
-.dark .app-sidebar a:not([class*="bg-accent"]):hover,
-.dark .app-sidebar button:not([class*="bg-accent"]):hover,
-[data-theme="dark"] .app-sidebar a:not([class*="bg-accent"]):hover,
-[data-theme="dark"] .app-sidebar button:not([class*="bg-accent"]):hover {
+.dark .app-sidebar a:not([class~="bg-accent"]):hover,
+.dark .app-sidebar button:not([class~="bg-accent"]):hover,
+[data-theme="dark"] .app-sidebar a:not([class~="bg-accent"]):hover,
+[data-theme="dark"] .app-sidebar button:not([class~="bg-accent"]):hover {
   background-color: rgb(255 255 255 / 0.16) !important;
   color: rgb(255 255 255) !important;
 }
 
-.dark .app-sidebar a:not([class*="bg-accent"]):hover svg,
-.dark .app-sidebar button:not([class*="bg-accent"]):hover svg,
-.dark .app-sidebar a:not([class*="bg-accent"]):hover span,
-.dark .app-sidebar button:not([class*="bg-accent"]):hover span,
-[data-theme="dark"] .app-sidebar a:not([class*="bg-accent"]):hover svg,
-[data-theme="dark"] .app-sidebar button:not([class*="bg-accent"]):hover svg,
-[data-theme="dark"] .app-sidebar a:not([class*="bg-accent"]):hover span,
-[data-theme="dark"] .app-sidebar button:not([class*="bg-accent"]):hover span {
+.dark .app-sidebar a:not([class~="bg-accent"]):hover svg,
+.dark .app-sidebar button:not([class~="bg-accent"]):hover svg,
+.dark .app-sidebar a:not([class~="bg-accent"]):hover span,
+.dark .app-sidebar button:not([class~="bg-accent"]):hover span,
+[data-theme="dark"] .app-sidebar a:not([class~="bg-accent"]):hover svg,
+[data-theme="dark"] .app-sidebar button:not([class~="bg-accent"]):hover svg,
+[data-theme="dark"] .app-sidebar a:not([class~="bg-accent"]):hover span,
+[data-theme="dark"] .app-sidebar button:not([class~="bg-accent"]):hover span {
   color: rgb(255 255 255) !important;
 }
 
 @media (prefers-color-scheme: dark) {
-  .app-sidebar a:not([class*="bg-accent"]):hover,
-  .app-sidebar button:not([class*="bg-accent"]):hover {
+  .app-sidebar a:not([class~="bg-accent"]):hover,
+  .app-sidebar button:not([class~="bg-accent"]):hover {
     background-color: rgb(255 255 255 / 0.16) !important;
     color: rgb(255 255 255) !important;
   }
 
-  .app-sidebar a:not([class*="bg-accent"]):hover svg,
-  .app-sidebar button:not([class*="bg-accent"]):hover svg,
-  .app-sidebar a:not([class*="bg-accent"]):hover span,
-  .app-sidebar button:not([class*="bg-accent"]):hover span {
+  .app-sidebar a:not([class~="bg-accent"]):hover svg,
+  .app-sidebar button:not([class~="bg-accent"]):hover svg,
+  .app-sidebar a:not([class~="bg-accent"]):hover span,
+  .app-sidebar button:not([class~="bg-accent"]):hover span {
     color: rgb(255 255 255) !important;
   }
 }
