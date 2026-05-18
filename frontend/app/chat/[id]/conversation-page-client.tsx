@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowRight, Sunrise, X } from "lucide-react";
+import { ArrowDown } from "lucide-react";
 
 import { Composer } from "@/components/chat/composer";
 import { TypingIndicator } from "@/components/chat/typing-indicator";
@@ -14,11 +13,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   getIdentity,
   getMainConversation,
-  getTodayBriefing,
-  openBriefing,
   listMessages,
   streamChat,
-  type Briefing,
   type ChatStreamMeta,
   type Identity,
   type Conversation,
@@ -62,86 +58,6 @@ function scrollContainerToBottom(el: HTMLDivElement | null, smooth = false) {
   }
 }
 
-function BriefingDock({
-  briefing,
-  expanded,
-  onToggle,
-  onDiscuss,
-  onDismiss,
-}: {
-  briefing: Briefing
-  expanded: boolean
-  onToggle: () => void
-  onDiscuss: () => void
-  onDismiss: () => void
-}) {
-  return (
-    <section className="shrink-0 border-t border-border bg-bg/50 px-3 py-1.5 backdrop-blur-xl sm:px-6">
-      <div className="mx-auto max-w-3xl rounded-xl border border-border bg-fg/[0.025] p-2.5 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <button
-            onClick={onToggle}
-            className="min-w-0 flex-1 text-left"
-          >
-            <div className="flex items-center gap-2 text-fg">
-              <Sunrise className="h-4 w-4 shrink-0 text-fg-muted" />
-              <span className="truncate text-sm font-medium">
-                Today&apos;s briefing is ready
-              </span>
-            </div>
-            {expanded ? (
-              <p className="mt-0.5 text-xs text-fg-muted">
-                View it here without adding it to your chat history.
-              </p>
-            ) : null}
-          </button>
-
-          <div className="flex shrink-0 items-center gap-1.5">
-            <button
-              onClick={onToggle}
-              className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg"
-            >
-              {expanded ? "Hide" : "View"}
-            </button>
-            <button
-              onClick={onDismiss}
-              className="rounded-full p-1.5 text-fg-subtle transition hover:bg-fg/5 hover:text-fg"
-              aria-label="Dismiss briefing"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-
-        {expanded ? (
-          <div className="mt-3 border-t border-border pt-3">
-            <p className="whitespace-pre-wrap text-sm leading-6 text-fg">
-              {briefing.content}
-            </p>
-
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-              <button
-                onClick={onDiscuss}
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-medium text-on-accent transition hover:bg-accent-hover"
-              >
-                Discuss briefing
-                <ArrowRight className="h-4 w-4" />
-              </button>
-
-              <Link
-                href="/memories"
-                className="inline-flex items-center justify-center rounded-full border border-border px-4 py-2 text-sm font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg"
-              >
-                Open Memories Review
-              </Link>
-            </div>
-          </div>
-        ) : null}
-      </div>
-    </section>
-  )
-}
-
 export function ConversationPageClient({ conversationId }: { conversationId: string }) {
   const qc = useQueryClient();
 
@@ -168,7 +84,7 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
       ? identity.profile.assistant_name.trim()
       : "Aliyya");
 
-  const { data: mainChat, isLoading: mainChatLoading } = useQuery({
+  const { data: mainChat } = useQuery({
     queryKey: ["conversations", "main"],
     queryFn: getMainConversation,
     staleTime: 60_000,
@@ -176,31 +92,6 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
   });
 
   const isMainChat = mainChat?.id === conversationId;
-
-  const {
-    data: briefing,
-    isLoading: briefingLoading,
-    isFetching: briefingFetching,
-  } = useQuery({
-    queryKey: ["briefing", "today"],
-    queryFn: getTodayBriefing,
-    staleTime: 60_000,
-    retry: false,
-    enabled: isMainChat,
-  });
-
-
-const [briefingDismissed, setBriefingDismissed] = useState(false);
-  const [briefingPanelOpen, setBriefingPanelOpen] = useState(false);
-  const [briefingDismissalLoaded, setBriefingDismissalLoaded] = useState(false);
-
-  const briefingDockReady =
-    isMainChat &&
-    !loading &&
-    !mainChatLoading &&
-    !briefingLoading &&
-    !briefingFetching &&
-    briefingDismissalLoaded;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -269,22 +160,6 @@ const [briefingDismissed, setBriefingDismissed] = useState(false);
     }
   }, [conversationId]);
 
-  useEffect(() => {
-    if (!briefing) {
-      setBriefingDismissed(false);
-      setBriefingPanelOpen(false);
-      setBriefingDismissalLoaded(true);
-      return;
-    }
-
-    const dismissed =
-      typeof window !== "undefined" &&
-      window.localStorage.getItem(briefingDismissKey(briefing)) === "true";
-
-    setBriefingDismissed(dismissed);
-    setBriefingPanelOpen(false);
-    setBriefingDismissalLoaded(true);
-  }, [briefing?.id]);
 
   // Load messages, then scroll the container to bottom on next frame.
   useEffect(() => {
@@ -341,31 +216,7 @@ const [briefingDismissed, setBriefingDismissed] = useState(false);
     setShowJumpBtn(false);
   }
 
-  function briefingDismissKey(briefing: Briefing) {
-    return `assistant.briefing.dismissed.${briefing.id}`;
-  }
-
-  function dismissBriefing(briefing: Briefing) {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(briefingDismissKey(briefing), "true");
-    }
-
-    setBriefingDismissed(true);
-    setBriefingPanelOpen(false);
-  }
-
-  async function prepareBriefingDiscussion(briefing: Briefing) {
-    try {
-      await openBriefing(briefing.id)
-    } catch (err) {
-      console.error(err)
-    }
-
-    setInput("Let's discuss today's briefing.")
-    dismissBriefing(briefing)
-  }
-
-  const handleSend = useCallback(
+const handleSend = useCallback(
     async (attachmentIds: string[] = []) => {
       const text = input.trim();
       if (shouldDeferCompanionMoodToAssistant(text)) {
@@ -539,17 +390,7 @@ const [briefingDismissed, setBriefingDismissed] = useState(false);
         </button>
       )}
 
-{briefingDockReady && briefing && !briefingDismissed ? (
-        <BriefingDock
-          briefing={briefing}
-          expanded={briefingPanelOpen}
-          onToggle={() => setBriefingPanelOpen((value) => !value)}
-          onDiscuss={() => void prepareBriefingDiscussion(briefing)}
-          onDismiss={() => dismissBriefing(briefing)}
-        />
-      ) : null}
-
-      <TypingIndicator visible={sending} assistantName={assistantName} />
+<TypingIndicator visible={sending} assistantName={assistantName} />
 
       <Composer
         value={input}
