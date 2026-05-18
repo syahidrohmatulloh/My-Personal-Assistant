@@ -702,25 +702,30 @@ function NewChatStyleDropdown({
         onClick={() => setOpen((v) => !v)}
         disabled={disabled}
         className="h-full px-2.5 rounded-xl bg-accent text-on-accent hover:bg-accent-hover transition-all active:scale-[0.98] disabled:opacity-60"
-        aria-label="New chat with style"
-        title="New chat with style"
+        aria-label="Choose chat style"
+        title="Choose chat style"
       >
         <ChevronDown className="h-4 w-4" strokeWidth={2.5} />
       </button>
       {open && (
         <div
-          className="absolute left-0 right-0 top-12 z-30 min-w-[200px] glass-strong rounded-xl shadow-lg shadow-black/20 border border-border py-1 overflow-hidden fade-up"
+          className="absolute right-0 top-12 z-30 w-[min(15rem,calc(100vw-3rem))] max-h-80 overflow-y-auto rounded-2xl border border-slate-200/70 bg-white/95 py-2 shadow-2xl shadow-slate-900/15 backdrop-blur-xl fade-up dark:border-white/10 dark:bg-zinc-950/90 dark:shadow-black/30"
           role="menu"
         >
-          <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
-            Start with style
-          </p>
+          <div className="px-3 pb-2 pt-1">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-300/80">
+              Choose chat style
+            </p>
+            <p className="mt-1 text-[11px] leading-4 text-slate-500 dark:text-zinc-400">
+              Start a new chat with a style profile.
+            </p>
+          </div>
           <button
             onClick={() => {
               onPick(null);
               setOpen(false);
             }}
-            className="w-full text-left px-3 py-1.5 text-xs text-fg-soft hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08] hover:text-slate-950 dark:hover:text-white transition-colors"
+            className="w-full px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-900/[0.06] hover:text-slate-950 dark:text-zinc-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
           >
             Default
           </button>
@@ -731,7 +736,7 @@ function NewChatStyleDropdown({
                 onPick(p.id);
                 setOpen(false);
               }}
-              className="w-full text-left px-3 py-1.5 text-xs text-fg-soft hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08] hover:text-slate-950 dark:hover:text-white transition-colors truncate"
+              className="w-full truncate px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-900/[0.06] hover:text-slate-950 dark:text-zinc-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
             >
               {p.profile_name}
             </button>
