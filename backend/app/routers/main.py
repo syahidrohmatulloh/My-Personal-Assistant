@@ -14,6 +14,7 @@ from app.routers import (
     journal,
     life_model,
     memories,
+    memory_review,
     reflections,
     style_profiles,
 )
@@ -39,6 +40,7 @@ app.include_router(companion.router)
 app.include_router(companion_mood.router)
 app.include_router(conversations.router)
 app.include_router(memories.router)
+app.include_router(memory_review.router)
 app.include_router(life_model.router)
 app.include_router(journal.router)
 app.include_router(briefing.router)
