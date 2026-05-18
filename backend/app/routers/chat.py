@@ -45,6 +45,7 @@ from app.services import (
     life_model,
     memory,
     memory_intelligence,
+    mood_memory_feedback,
     user_mood,
 )
 from app.services.user_mood_prompt import render_user_mood_block
@@ -636,6 +637,7 @@ async def chat(
             is_first_message=is_first_message,
             detected_mode=detected_mode,
             assistant_name=assistant_name,
+            user_mood_context=user_mood_ctx,
         ),
         media_type="text/event-stream",
         headers={
@@ -658,6 +660,7 @@ async def _stream_claude_response(
     is_first_message: bool,
     detected_mode: str | None = None,
     assistant_name: str = "Assistant",
+    user_mood_context=None,
 ) -> AsyncIterator[str]:
     claude = get_claude()
     supabase = get_supabase()
@@ -738,6 +741,17 @@ async def _stream_claude_response(
             {"role": "assistant", "content": assistant_text},
         ],
     )
+
+    # Background mood-memory feedback — conservative behavioral preferences.
+    # Uses USER mood context only. Does not touch companion mood/state.
+    background_tasks.add_task(
+        mood_memory_feedback.extract_and_persist,
+        user_id=user_id,
+        user_message=user_message,
+        assistant_response=assistant_text,
+        user_mood_context=user_mood_context,
+    )
+
 
     # Background conversation-summary update. Idempotent — only runs Haiku
     # if the conversation has grown ≥N messages since last summarize.
