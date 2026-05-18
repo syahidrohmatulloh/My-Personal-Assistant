@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -166,8 +167,9 @@ def build_relationship_memory_candidates(
             )
         )
 
-    if _contains_any(text, UI_TASTE_TERMS) and (
-        "ui" in text or "vibes" in text or "mobile" in text or "sidebar" in text
+    if _contains_any(text, UI_TASTE_TERMS) and _contains_any(
+        text,
+        ("ui", "ux", "vibes", "mobile", "sidebar", "theme", "contrast", "kontras"),
     ):
         candidates.append(
             RelationshipMemoryCandidate(
@@ -275,7 +277,25 @@ async def _upsert_candidate(
 
 
 def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
-    return any(term in text for term in terms)
+    """Match terms safely.
+
+    Short terms like "ui" and "ux" must match as whole words only.
+    Otherwise words like "quiet" can accidentally match "ui".
+    """
+    for term in terms:
+        normalized = str(term or "").lower().strip()
+        if not normalized:
+            continue
+
+        if len(normalized) <= 3 and normalized.isalnum():
+            if re.search(rf"(?<![a-z0-9]){re.escape(normalized)}(?![a-z0-9])", text):
+                return True
+            continue
+
+        if normalized in text:
+            return True
+
+    return False
 
 
 def _norm(text: str) -> str:
