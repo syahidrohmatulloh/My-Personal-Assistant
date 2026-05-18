@@ -5,6 +5,7 @@ import type { ReactNode } from "react"
 import Link from "next/link"
 import {
   Archive,
+  AlertTriangle,
   Brain,
   CheckCircle2,
   ChevronDown,
@@ -49,6 +50,26 @@ type MemoryReviewPayload = {
     archived: number
     total: number
   }
+}
+
+type MemoryQualityReviewItem = {
+  issue_type: "duplicate" | "conflict" | "low_quality" | string
+  severity: "low" | "medium" | "high" | string
+  memory_ids: string[]
+  title: string
+  explanation: string
+  suggested_action: string
+}
+
+type MemoryQualityPayload = {
+  summary: {
+    active_memories: number
+    duplicate_groups: number
+    conflict_groups: number
+    low_quality_memories: number
+    needs_review: number
+  }
+  review_items: MemoryQualityReviewItem[]
 }
 
 type EditState = {
@@ -131,11 +152,12 @@ const GROUP_ORDER = [
 
 export default function MemoriesPage() {
   const [data, setData] = useState<MemoryReviewPayload | null>(null)
+  const [quality, setQuality] = useState<MemoryQualityPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<string | null>(null)
   const [consolidating, setConsolidating] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState<"active" | "archived">("active")
+  const [tab, setTab] = useState<"active" | "archived" | "review">("active")
   const [query, setQuery] = useState("")
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
   const [edit, setEdit] = useState<EditState | null>(null)
@@ -175,10 +197,25 @@ export default function MemoriesPage() {
         }
       }
       setOpenGroups((prev) => ({ ...nextOpen, ...prev }))
+      await loadQuality()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load memories")
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadQuality() {
+    try {
+      const res = await fetch("/api/memory-review/quality", {
+        cache: "no-store",
+      })
+
+      if (!res.ok) return
+
+      setQuality((await res.json()) as MemoryQualityPayload)
+    } catch {
+      setQuality(null)
     }
   }
 
@@ -197,7 +234,7 @@ export default function MemoriesPage() {
     void loadPinStatus()
   }, [])
 
-  const currentGroups = data?.[tab] || {}
+  const currentGroups = tab === "review" ? {} : data?.[tab] || {}
 
   const filteredGroups = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -387,6 +424,7 @@ export default function MemoriesPage() {
 
   const activeCount = data?.counts?.active ?? 0
   const archivedCount = data?.counts?.archived ?? 0
+  const reviewCount = quality?.summary?.needs_review ?? 0
 
   return (
     <main className="min-h-screen px-4 py-6 text-slate-950 dark:text-slate-900 dark:text-zinc-100 sm:px-6 lg:px-8">
@@ -470,9 +508,10 @@ export default function MemoriesPage() {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          <div className="mt-6 grid gap-3 sm:grid-cols-4">
             <StatCard label="Active" value={activeCount} />
             <StatCard label="Archived" value={archivedCount} />
+            <StatCard label="Needs Review" value={reviewCount} />
             <StatCard label="Total" value={data?.counts?.total ?? 0} />
           </div>
         </header>
@@ -488,6 +527,11 @@ export default function MemoriesPage() {
               active={tab === "archived"}
               onClick={() => setTab("archived")}
               label={`Archived (${archivedCount})`}
+            />
+            <TabButton
+              active={tab === "review"}
+              onClick={() => setTab("review")}
+              label={`Needs Review (${reviewCount})`}
             />
           </div>
 
@@ -508,7 +552,9 @@ export default function MemoriesPage() {
           </div>
         ) : null}
 
-        {loading ? (
+        {tab === "review" ? (
+          <MemoryQualityPanel quality={quality} loading={loading} />
+        ) : loading ? (
           <LoadingState />
         ) : Object.keys(filteredGroups).length === 0 ? (
           <EmptyState tab={tab} query={query} />
@@ -700,6 +746,106 @@ function TabButton({
   )
 }
 
+function MemoryQualityPanel({
+  quality,
+  loading,
+}: {
+  quality: MemoryQualityPayload | null
+  loading: boolean
+}) {
+  if (loading) return <LoadingState />
+
+  const items = quality?.review_items || []
+
+  if (!quality || items.length === 0) {
+    return (
+      <div className="rounded-[1.5rem] border border-emerald-200/70 bg-emerald-50/70 p-8 text-center shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-emerald-300/15 dark:bg-emerald-300/10">
+        <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-600 dark:text-emerald-300" />
+        <h2 className="mt-3 text-lg font-semibold text-slate-950 dark:text-white">
+          No memory issues found
+        </h2>
+        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600 dark:text-zinc-300">
+          Aliyya did not find obvious duplicates, conflicts, or unclear memories.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <section className="space-y-4">
+      <div className="grid gap-3 md:grid-cols-3">
+        <StatCard label="Possible Duplicates" value={quality.summary.duplicate_groups} />
+        <StatCard label="Possible Conflicts" value={quality.summary.conflict_groups} />
+        <StatCard label="Needs More Detail" value={quality.summary.low_quality_memories} />
+      </div>
+
+      <div className="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white/70 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035]">
+        <div className="border-b border-slate-200/70 p-5 dark:border-white/10">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl bg-amber-400/15 p-2 text-amber-700 dark:text-amber-300">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
+                Memories that may need review
+              </h2>
+              <p className="text-sm text-slate-500 dark:text-zinc-400">
+                These are read-only suggestions. Use Edit, Forget, or Restore from the Active/Archived tabs.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 p-4">
+          {items.map((item, index) => (
+            <MemoryQualityIssueCard key={`${item.issue_type}-${index}`} item={item} />
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function MemoryQualityIssueCard({ item }: { item: MemoryQualityReviewItem }) {
+  const severityClass =
+    item.severity === "high"
+      ? "border-red-200 bg-red-50 text-red-700 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-200"
+      : item.severity === "medium"
+        ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-200"
+        : "border-slate-200 bg-slate-50 text-slate-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200"
+
+  return (
+    <article className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-black/20">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${severityClass}`}>
+              {humanizeLabel(item.severity)}
+            </span>
+            <span className="rounded-full border border-slate-200/70 px-2.5 py-1 text-xs text-slate-500 dark:border-white/10 dark:text-zinc-400">
+              {humanizeLabel(item.issue_type)}
+            </span>
+          </div>
+
+          <h3 className="mt-3 text-base font-semibold text-slate-950 dark:text-white">
+            {item.title}
+          </h3>
+          <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-300">
+            {item.explanation}
+          </p>
+          <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-zinc-400">
+            Suggested action: {item.suggested_action}
+          </p>
+        </div>
+
+        <div className="rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-white/[0.06] dark:text-zinc-400">
+          {item.memory_ids.length} memor{item.memory_ids.length === 1 ? "y" : "ies"}
+        </div>
+      </div>
+    </article>
+  )
+}
+
 function formatDate(value?: string | null) {
   if (!value) return "—"
 
@@ -725,7 +871,7 @@ function MemoryCard({
   onEdit,
 }: {
   memory: MemoryItem
-  tab: "active" | "archived"
+  tab: "active" | "archived" | "review"
   saving: boolean
   onConfirm: () => void
   onForget: () => void
