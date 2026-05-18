@@ -200,7 +200,7 @@ export function Sidebar() {
         </span>
         <button
           onClick={() => setOpen(false)}
-          className="ml-auto md:hidden h-9 w-9 grid place-items-center rounded-lg text-fg-muted hover:bg-fg/5"
+          className="ml-auto md:hidden h-9 w-9 grid place-items-center rounded-lg text-fg-muted hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08]"
           aria-label="Close menu"
         >
           <X className="h-5 w-5" />
@@ -290,7 +290,7 @@ export function Sidebar() {
         <NavLink href="/settings" icon={<Settings className="h-4 w-4" />} label="Settings" />
         <button
           onClick={handleSignOut}
-          className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-fg-soft active:bg-fg/10 md:hover:bg-fg/5 hover:text-fg transition-colors"
+          className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-fg-soft active:bg-fg/10 md:hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08] hover:text-slate-950 dark:hover:text-white transition-colors"
         >
           <LogOut className="h-4 w-4 text-fg-muted" />
           Sign out
@@ -468,7 +468,7 @@ function ConversationRow({
           "group flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm mb-0.5 transition-all",
           active
             ? "bg-accent-soft text-fg font-medium"
-            : "text-fg-soft active:bg-fg/10 md:hover:bg-fg/5",
+            : "text-fg-soft active:bg-fg/10 md:hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08]",
         )}
       >
         <span className="truncate flex-1 min-w-0">
@@ -483,7 +483,7 @@ function ConversationRow({
             e.stopPropagation();
             setMenuOpen((v) => !v);
           }}
-          className="opacity-100 md:opacity-0 md:group-hover:opacity-100 h-7 w-7 grid place-items-center text-fg-subtle hover:text-fg transition-opacity"
+          className="opacity-100 md:opacity-0 md:group-hover:opacity-100 h-7 w-7 grid place-items-center text-fg-subtle hover:text-slate-950 dark:hover:text-white transition-opacity"
           aria-label="Conversation options"
         >
           <MoreHorizontal className="h-3.5 w-3.5" />
@@ -579,8 +579,8 @@ function ContextMenu({
           className={cn(
             "w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors",
             item.danger
-              ? "text-fg-soft hover:bg-danger-soft hover:text-danger"
-              : "text-fg-soft hover:bg-fg/5 hover:text-fg",
+              ? "text-fg-soft hover:bg-danger-soft hover:text-red-700 dark:hover:text-red-300"
+              : "text-fg-soft hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08] hover:text-slate-950 dark:hover:text-white",
           )}
         >
           <span className="text-fg-muted">{item.icon}</span>
@@ -659,7 +659,7 @@ function StyleOption({
       onClick={onClick}
       className={cn(
         "w-full flex items-center justify-between gap-2 px-3 py-1.5 text-xs text-left transition-colors truncate",
-        active ? "bg-accent-soft text-fg font-medium" : "text-fg-soft hover:bg-fg/5 hover:text-fg",
+        active ? "bg-accent-soft text-fg font-medium" : "text-fg-soft hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08] hover:text-slate-950 dark:hover:text-white",
       )}
     >
       <span className="truncate">{label}</span>
@@ -720,7 +720,7 @@ function NewChatStyleDropdown({
               onPick(null);
               setOpen(false);
             }}
-            className="w-full text-left px-3 py-1.5 text-xs text-fg-soft hover:bg-fg/5 hover:text-fg transition-colors"
+            className="w-full text-left px-3 py-1.5 text-xs text-fg-soft hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08] hover:text-slate-950 dark:hover:text-white transition-colors"
           >
             Default
           </button>
@@ -731,7 +731,7 @@ function NewChatStyleDropdown({
                 onPick(p.id);
                 setOpen(false);
               }}
-              className="w-full text-left px-3 py-1.5 text-xs text-fg-soft hover:bg-fg/5 hover:text-fg transition-colors truncate"
+              className="w-full text-left px-3 py-1.5 text-xs text-fg-soft hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08] hover:text-slate-950 dark:hover:text-white transition-colors truncate"
             >
               {p.profile_name}
             </button>
@@ -756,7 +756,7 @@ function NavLink({
   return (
     <Link
       href={href}
-      className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-fg-soft active:bg-fg/10 md:hover:bg-fg/5 hover:text-fg transition-colors"
+      className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-fg-soft active:bg-fg/10 md:hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08] hover:text-slate-950 dark:hover:text-white transition-colors"
     >
       <span className="text-fg-muted">{icon}</span>
       <span className="flex-1">{label}</span>
