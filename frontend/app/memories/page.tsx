@@ -422,6 +422,46 @@ export default function MemoriesPage() {
     }
   }
 
+  async function resolveQualityIssue({
+    actionName,
+    keepMemoryId,
+    archiveMemoryIds,
+    pin,
+  }: {
+    actionName: "keep_one_archive_rest" | "archive_memory"
+    keepMemoryId?: string | null
+    archiveMemoryIds: string[]
+    pin: string
+  }) {
+    setSavingId("quality-resolve")
+    setError(null)
+
+    try {
+      const res = await fetch("/api/memory-review/quality/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: actionName,
+          keep_memory_id: keepMemoryId || null,
+          archive_memory_ids: archiveMemoryIds,
+          pin,
+        }),
+      })
+
+      if (!res.ok) {
+        const detail = await safeDetail(res)
+        throw new Error(detail || "Failed to resolve memory issue")
+      }
+
+      await load()
+      await loadQuality()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resolve memory issue")
+    } finally {
+      setSavingId(null)
+    }
+  }
+
   const activeCount = data?.counts?.active ?? 0
   const archivedCount = data?.counts?.archived ?? 0
   const reviewCount = quality?.summary?.needs_review ?? 0
@@ -553,7 +593,20 @@ export default function MemoriesPage() {
         ) : null}
 
         {tab === "review" ? (
-          <MemoryQualityPanel quality={quality} loading={loading} />
+          <MemoryQualityPanel
+            quality={quality}
+            loading={loading}
+            saving={savingId === "quality-resolve"}
+            onResolve={(params) =>
+              requireMemoryPin(
+                "Resolve memory issue",
+                "Enter your 6-digit Memory PIN before changing memory status.",
+                async (pin) => {
+                  await resolveQualityIssue({ ...params, pin })
+                },
+              )
+            }
+          />
         ) : loading ? (
           <LoadingState />
         ) : Object.keys(filteredGroups).length === 0 ? (
@@ -749,9 +802,17 @@ function TabButton({
 function MemoryQualityPanel({
   quality,
   loading,
+  saving,
+  onResolve,
 }: {
   quality: MemoryQualityPayload | null
   loading: boolean
+  saving: boolean
+  onResolve: (params: {
+    actionName: "keep_one_archive_rest" | "archive_memory"
+    keepMemoryId?: string | null
+    archiveMemoryIds: string[]
+  }) => void
 }) {
   if (loading) return <LoadingState />
 
@@ -798,7 +859,12 @@ function MemoryQualityPanel({
 
         <div className="grid gap-3 p-4">
           {items.map((item, index) => (
-            <MemoryQualityIssueCard key={`${item.issue_type}-${index}`} item={item} />
+            <MemoryQualityIssueCard
+              key={`${item.issue_type}-${index}`}
+              item={item}
+              saving={saving}
+              onResolve={onResolve}
+            />
           ))}
         </div>
       </div>
@@ -806,7 +872,19 @@ function MemoryQualityPanel({
   )
 }
 
-function MemoryQualityIssueCard({ item }: { item: MemoryQualityReviewItem }) {
+function MemoryQualityIssueCard({
+  item,
+  saving,
+  onResolve,
+}: {
+  item: MemoryQualityReviewItem
+  saving: boolean
+  onResolve: (params: {
+    actionName: "keep_one_archive_rest" | "archive_memory"
+    keepMemoryId?: string | null
+    archiveMemoryIds: string[]
+  }) => void
+}) {
   const severityClass =
     item.severity === "high"
       ? "border-red-200 bg-red-50 text-red-700 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-200"
@@ -814,10 +892,18 @@ function MemoryQualityIssueCard({ item }: { item: MemoryQualityReviewItem }) {
         ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-200"
         : "border-slate-200 bg-slate-50 text-slate-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200"
 
+  const canKeepOne =
+    (item.issue_type === "duplicate" || item.issue_type === "conflict") &&
+    item.memory_ids.length > 1
+
+  const canArchiveSingle =
+    item.issue_type === "low_quality" &&
+    item.memory_ids.length === 1
+
   return (
     <article className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-black/20">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${severityClass}`}>
               {humanizeLabel(item.severity)}
@@ -836,15 +922,56 @@ function MemoryQualityIssueCard({ item }: { item: MemoryQualityReviewItem }) {
           <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-zinc-400">
             Suggested action: {item.suggested_action}
           </p>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {canKeepOne
+              ? item.memory_ids.map((memoryId, index) => {
+                  const archiveMemoryIds = item.memory_ids.filter((id) => id !== memoryId)
+
+                  return (
+                    <button
+                      key={memoryId}
+                      onClick={() =>
+                        onResolve({
+                          actionName: "keep_one_archive_rest",
+                          keepMemoryId: memoryId,
+                          archiveMemoryIds,
+                        })
+                      }
+                      disabled={saving}
+                      className="rounded-full border border-slate-200/70 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-white/10"
+                    >
+                      Keep memory {index + 1}, archive others
+                    </button>
+                  )
+                })
+              : null}
+
+            {canArchiveSingle ? (
+              <button
+                onClick={() =>
+                  onResolve({
+                    actionName: "archive_memory",
+                    archiveMemoryIds: item.memory_ids,
+                  })
+                }
+                disabled={saving}
+                className="rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/20"
+              >
+                Archive this memory
+              </button>
+            ) : null}
+          </div>
         </div>
 
-        <div className="rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-white/[0.06] dark:text-zinc-400">
+        <div className="shrink-0 rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-white/[0.06] dark:text-zinc-400">
           {item.memory_ids.length} memor{item.memory_ids.length === 1 ? "y" : "ies"}
         </div>
       </div>
     </article>
   )
 }
+
 
 function formatDate(value?: string | null) {
   if (!value) return "—"

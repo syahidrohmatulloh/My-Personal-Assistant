@@ -24,6 +24,7 @@ from app.services.embeddings import embed_document
 from app.services.supabase_client import get_supabase, safe_execute
 from app.services import memory_consolidation, memory_pin
 from app.services.memory_quality import assess_memory_quality
+from app.services.memory_quality_resolve import build_quality_resolve_plan
 
 
 router = APIRouter(prefix="/memory-review", tags=["memory_review"])
@@ -52,6 +53,15 @@ GROUP_ORDER = [
     "Behavioral Patterns",
     "Other",
 ]
+
+
+
+class MemoryQualityResolveIn(BaseModel):
+    action: Literal["keep_one_archive_rest", "archive_memory"]
+    keep_memory_id: str | None = None
+    archive_memory_ids: list[str] = Field(default_factory=list)
+    issue_type: str | None = None
+    pin: str = Field(min_length=6, max_length=6)
 
 
 class MemoryEditIn(BaseModel):
@@ -218,6 +228,91 @@ async def memory_quality(
     )
 
     return assess_memory_quality(result.data or [])
+
+
+@router.post("/quality/resolve")
+async def resolve_memory_quality(
+    body: MemoryQualityResolveIn,
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
+
+    try:
+        plan = build_quality_resolve_plan(
+            action=body.action,
+            keep_memory_id=body.keep_memory_id,
+            archive_memory_ids=body.archive_memory_ids,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    existing = await asyncio.to_thread(
+        lambda: safe_execute(
+            lambda sb: sb.table("memories")
+            .select("id,user_id,content,archived,superseded")
+            .eq("user_id", user_id)
+            .in_("id", plan.all_memory_ids)
+            .execute()
+        )
+    )
+
+    found_ids = {str(row.get("id")) for row in (existing.data or [])}
+    missing_ids = [memory_id for memory_id in plan.all_memory_ids if memory_id not in found_ids]
+    if missing_ids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Memory not found or not owned by user: {', '.join(missing_ids)}",
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+    archive_reason = (
+        "quality_resolve_archive"
+        if plan.action == "archive_memory"
+        else "quality_resolve_keep_one_archive_rest"
+    )
+
+    for memory_id in plan.archive_memory_ids:
+        await asyncio.to_thread(
+            lambda memory_id=memory_id: safe_execute(
+                lambda sb: sb.table("memories")
+                .update(
+                    {
+                        "archived": True,
+                        "archived_by": archive_reason,
+                        "archived_at": now,
+                        "updated_at": now,
+                    }
+                )
+                .eq("user_id", user_id)
+                .eq("id", memory_id)
+                .execute()
+            )
+        )
+
+    if plan.keep_memory_id:
+        await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("memories")
+                .update(
+                    {
+                        "archived": False,
+                        "last_confirmed_at": now,
+                        "updated_at": now,
+                    }
+                )
+                .eq("user_id", user_id)
+                .eq("id", plan.keep_memory_id)
+                .execute()
+            )
+        )
+
+    return {
+        "ok": True,
+        "action": plan.action,
+        "kept_memory_id": plan.keep_memory_id,
+        "archived_memory_ids": plan.archive_memory_ids,
+        "archived": len(plan.archive_memory_ids),
+    }
 
 
 @router.post("/{memory_id}/confirm", response_model=MemoryActionOut)
