@@ -290,7 +290,7 @@ export function Sidebar() {
         <NavLink href="/settings" icon={<Settings className="h-4 w-4" />} label="Settings" />
         <button
           onClick={handleSignOut}
-          className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-fg-soft active:bg-fg/10 md:hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08] hover:text-slate-950 dark:hover:text-white transition-colors"
+          className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-fg-soft active:bg-fg/10 md:hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08] transition-colors"
         >
           <LogOut className="h-4 w-4 text-fg-muted" />
           Sign out
@@ -483,7 +483,7 @@ function ConversationRow({
             e.stopPropagation();
             setMenuOpen((v) => !v);
           }}
-          className="opacity-100 md:opacity-0 md:group-hover:opacity-100 h-7 w-7 grid place-items-center text-fg-subtle hover:text-slate-950 dark:hover:text-white transition-opacity"
+          className="opacity-100 md:opacity-0 md:group-hover:opacity-100 h-7 w-7 grid place-items-center text-fg-subtle transition-opacity"
           aria-label="Conversation options"
         >
           <MoreHorizontal className="h-3.5 w-3.5" />
@@ -580,7 +580,7 @@ function ContextMenu({
             "w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors",
             item.danger
               ? "text-fg-soft hover:bg-danger-soft hover:text-red-700 dark:hover:text-red-300"
-              : "text-fg-soft hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08] hover:text-slate-950 dark:hover:text-white",
+              : "text-fg-soft hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08]",
           )}
         >
           <span className="text-fg-muted">{item.icon}</span>
@@ -659,7 +659,7 @@ function StyleOption({
       onClick={onClick}
       className={cn(
         "w-full flex items-center justify-between gap-2 px-3 py-1.5 text-xs text-left transition-colors truncate",
-        active ? "bg-accent-soft text-fg font-medium" : "text-fg-soft hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08] hover:text-slate-950 dark:hover:text-white",
+        active ? "bg-accent-soft text-fg font-medium" : "text-fg-soft hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08]",
       )}
     >
       <span className="truncate">{label}</span>
@@ -725,7 +725,7 @@ function NewChatStyleDropdown({
               onPick(null);
               setOpen(false);
             }}
-            className="w-full px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-900/[0.06] hover:text-slate-950 dark:text-zinc-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
+            className="w-full px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-900/[0.06] dark:text-zinc-300 dark:hover:bg-white/[0.08]"
           >
             Default
           </button>
@@ -736,7 +736,7 @@ function NewChatStyleDropdown({
                 onPick(p.id);
                 setOpen(false);
               }}
-              className="w-full truncate px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-900/[0.06] hover:text-slate-950 dark:text-zinc-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
+              className="w-full truncate px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-900/[0.06] dark:text-zinc-300 dark:hover:bg-white/[0.08]"
             >
               {p.profile_name}
             </button>
@@ -761,7 +761,7 @@ function NavLink({
   return (
     <Link
       href={href}
-      className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-fg-soft active:bg-fg/10 md:hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08] hover:text-slate-950 dark:hover:text-white transition-colors"
+      className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-fg-soft active:bg-fg/10 md:hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.08] transition-colors"
     >
       <span className="text-fg-muted">{icon}</span>
       <span className="flex-1">{label}</span>
