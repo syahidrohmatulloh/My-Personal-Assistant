@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 const EFFECT_KEY = "assistant.background.effect";
 const STYLE_KEY = "assistant.background.style";
@@ -21,8 +21,6 @@ function lerp(current: number, target: number, factor: number) {
 }
 
 export function CursorReactiveGlow() {
-  const [enabled, setEnabled] = useState(false);
-
   useEffect(() => {
     const root = document.documentElement;
 
@@ -37,9 +35,8 @@ export function CursorReactiveGlow() {
     };
 
     const syncEnabled = () => {
-      const nextEnabled = shouldEnableNeonParallax();
-      setEnabled(nextEnabled);
-      root.dataset.ambientNeonParallax = nextEnabled ? "true" : "false";
+      const enabled = shouldEnableNeonParallax();
+      root.dataset.ambientNeonParallax = enabled ? "true" : "false";
     };
 
     const updateTargets = (clientX: number, clientY: number) => {
@@ -59,17 +56,20 @@ export function CursorReactiveGlow() {
     const tick = () => {
       if (!running) return;
 
-      pointer.currentX = lerp(pointer.currentX, pointer.targetX, 0.075);
-      pointer.currentY = lerp(pointer.currentY, pointer.targetY, 0.075);
+      pointer.currentX = lerp(pointer.currentX, pointer.targetX, 0.09);
+      pointer.currentY = lerp(pointer.currentY, pointer.targetY, 0.09);
 
-      const orbitalX = pointer.currentX * 34;
-      const orbitalY = pointer.currentY * 26;
+      const orbitalX = pointer.currentX * 72;
+      const orbitalY = pointer.currentY * 56;
 
-      const orbitalFarX = pointer.currentX * -18;
-      const orbitalFarY = pointer.currentY * -14;
+      const orbitalFarX = pointer.currentX * 34;
+      const orbitalFarY = pointer.currentY * 24;
 
-      const fluidX = pointer.currentX * 10;
-      const fluidY = pointer.currentY * 8;
+      const fluidX = pointer.currentX * 6;
+      const fluidY = pointer.currentY * 4;
+
+      const tiltX = pointer.currentY * -4;
+      const tiltY = pointer.currentX * 5;
 
       root.style.setProperty("--ambient-orbital-x", `${orbitalX}px`);
       root.style.setProperty("--ambient-orbital-y", `${orbitalY}px`);
@@ -77,6 +77,8 @@ export function CursorReactiveGlow() {
       root.style.setProperty("--ambient-orbital-far-y", `${orbitalFarY}px`);
       root.style.setProperty("--ambient-fluid-x", `${fluidX}px`);
       root.style.setProperty("--ambient-fluid-y", `${fluidY}px`);
+      root.style.setProperty("--ambient-tilt-x", `${tiltX}deg`);
+      root.style.setProperty("--ambient-tilt-y", `${tiltY}deg`);
 
       raf = window.requestAnimationFrame(tick);
     };
@@ -88,10 +90,7 @@ export function CursorReactiveGlow() {
     const handleVisibility = () => {
       running = !document.hidden;
 
-      if (running && !raf) {
-        raf = window.requestAnimationFrame(tick);
-      }
-
+      if (running && !raf) raf = window.requestAnimationFrame(tick);
       if (!running && raf) {
         window.cancelAnimationFrame(raf);
         raf = 0;
@@ -105,7 +104,7 @@ export function CursorReactiveGlow() {
     window.addEventListener("storage", syncEnabled);
     document.addEventListener("visibilitychange", handleVisibility);
 
-    const interval = window.setInterval(syncEnabled, 600);
+    const interval = window.setInterval(syncEnabled, 700);
     raf = window.requestAnimationFrame(tick);
 
     return () => {
@@ -119,11 +118,5 @@ export function CursorReactiveGlow() {
     };
   }, []);
 
-  return (
-    <div
-      aria-hidden="true"
-      className="ambient-cursor-reactive-glow"
-      data-enabled={enabled ? "true" : "false"}
-    />
-  );
+  return null;
 }
