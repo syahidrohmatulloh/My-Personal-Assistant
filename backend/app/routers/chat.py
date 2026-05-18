@@ -46,6 +46,7 @@ from app.services import (
     memory,
     memory_intelligence,
     mood_memory_feedback,
+    relationship_memory,
     user_mood,
 )
 from app.services.user_mood_prompt import render_user_mood_block
@@ -750,6 +751,15 @@ async def _stream_claude_response(
         user_message=user_message,
         assistant_response=assistant_text,
         user_mood_context=user_mood_context,
+    )
+
+    # Background relationship memory — stable user↔Aliyya interaction preferences.
+    # Does not touch companion mood/state and does not store temporary mood.
+    background_tasks.add_task(
+        relationship_memory.extract_and_persist,
+        user_id=user_id,
+        user_message=user_message,
+        assistant_response=assistant_text,
     )
 
 
