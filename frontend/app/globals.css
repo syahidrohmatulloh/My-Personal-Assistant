@@ -1219,3 +1219,32 @@ html[data-ambient-neon-parallax="true"] body {
   --ambient-magnet-scale: 1.025;
 }
 
+
+/* --------------------------------------------------------------------------
+   Fix cursor magnetism not visible:
+   Existing ambient objects are animated with transform keyframes.
+   Use individual CSS transform property "translate" so mouse movement composes
+   with the existing animation instead of being overwritten by it.
+-------------------------------------------------------------------------- */
+
+html[data-ambient-neon-parallax="true"] .ambient-background::before {
+  translate: var(--ambient-magnet-x, 0px) var(--ambient-magnet-y, 0px) !important;
+  scale: var(--ambient-magnet-scale, 1) !important;
+  transform-origin: center center !important;
+  animation-duration: calc(14s / var(--ambient-magnet-speed, 1)) !important;
+  will-change: translate, scale, filter !important;
+}
+
+html[data-ambient-neon-parallax="true"] .ambient-background::after {
+  translate: var(--ambient-magnet-far-x, 0px) var(--ambient-magnet-far-y, 0px) !important;
+  scale: calc(var(--ambient-magnet-scale, 1) * 0.995) !important;
+  transform-origin: center center !important;
+  animation-duration: calc(22s / var(--ambient-magnet-speed, 1)) !important;
+  will-change: translate, scale, filter !important;
+}
+
+/* Make movement more obvious while testing. */
+html[data-ambient-neon-parallax="true"] body {
+  --ambient-magnet-scale: 1.035;
+}
+
