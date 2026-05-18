@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import "@/components/ambient/ambient-background.css";
 import Providers from "./providers";
 import { AmbientBackground } from "@/components/ambient/ambient-background";
 import { CursorReactiveGlow } from "@/components/ambient/cursor-reactive-glow";

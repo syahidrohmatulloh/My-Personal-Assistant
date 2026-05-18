@@ -18,7 +18,7 @@ function shouldEnableAmbientMagnetism() {
     effect === "fluid" ||
     effect === "fluid-layer" ||
     effect === "fluid-overlay" ||
-    effect?.includes("fluid");
+    Boolean(effect?.includes("fluid"));
 
   return Boolean(effectIsFluid) && style !== "off" && motion !== "false";
 }
@@ -60,14 +60,14 @@ export function CursorReactiveGlow() {
     const tick = () => {
       if (!running) return;
 
-      pointer.currentX = lerp(pointer.currentX, pointer.targetX, 0.16);
-      pointer.currentY = lerp(pointer.currentY, pointer.targetY, 0.16);
+      pointer.currentX = lerp(pointer.currentX, pointer.targetX, 0.12);
+      pointer.currentY = lerp(pointer.currentY, pointer.targetY, 0.12);
 
       const dx = pointer.currentX - pointer.lastX;
       const dy = pointer.currentY - pointer.lastY;
-      const rawVelocity = Math.min(1, Math.sqrt(dx * dx + dy * dy) * 26);
+      const rawVelocity = Math.min(1, Math.sqrt(dx * dx + dy * dy) * 18);
 
-      pointer.velocity = lerp(pointer.velocity, rawVelocity, 0.22);
+      pointer.velocity = lerp(pointer.velocity, rawVelocity, 0.18);
       pointer.lastX = pointer.currentX;
       pointer.lastY = pointer.currentY;
 
@@ -75,22 +75,13 @@ export function CursorReactiveGlow() {
       const y = pointer.currentY;
       const v = pointer.velocity;
 
-      // Existing ambient object follows cursor.
-      root.style.setProperty("--ambient-magnet-x", `${x * 150}px`);
-      root.style.setProperty("--ambient-magnet-y", `${y * 112}px`);
-      root.style.setProperty("--ambient-magnet-far-x", `${x * 72}px`);
-      root.style.setProperty("--ambient-magnet-far-y", `${y * 54}px`);
-
-      // Existing internal gradient center also shifts toward cursor.
-      root.style.setProperty("--ambient-magnet-center-x", `${50 + x * 34}%`);
-      root.style.setProperty("--ambient-magnet-center-y", `${50 + y * 28}%`);
-      root.style.setProperty("--ambient-magnet-far-center-x", `${50 + x * 18}%`);
-      root.style.setProperty("--ambient-magnet-far-center-y", `${50 + y * 14}%`);
-
-      // Cursor movement disturbs existing animation speed/scale slightly.
-      root.style.setProperty("--ambient-magnet-speed", `${1 + v * 2.8}`);
-      root.style.setProperty("--ambient-magnet-scale", `${1 + v * 0.045}`);
-      root.style.setProperty("--ambient-magnet-blur", `${v * 0.35}px`);
+      root.style.setProperty("--ambient-magnet-x", `${x * 110}px`);
+      root.style.setProperty("--ambient-magnet-y", `${y * 82}px`);
+      root.style.setProperty("--ambient-magnet-far-x", `${x * 64}px`);
+      root.style.setProperty("--ambient-magnet-far-y", `${y * 46}px`);
+      root.style.setProperty("--ambient-magnet-speed", `${1 + v * 0.55}`);
+      root.style.setProperty("--ambient-magnet-scale", `${1 + v * 0.01}`);
+      root.style.setProperty("--ambient-magnet-blur", `${v * 0.12}px`);
 
       raf = window.requestAnimationFrame(tick);
     };
