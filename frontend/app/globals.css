@@ -1335,3 +1335,132 @@ html[data-ambient-neon-parallax="true"] .ambient-background {
     transform: none !important;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Opera Neon tuning v2
+   Goal:
+   - Fluid becomes a softer blurred liquid layer behind patterns.
+   - Orbital/pattern layer becomes more visible.
+   - Orbital/pattern follows mouse more clearly.
+-------------------------------------------------------------------------- */
+
+:root {
+  --ambient-orbital-x: 0px;
+  --ambient-orbital-y: 0px;
+  --ambient-orbital-far-x: 0px;
+  --ambient-orbital-far-y: 0px;
+  --ambient-fluid-x: 0px;
+  --ambient-fluid-y: 0px;
+  --ambient-tilt-x: 0deg;
+  --ambient-tilt-y: 0deg;
+  --ambient-pointer-x: 50vw;
+  --ambient-pointer-y: 50vh;
+}
+
+/* Fluid layer: toned down so it sits behind the selected pattern. */
+html[data-ambient-neon-parallax="true"] .ambient-background .cosmic-fluid-mount,
+html[data-ambient-neon-parallax="true"] .cosmic-fluid-mount {
+  z-index: 0 !important;
+  opacity: 0.28 !important;
+  filter: blur(18px) saturate(1.08) contrast(1.02) !important;
+  transform:
+    translate3d(var(--ambient-fluid-x), var(--ambient-fluid-y), 0)
+    scale(1.015) !important;
+  will-change: transform, filter, opacity;
+  pointer-events: none;
+  mix-blend-mode: normal !important;
+}
+
+/* Low / medium intensity overrides. */
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-intensity-low .cosmic-fluid-mount,
+html[data-ambient-neon-parallax="true"] .ambient-intensity-low .cosmic-fluid-mount {
+  opacity: 0.18 !important;
+}
+
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-intensity-medium .cosmic-fluid-mount,
+html[data-ambient-neon-parallax="true"] .ambient-intensity-medium .cosmic-fluid-mount {
+  opacity: 0.32 !important;
+}
+
+/* Orbital Rings: stronger, more visible, and follows cursor direction. */
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings::before {
+  opacity: 0.72 !important;
+  transform:
+    translate3d(var(--ambient-orbital-x), var(--ambient-orbital-y), 0)
+    rotateX(var(--ambient-tilt-x))
+    rotateY(var(--ambient-tilt-y))
+    scale(1.055) !important;
+  transform-origin: center;
+  will-change: transform, opacity;
+  filter: blur(0.08px) saturate(1.18) contrast(1.08);
+}
+
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings::after {
+  opacity: 0.58 !important;
+  transform:
+    translate3d(var(--ambient-orbital-far-x), var(--ambient-orbital-far-y), 0)
+    rotateX(calc(var(--ambient-tilt-x) * 0.55))
+    rotateY(calc(var(--ambient-tilt-y) * 0.55))
+    scale(1.035) !important;
+  transform-origin: center;
+  will-change: transform, opacity;
+  filter: blur(0.15px) saturate(1.1) contrast(1.04);
+}
+
+/* Make other selected background patterns follow the mouse too. */
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-cosmic-plasma::before,
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-nebula-drift::before,
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-micro-particle-flow::before,
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-voice-wave::before {
+  opacity: 0.64 !important;
+  transform:
+    translate3d(var(--ambient-orbital-x), var(--ambient-orbital-y), 0)
+    rotateX(var(--ambient-tilt-x))
+    rotateY(var(--ambient-tilt-y))
+    scale(1.045) !important;
+  transform-origin: center;
+  will-change: transform, opacity;
+  filter: saturate(1.12) contrast(1.05);
+}
+
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-cosmic-plasma::after,
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-nebula-drift::after,
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-micro-particle-flow::after,
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-voice-wave::after {
+  opacity: 0.48 !important;
+  transform:
+    translate3d(var(--ambient-orbital-far-x), var(--ambient-orbital-far-y), 0)
+    scale(1.025) !important;
+  transform-origin: center;
+  will-change: transform, opacity;
+  filter: saturate(1.08);
+}
+
+/* Light mode: keep fluid subtle and pattern visible. */
+@media (prefers-color-scheme: light) {
+  html[data-ambient-neon-parallax="true"] .ambient-background .cosmic-fluid-mount,
+  html[data-ambient-neon-parallax="true"] .cosmic-fluid-mount {
+    opacity: 0.22 !important;
+    filter: blur(20px) saturate(1.04) contrast(1.02) !important;
+    mix-blend-mode: multiply !important;
+  }
+
+  html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings::before {
+    opacity: 0.78 !important;
+    filter: blur(0.05px) saturate(1.2) contrast(1.12);
+  }
+
+  html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings::after {
+    opacity: 0.62 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-ambient-neon-parallax="true"] .ambient-background .cosmic-fluid-mount,
+  html[data-ambient-neon-parallax="true"] .cosmic-fluid-mount,
+  html[data-ambient-neon-parallax="true"] .ambient-background::before,
+  html[data-ambient-neon-parallax="true"] .ambient-background::after {
+    transform: none !important;
+  }
+}
+
