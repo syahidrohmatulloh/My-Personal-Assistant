@@ -64,52 +64,79 @@ function scrollContainerToBottom(el: HTMLDivElement | null, smooth = false) {
   }
 }
 
-function BriefingCard({
+function BriefingDock({
   briefing,
+  expanded,
+  onToggle,
   onDiscuss,
   onDismiss,
 }: {
   briefing: Briefing
+  expanded: boolean
+  onToggle: () => void
   onDiscuss: () => void
   onDismiss: () => void
 }) {
   return (
-    <section className="rounded-2xl border border-slate-200/70 bg-white/75 p-4 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2 text-fg-muted">
-          <Sunrise className="h-4 w-4" />
-          <span className="text-xs font-medium uppercase tracking-wider">
-            Today&apos;s briefing
-          </span>
+    <section className="shrink-0 border-t border-border bg-bg/70 px-3 py-2 backdrop-blur-xl sm:px-6">
+      <div className="mx-auto max-w-3xl rounded-2xl border border-border bg-fg/[0.035] p-3 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <button
+            onClick={onToggle}
+            className="min-w-0 flex-1 text-left"
+          >
+            <div className="flex items-center gap-2 text-fg">
+              <Sunrise className="h-4 w-4 shrink-0 text-fg-muted" />
+              <span className="truncate text-sm font-medium">
+                Today&apos;s briefing is ready
+              </span>
+            </div>
+            <p className="mt-0.5 text-xs text-fg-muted">
+              View it here without adding it to your chat history.
+            </p>
+          </button>
+
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              onClick={onToggle}
+              className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg"
+            >
+              {expanded ? "Hide" : "View"}
+            </button>
+            <button
+              onClick={onDismiss}
+              className="rounded-full p-1.5 text-fg-subtle transition hover:bg-fg/5 hover:text-fg"
+              aria-label="Dismiss briefing"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
-        <button
-          onClick={onDismiss}
-          className="rounded-full p-1 text-fg-subtle transition hover:bg-slate-900/[0.06] hover:text-fg dark:hover:bg-white/10"
-          aria-label="Dismiss briefing"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
 
-      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-fg">
-        {briefing.content}
-      </p>
+        {expanded ? (
+          <div className="mt-3 border-t border-border pt-3">
+            <p className="whitespace-pre-wrap text-sm leading-6 text-fg">
+              {briefing.content}
+            </p>
 
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-        <button
-          onClick={onDiscuss}
-          className="inline-flex items-center justify-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-medium text-on-accent transition hover:bg-accent-hover"
-        >
-          Discuss briefing
-          <ArrowRight className="h-4 w-4" />
-        </button>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <button
+                onClick={onDiscuss}
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-medium text-on-accent transition hover:bg-accent-hover"
+              >
+                Discuss briefing
+                <ArrowRight className="h-4 w-4" />
+              </button>
 
-        <Link
-          href="/memories"
-          className="inline-flex items-center justify-center rounded-full border border-border px-4 py-2 text-sm font-medium text-fg-muted transition hover:bg-slate-900/[0.06] hover:text-fg dark:hover:bg-white/10"
-        >
-          Open Memories Review
-        </Link>
+              <Link
+                href="/memories"
+                className="inline-flex items-center justify-center rounded-full border border-border px-4 py-2 text-sm font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg"
+              >
+                Open Memories Review
+              </Link>
+            </div>
+          </div>
+        ) : null}
       </div>
     </section>
   )
@@ -159,6 +186,8 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
   });
 
   const [briefingDismissed, setBriefingDismissed] = useState(false);
+  const [briefingPanelOpen, setBriefingPanelOpen] = useState(false);
+  const [briefingDismissalLoaded, setBriefingDismissalLoaded] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -227,6 +256,23 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
     }
   }, [conversationId]);
 
+  useEffect(() => {
+    if (!briefing) {
+      setBriefingDismissed(false);
+      setBriefingPanelOpen(false);
+      setBriefingDismissalLoaded(true);
+      return;
+    }
+
+    const dismissed =
+      typeof window !== "undefined" &&
+      window.localStorage.getItem(briefingDismissKey(briefing)) === "true";
+
+    setBriefingDismissed(dismissed);
+    setBriefingPanelOpen(false);
+    setBriefingDismissalLoaded(true);
+  }, [briefing?.id]);
+
   // Load messages, then scroll the container to bottom on next frame.
   useEffect(() => {
     let cancelled = false;
@@ -282,6 +328,19 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
     setShowJumpBtn(false);
   }
 
+  function briefingDismissKey(briefing: Briefing) {
+    return `assistant.briefing.dismissed.${briefing.id}`;
+  }
+
+  function dismissBriefing(briefing: Briefing) {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(briefingDismissKey(briefing), "true");
+    }
+
+    setBriefingDismissed(true);
+    setBriefingPanelOpen(false);
+  }
+
   async function prepareBriefingDiscussion(briefing: Briefing) {
     try {
       await openBriefing(briefing.id)
@@ -297,7 +356,7 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
         briefing.content,
       ].join("\n"),
     )
-    setBriefingDismissed(true)
+    dismissBriefing(briefing)
   }
 
   const handleSend = useCallback(
@@ -440,14 +499,6 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
         className="flex-1 min-h-0 overflow-y-auto scroll-smooth-mobile overscroll-contain"
       >
         <div className="max-w-3xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-3 sm:space-y-4">
-          {isMainChat && briefing && !briefingDismissed ? (
-            <BriefingCard
-              briefing={briefing}
-              onDiscuss={() => void prepareBriefingDiscussion(briefing)}
-              onDismiss={() => setBriefingDismissed(true)}
-            />
-          ) : null}
-
           {loading ? (
             <>
               <Skeleton className="h-12 w-3/4 ml-auto rounded-2xl" />
@@ -481,6 +532,16 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
           Jump to latest
         </button>
       )}
+
+      {isMainChat && briefing && briefingDismissalLoaded && !briefingDismissed ? (
+        <BriefingDock
+          briefing={briefing}
+          expanded={briefingPanelOpen}
+          onToggle={() => setBriefingPanelOpen((value) => !value)}
+          onDiscuss={() => void prepareBriefingDiscussion(briefing)}
+          onDismiss={() => dismissBriefing(briefing)}
+        />
+      ) : null}
 
       <TypingIndicator visible={sending} assistantName={assistantName} />
 
