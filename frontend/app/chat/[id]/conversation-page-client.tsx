@@ -348,14 +348,7 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
       console.error(err)
     }
 
-    setInput(
-      [
-        "Let's discuss today's briefing.",
-        "",
-        "Briefing:",
-        briefing.content,
-      ].join("\n"),
-    )
+    setInput("Let's discuss today's briefing.")
     dismissBriefing(briefing)
   }
 

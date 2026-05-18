@@ -410,6 +410,74 @@ async def _load_history(_supabase, conversation_id: str) -> list[dict]:
     return [{"role": m["role"], "content": m["content"]} for m in (result.data or [])]
 
 
+def _is_briefing_discussion_request(message: str | None) -> bool:
+    if not message:
+        return False
+
+    lower = message.lower()
+
+    briefing_terms = (
+        "briefing",
+        "briefings",
+        "daily brief",
+        "daily briefing",
+        "today's brief",
+        "today's briefing",
+        "todays briefing",
+        "morning briefing",
+        "briefing hari ini",
+        "bahas briefing",
+        "bicarakan briefing",
+        "diskusikan briefing",
+        "ringkasan hari ini",
+    )
+
+    return any(term in lower for term in briefing_terms)
+
+
+async def _load_latest_briefing_for_prompt(user_id: str) -> dict | None:
+    result = await asyncio.to_thread(
+        lambda: safe_execute(
+            lambda sb: sb.table("daily_briefings")
+            .select("id, briefing_date, content, generated_at")
+            .eq("user_id", user_id)
+            .order("briefing_date", desc=True)
+            .order("generated_at", desc=True)
+            .limit(1)
+            .maybe_single()
+            .execute()
+        )
+    )
+
+    if not result or not result.data:
+        return None
+
+    content = str(result.data.get("content") or "").strip()
+    if not content:
+        return None
+
+    return result.data
+
+
+def _render_briefing_context_for_prompt(briefing_row: dict | None) -> str | None:
+    if not briefing_row:
+        return None
+
+    content = str(briefing_row.get("content") or "").strip()
+    if not content:
+        return None
+
+    briefing_date = briefing_row.get("briefing_date") or "latest"
+
+    return (
+        "## Latest daily briefing context\n"
+        f"- Briefing date: {briefing_date}\n"
+        "- The user is asking to discuss this briefing. Use it as context, "
+        "but do not recite it unless useful.\n\n"
+        f"{content}"
+    )
+
+
 @router.post("/chat")
 async def chat(
     body: ChatIn,
@@ -430,6 +498,7 @@ async def chat(
         companion_settings_row,
         current_mood,
         user_mood_ctx,
+        latest_briefing_for_prompt,
     ) = await asyncio.gather(
         _check_ownership(supabase, body.conversation_id, user_id),
         _save_user_message(supabase, body.conversation_id, body.message),
@@ -457,6 +526,9 @@ async def chat(
         # Read-only, never overwrites companion mood. Returns has_data: False
         # when there's nothing useful to render.
         user_mood.infer_user_mood(user_id, current_message=body.message),
+        _load_latest_briefing_for_prompt(user_id)
+        if _is_briefing_discussion_request(body.message)
+        else asyncio.sleep(0, result=None),
     )
 
     if not convo_result or not convo_result.data:
@@ -520,6 +592,12 @@ async def chat(
     ui_context_block = _render_ui_context(body.ui_context)
     if ui_context_block:
         volatile_context += "\n\n" + ui_context_block
+
+    briefing_context_block = _render_briefing_context_for_prompt(
+        latest_briefing_for_prompt
+    )
+    if briefing_context_block:
+        volatile_context += "\n\n" + briefing_context_block
 
     # User mood (Layer A) — appended BEFORE companion mood so it sits
     # higher in the context. User mood informs how the assistant should
