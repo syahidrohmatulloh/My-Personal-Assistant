@@ -84,6 +84,7 @@ type MemoryQualityPayload = {
     duplicate_groups: number
     conflict_groups: number
     low_quality_memories: number
+    stale_memories?: number
     needs_review: number
   }
   review_items: MemoryQualityReviewItem[]
@@ -102,6 +103,7 @@ type MemoryHealthSchedulerStatus = {
     duplicate_groups?: number
     conflict_groups?: number
     low_quality_memories?: number
+    stale_memories?: number
   } | null
 }
 
@@ -289,6 +291,7 @@ export default function MemoriesPage() {
           duplicate_groups: liveJson.summary.duplicate_groups,
           conflict_groups: liveJson.summary.conflict_groups,
           low_quality_memories: liveJson.summary.low_quality_memories,
+          stale_memories: liveJson.summary.stale_memories || 0,
         },
       })
     } catch {
@@ -540,6 +543,30 @@ export default function MemoriesPage() {
     }
   }
 
+  async function confirmMemoryFreshness(memoryId: string) {
+    setSavingId(memoryId)
+    setError(null)
+
+    try {
+      const res = await fetch(`/api/memory-review/${memoryId}/confirm`, {
+        method: "POST",
+      })
+
+      if (!res.ok) {
+        const detail = await safeDetail(res)
+        throw new Error(detail || "Failed to confirm memory")
+      }
+
+      await load()
+      await loadQuality()
+      await loadMemoryHealthStatus()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to confirm memory")
+    } finally {
+      setSavingId(null)
+    }
+  }
+
   const activeCount = data?.counts?.active ?? 0
   const archivedCount = data?.counts?.archived ?? 0
   const reviewCount = quality?.summary?.needs_review ?? 0
@@ -687,6 +714,7 @@ export default function MemoriesPage() {
             quality={quality}
             loading={loading}
             saving={savingId === "quality-resolve"}
+            onConfirmMemory={(memoryId) => void confirmMemoryFreshness(memoryId)}
             onResolve={(params) =>
               requireMemoryPin(
                 "Resolve memory issue",
@@ -894,6 +922,7 @@ function MemoryQualityPanel({
   loading,
   saving,
   onResolve,
+  onConfirmMemory,
 }: {
   quality: MemoryQualityPayload | null
   loading: boolean
@@ -903,6 +932,7 @@ function MemoryQualityPanel({
     keepMemoryId?: string | null
     archiveMemoryIds: string[]
   }) => void
+  onConfirmMemory: (memoryId: string) => void
 }) {
   if (loading) return <LoadingState />
 
@@ -928,6 +958,7 @@ function MemoryQualityPanel({
         <StatCard label="Possible Duplicates" value={quality.summary.duplicate_groups} />
         <StatCard label="Possible Conflicts" value={quality.summary.conflict_groups} />
         <StatCard label="Needs More Detail" value={quality.summary.low_quality_memories} />
+        <StatCard label="Needs Confirmation" value={quality.summary.stale_memories || 0} />
       </div>
 
       <div className="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white/70 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035]">
@@ -954,6 +985,7 @@ function MemoryQualityPanel({
               item={item}
               saving={saving}
               onResolve={onResolve}
+              onConfirmMemory={onConfirmMemory}
             />
           ))}
         </div>
@@ -1017,6 +1049,7 @@ function MemoryQualityIssueCard({
   item,
   saving,
   onResolve,
+  onConfirmMemory,
 }: {
   item: MemoryQualityReviewItem
   saving: boolean
@@ -1025,6 +1058,7 @@ function MemoryQualityIssueCard({
     keepMemoryId?: string | null
     archiveMemoryIds: string[]
   }) => void
+  onConfirmMemory: (memoryId: string) => void
 }) {
   const severityClass =
     item.severity === "high"
@@ -1048,8 +1082,12 @@ function MemoryQualityIssueCard({
     (item.issue_type === "duplicate" || item.issue_type === "conflict") &&
     memories.length > 1
 
+  const canConfirmStale =
+    item.issue_type === "stale_memory" &&
+    memories.length === 1
+
   const canArchiveSingle =
-    item.issue_type === "low_quality" &&
+    (item.issue_type === "low_quality" || item.issue_type === "stale_memory") &&
     memories.length === 1
 
   return (
@@ -1131,6 +1169,18 @@ function MemoryQualityIssueCard({
             )
           })}
         </div>
+
+        {canConfirmStale ? (
+          <div>
+            <button
+              onClick={() => onConfirmMemory(memories[0].id)}
+              disabled={saving}
+              className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20"
+            >
+              Still true
+            </button>
+          </div>
+        ) : null}
 
         {canArchiveSingle ? (
           <div>

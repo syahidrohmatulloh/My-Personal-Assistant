@@ -14,8 +14,10 @@ does not call an LLM.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -81,6 +83,16 @@ LOW_VALUE_FIELDS = {
     "n/a",
 }
 
+def stale_after_days() -> int:
+    raw = os.getenv("MEMORY_FRESHNESS_STALE_DAYS", "120")
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 120
+
+    return max(value, 30)
+
+
 
 @dataclass(frozen=True)
 class MemoryQualityIssue:
@@ -101,11 +113,13 @@ def assess_memory_quality(memories: list[dict[str, Any]]) -> dict[str, Any]:
     duplicate_groups = _find_duplicate_groups(active)
     conflict_groups = _find_conflict_groups(active)
     low_quality = _find_low_quality_memories(active)
+    stale_memories = _find_stale_memories(active)
 
     issues: list[MemoryQualityIssue] = []
     issues.extend(_duplicate_issues(duplicate_groups))
     issues.extend(_conflict_issues(conflict_groups))
     issues.extend(_low_quality_issues(low_quality))
+    issues.extend(_stale_issues(stale_memories))
 
     return {
         "summary": {
@@ -113,11 +127,13 @@ def assess_memory_quality(memories: list[dict[str, Any]]) -> dict[str, Any]:
             "duplicate_groups": len(duplicate_groups),
             "conflict_groups": len(conflict_groups),
             "low_quality_memories": len(low_quality),
+            "stale_memories": len(stale_memories),
             "needs_review": len(issues),
         },
         "duplicate_groups": duplicate_groups,
         "conflict_groups": conflict_groups,
         "low_quality_memories": low_quality,
+        "stale_memories": stale_memories,
         "review_items": [_issue_to_dict(issue) for issue in issues],
     }
 
@@ -270,6 +286,63 @@ def _find_low_quality_memories(memories: list[dict[str, Any]]) -> list[dict[str,
     return low_quality
 
 
+def _find_stale_memories(memories: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    threshold = stale_after_days()
+    now = datetime.now(timezone.utc)
+    stale: list[dict[str, Any]] = []
+
+    for memory in memories:
+        age_days = _memory_age_days(memory, now)
+        if age_days is None or age_days < threshold:
+            continue
+
+        stale.append(
+            {
+                "id": memory["id"],
+                "content": memory["content"],
+                "category": memory["category"],
+                "structured_field": memory["structured_field"],
+                "structured_value": memory["structured_value"],
+                "days_since_confirmation": age_days,
+                "threshold_days": threshold,
+            }
+        )
+
+    return stale
+
+
+def _memory_age_days(memory: dict[str, Any], now: datetime) -> int | None:
+    timestamp = (
+        memory.get("last_confirmed_at")
+        or memory.get("updated_at")
+        or memory.get("created_at")
+    )
+
+    dt = _parse_datetime(timestamp)
+    if not dt:
+        return None
+
+    return max(0, (now - dt).days)
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    raw = _compact(value)
+    if not raw:
+        return None
+
+    try:
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+
+        return dt.astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
 def _duplicate_issues(groups: list[dict[str, Any]]) -> list[MemoryQualityIssue]:
     return [
         MemoryQualityIssue(
@@ -396,6 +469,35 @@ def _unique_non_empty(values: Any) -> list[str]:
         out.append(cleaned)
 
     return out
+
+
+def _stale_issues(items: list[dict[str, Any]]) -> list[MemoryQualityIssue]:
+    return [
+        MemoryQualityIssue(
+            issue_type="stale_memory",
+            severity="low",
+            memory_ids=[item["id"]],
+            title="Memory may need confirmation",
+            explanation=(
+                f"This memory has not been confirmed for "
+                f"{item['days_since_confirmation']} days."
+            ),
+            suggested_action="Confirm it is still true, edit it, or archive it.",
+            reason={
+                "main": (
+                    f"This memory has not been confirmed for "
+                    f"{item['days_since_confirmation']} days. It may still be true, "
+                    "but should be checked."
+                ),
+                "field": item.get("structured_field"),
+                "values": [item.get("structured_value")] if item.get("structured_value") else [],
+                "days_since_confirmation": item["days_since_confirmation"],
+                "threshold_days": item["threshold_days"],
+            },
+            memories=[_issue_memory_payload(item)],
+        )
+        for item in items
+    ]
 
 
 def _issue_to_dict(issue: MemoryQualityIssue) -> dict[str, Any]:

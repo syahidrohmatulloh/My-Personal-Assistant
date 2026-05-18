@@ -33,6 +33,7 @@ def test_build_user_memory_health_summaries_groups_by_user():
 
     assert set(result) == {"u1", "u2"}
     assert result["u1"]["duplicate_groups"] == 1
+    assert "stale_memories" in result["u1"]
     assert result["u1"]["needs_review"] >= 1
     assert result["u2"]["active_memories"] == 1
 

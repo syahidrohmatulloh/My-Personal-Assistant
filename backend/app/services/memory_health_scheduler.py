@@ -167,6 +167,7 @@ def build_user_memory_health_summaries(
             "duplicate_groups": int(summary.get("duplicate_groups") or 0),
             "conflict_groups": int(summary.get("conflict_groups") or 0),
             "low_quality_memories": int(summary.get("low_quality_memories") or 0),
+            "stale_memories": int(summary.get("stale_memories") or 0),
             "needs_review": int(summary.get("needs_review") or 0),
         }
 

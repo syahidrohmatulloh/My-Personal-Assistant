@@ -217,3 +217,50 @@ def test_low_quality_review_item_explains_reasons():
     item = result["review_items"][0]
     assert item["issue_type"] == "low_quality"
     assert item["reason"]["reasons"]
+
+
+
+def test_detects_stale_memory_needing_confirmation(monkeypatch):
+    monkeypatch.setenv("MEMORY_FRESHNESS_STALE_DAYS", "30")
+
+    result = assess_memory_quality(
+        [
+            {
+                "id": "m1",
+                "content": "User is considering buying a specific car.",
+                "category": "preferences",
+                "structured_field": "purchase_consideration",
+                "structured_value": "specific car",
+                "last_confirmed_at": "2024-01-01T00:00:00+00:00",
+            }
+        ]
+    )
+
+    assert result["summary"]["stale_memories"] == 1
+    assert any(item["issue_type"] == "stale_memory" for item in result["review_items"])
+
+    stale_item = next(item for item in result["review_items"] if item["issue_type"] == "stale_memory")
+    assert stale_item["reason"]["days_since_confirmation"] >= 30
+    assert "not been confirmed" in stale_item["reason"]["main"]
+
+
+def test_recent_memory_is_not_flagged_as_stale(monkeypatch):
+    from datetime import datetime, timezone
+
+    monkeypatch.setenv("MEMORY_FRESHNESS_STALE_DAYS", "120")
+
+    result = assess_memory_quality(
+        [
+            {
+                "id": "m1",
+                "content": "User prefers careful complete code patches.",
+                "category": "preferences",
+                "structured_field": "communication_preference",
+                "structured_value": "careful complete code patches",
+                "last_confirmed_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ]
+    )
+
+    assert result["summary"]["stale_memories"] == 0
+    assert not any(item["issue_type"] == "stale_memory" for item in result["review_items"])
