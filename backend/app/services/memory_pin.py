@@ -158,24 +158,16 @@ async def change_pin(
 
 
 async def remove_pin(*, user_id: str, pin: str) -> dict[str, Any]:
-    await require_valid_pin(user_id=user_id, pin=pin)
+    """Memory PIN removal is intentionally disabled.
 
-    await asyncio.to_thread(
-        lambda: safe_execute(
-            lambda sb: sb.table("user_security_settings")
-            .update(
-                {
-                    "memory_pin_hash": None,
-                    "memory_pin_enabled": False,
-                    "updated_at": _now_iso(),
-                }
-            )
-            .eq("user_id", user_id)
-            .execute()
-        )
+    Memory actions must remain protected once the PIN system is configured.
+    Users may change the PIN, but cannot remove/disable protection.
+    """
+    validate_pin_format(pin)
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Memory PIN protection cannot be removed. You can change your PIN instead.",
     )
-
-    return {"ok": True, "memory_pin_enabled": False}
 
 
 async def require_valid_pin(*, user_id: str, pin: str | None) -> None:

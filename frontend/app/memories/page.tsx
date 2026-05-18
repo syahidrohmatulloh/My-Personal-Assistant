@@ -398,18 +398,29 @@ export default function MemoriesPage() {
                 Add memory
               </button>
 
-              <button
-                onClick={() => void consolidateMemories()}
-                disabled={consolidating || loading}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/65 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm shadow-slate-900/5 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
-              >
-                {consolidating ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Brain className="h-4 w-4" />
-                )}
-                Consolidate
-              </button>
+              <div className="group relative inline-flex">
+                <button
+                  onClick={() => void consolidateMemories()}
+                  disabled={consolidating || loading}
+                  aria-describedby="consolidate-tooltip"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/65 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm shadow-slate-900/5 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
+                >
+                  {consolidating ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Brain className="h-4 w-4" />
+                  )}
+                  Consolidate
+                </button>
+
+                <div
+                  id="consolidate-tooltip"
+                  role="tooltip"
+                  className="pointer-events-none absolute right-0 top-full z-30 mt-2 w-64 rounded-2xl border border-slate-200/70 bg-white/95 px-3 py-2 text-xs leading-5 text-slate-600 opacity-0 shadow-xl shadow-slate-900/10 backdrop-blur-xl transition group-hover:opacity-100 dark:border-white/10 dark:bg-zinc-950/95 dark:text-zinc-300"
+                >
+                  Summarizes repeated memory patterns into higher-level long-term memories.
+                </div>
+              </div>
 
               <button
                 onClick={() => void load()}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { CheckCircle2, KeyRound, Loader2, ShieldCheck, Trash2 } from "lucide-react"
+import { CheckCircle2, KeyRound, Loader2, ShieldCheck } from "lucide-react"
 
 const MASKED_INPUT_TYPE = "pass" + "word"
 
@@ -36,7 +36,6 @@ export default function SecuritySettingsPage() {
   const [currentPin, setCurrentPin] = useState("")
   const [newPin, setNewPin] = useState("")
   const [newPinConfirm, setNewPinConfirm] = useState("")
-  const [removePin, setRemovePin] = useState("")
 
   async function load() {
     setLoading(true)
@@ -112,30 +111,6 @@ export default function SecuritySettingsPage() {
     }
   }
 
-  async function disablePin() {
-    setSaving(true)
-    setError(null)
-    setMessage(null)
-
-    try {
-      const res = await fetch("/api/memory-review/pin/remove", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin: removePin }),
-      })
-
-      if (!res.ok) throw new Error(await safeDetail(res))
-
-      setRemovePin("")
-      setMessage("Memory PIN removed.")
-      await load()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to remove Memory PIN")
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const enabled = Boolean(status?.memory_pin_enabled)
 
   return (
@@ -150,7 +125,7 @@ export default function SecuritySettingsPage() {
               Security & Privacy
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 dark:text-zinc-400">
-              Protect sensitive memory actions with a 6-digit Memory PIN.
+              Sensitive memory actions are always protected with a 6-digit Memory PIN.
             </p>
           </div>
 
@@ -185,7 +160,7 @@ export default function SecuritySettingsPage() {
                 <div>
                   <h2 className="text-xl font-semibold">Memory Protection</h2>
                   <p className="mt-1 text-sm text-slate-600 dark:text-zinc-400">
-                    Required for Add, Forget, Restore, and Consolidate memory actions.
+                    Required for Add, Edit, Forget, Restore, and Consolidate memory actions.
                   </p>
                 </div>
 
@@ -228,7 +203,7 @@ export default function SecuritySettingsPage() {
                     <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-white/10 dark:bg-black/20">
                       <h3 className="font-medium">Change Memory PIN</h3>
                       <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">
-                        Enter your current PIN, then choose a new 6-digit PIN.
+                        Enter your current PIN, then choose a new 6-digit PIN. PIN protection stays enabled permanently.
                       </p>
 
                       <div className="mt-4 space-y-3">
@@ -248,32 +223,6 @@ export default function SecuritySettingsPage() {
                         >
                           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                           Change PIN
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-red-200 bg-red-50/70 p-4 dark:border-red-500/20 dark:bg-red-500/10">
-                      <h3 className="font-medium text-red-800 dark:text-red-200">
-                        Remove Memory PIN
-                      </h3>
-                      <p className="mt-1 text-sm text-red-700/80 dark:text-red-200/80">
-                        Removing the PIN disables protection for sensitive memory actions.
-                      </p>
-
-                      <div className="mt-4 space-y-3">
-                        <PinInput label="Current PIN" value={removePin} onChange={setRemovePin} />
-
-                        <button
-                          onClick={() => void disablePin()}
-                          disabled={saving || removePin.length !== 6}
-                          className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-red-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {saving ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-4 w-4" />
-                          )}
-                          Remove PIN
                         </button>
                       </div>
                     </div>
