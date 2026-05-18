@@ -76,8 +76,8 @@ function BriefingDock({
   onDismiss: () => void
 }) {
   return (
-    <section className="shrink-0 border-t border-border bg-bg/70 px-3 py-2 backdrop-blur-xl sm:px-6">
-      <div className="mx-auto max-w-3xl rounded-2xl border border-border bg-fg/[0.035] p-3 shadow-sm">
+    <section className="shrink-0 border-t border-border bg-bg/50 px-3 py-1.5 backdrop-blur-xl sm:px-6">
+      <div className="mx-auto max-w-3xl rounded-xl border border-border bg-fg/[0.025] p-2.5 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <button
             onClick={onToggle}
@@ -89,9 +89,11 @@ function BriefingDock({
                 Today&apos;s briefing is ready
               </span>
             </div>
-            <p className="mt-0.5 text-xs text-fg-muted">
-              View it here without adding it to your chat history.
-            </p>
+            {expanded ? (
+              <p className="mt-0.5 text-xs text-fg-muted">
+                View it here without adding it to your chat history.
+              </p>
+            ) : null}
           </button>
 
           <div className="flex shrink-0 items-center gap-1.5">
@@ -166,7 +168,7 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
       ? identity.profile.assistant_name.trim()
       : "Aliyya");
 
-  const { data: mainChat } = useQuery({
+  const { data: mainChat, isLoading: mainChatLoading } = useQuery({
     queryKey: ["conversations", "main"],
     queryFn: getMainConversation,
     staleTime: 60_000,
@@ -175,7 +177,11 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
 
   const isMainChat = mainChat?.id === conversationId;
 
-  const { data: briefing } = useQuery({
+  const {
+    data: briefing,
+    isLoading: briefingLoading,
+    isFetching: briefingFetching,
+  } = useQuery({
     queryKey: ["briefing", "today"],
     queryFn: getTodayBriefing,
     staleTime: 60_000,
@@ -187,6 +193,14 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
 const [briefingDismissed, setBriefingDismissed] = useState(false);
   const [briefingPanelOpen, setBriefingPanelOpen] = useState(false);
   const [briefingDismissalLoaded, setBriefingDismissalLoaded] = useState(false);
+
+  const briefingDockReady =
+    isMainChat &&
+    !loading &&
+    !mainChatLoading &&
+    !briefingLoading &&
+    !briefingFetching &&
+    briefingDismissalLoaded;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -525,7 +539,7 @@ const [briefingDismissed, setBriefingDismissed] = useState(false);
         </button>
       )}
 
-{isMainChat && briefing && briefingDismissalLoaded && !briefingDismissed ? (
+{briefingDockReady && briefing && !briefingDismissed ? (
         <BriefingDock
           briefing={briefing}
           expanded={briefingPanelOpen}
