@@ -215,18 +215,18 @@ export default function MemoriesPage() {
   const archivedCount = data?.counts?.archived ?? 0
 
   return (
-    <main className="min-h-screen px-4 py-6 text-zinc-100 sm:px-6 lg:px-8">
+    <main className="min-h-screen px-4 py-6 text-slate-950 dark:text-slate-900 dark:text-zinc-100 sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
-        <header className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 shadow-2xl shadow-black/30 backdrop-blur">
+        <header className="rounded-[2rem] border border-slate-200/70 bg-white/75 p-6 shadow-2xl shadow-slate-900/10 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04] dark:shadow-black/30">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <p className="text-sm uppercase tracking-[0.28em] text-cyan-300/80">
+              <p className="text-sm uppercase tracking-[0.28em] text-cyan-700 dark:text-cyan-300/80">
                 Aliyya Memories
               </p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 dark:text-white sm:text-4xl">
                 Memories
               </h1>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-300">
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-700 dark:text-zinc-300">
                 Review what Aliyya remembers, manage active memories, and
                 inspect archived or superseded memories in one place.
               </p>
@@ -235,7 +235,7 @@ export default function MemoriesPage() {
             <div className="flex flex-wrap gap-3">
               <Link
                 href="/chat"
-                className="rounded-full border border-white/10 px-4 py-2 text-sm text-zinc-200 transition hover:bg-white/10"
+                className="rounded-full border border-slate-200/70 dark:border-white/10 px-4 py-2 text-sm text-slate-700 dark:text-zinc-200 transition hover:bg-slate-100 dark:bg-white/10"
               >
                 Back to chat
               </Link>
@@ -261,8 +261,8 @@ export default function MemoriesPage() {
           </div>
         </header>
 
-        <section className="flex flex-col gap-3 rounded-[1.5rem] border border-white/10 bg-white/[0.035] p-4 backdrop-blur md:flex-row md:items-center md:justify-between">
-          <div className="flex rounded-full border border-white/10 bg-black/20 p-1">
+        <section className="flex flex-col gap-3 rounded-[1.5rem] border border-slate-200/70 bg-white/70 p-4 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035] md:flex-row md:items-center md:justify-between">
+          <div className="flex rounded-full border border-slate-200/70 dark:border-white/10 bg-slate-100/70 dark:bg-black/20 p-1">
             <TabButton
               active={tab === "active"}
               onClick={() => setTab("active")}
@@ -276,18 +276,18 @@ export default function MemoriesPage() {
           </div>
 
           <div className="relative w-full md:max-w-md">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 dark:text-zinc-500" />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search content, field, source, evidence..."
-              className="w-full rounded-full border border-white/10 bg-black/25 py-2 pl-10 pr-4 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-cyan-300/70"
+              className="w-full rounded-full border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-black/25 py-2 pl-10 pr-4 text-sm text-slate-950 dark:text-white outline-none placeholder:text-slate-500 dark:text-zinc-500 focus:border-cyan-300/70"
             />
           </div>
         </section>
 
         {error ? (
-          <div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-100">
+          <div className="rounded-2xl border border-red-400/40 bg-red-50 p-4 text-sm text-red-700 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-100">
             {error}
           </div>
         ) : null}
@@ -302,7 +302,7 @@ export default function MemoriesPage() {
               (group) => (
                 <div
                   key={group}
-                  className="overflow-hidden rounded-[1.5rem] border border-white/10 bg-white/[0.035] backdrop-blur"
+                  className="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white/70 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035]"
                 >
                   <button
                     onClick={() =>
@@ -311,26 +311,26 @@ export default function MemoriesPage() {
                         [group]: !prev[group],
                       }))
                     }
-                    className="flex w-full items-center justify-between px-5 py-4 text-left transition hover:bg-white/[0.04]"
+                    className="flex w-full items-center justify-between px-5 py-4 text-left transition hover:bg-slate-50/80 dark:hover:bg-white/[0.04]"
                   >
                     <div>
-                      <h2 className="text-lg font-semibold text-white">
+                      <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                         {group}
                       </h2>
-                      <p className="text-sm text-zinc-400">
+                      <p className="text-sm text-slate-500 dark:text-zinc-400">
                         {filteredGroups[group].length} memor
                         {filteredGroups[group].length === 1 ? "y" : "ies"}
                       </p>
                     </div>
                     {openGroups[group] ? (
-                      <ChevronDown className="h-5 w-5 text-zinc-400" />
+                      <ChevronDown className="h-5 w-5 text-slate-500 dark:text-zinc-400" />
                     ) : (
-                      <ChevronRight className="h-5 w-5 text-zinc-400" />
+                      <ChevronRight className="h-5 w-5 text-slate-500 dark:text-zinc-400" />
                     )}
                   </button>
 
                   {openGroups[group] ? (
-                    <div className="grid gap-3 border-t border-white/10 p-4 lg:grid-cols-2">
+                    <div className="grid gap-3 border-t border-slate-200/70 dark:border-white/10 p-4 lg:grid-cols-2">
                       {filteredGroups[group].map((memory) => (
                         <MemoryCard
                           key={memory.id}
@@ -374,11 +374,11 @@ export default function MemoriesPage() {
 
 function StatCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">
+    <div className="rounded-2xl border border-slate-200/70 bg-white/75 p-4 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-black/20">
+      <p className="text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-zinc-500">
         {label}
       </p>
-      <p className="mt-2 text-2xl font-semibold text-white">{value}</p>
+      <p className="mt-2 text-2xl font-semibold text-slate-950 dark:text-white">{value}</p>
     </div>
   )
 }
@@ -398,8 +398,8 @@ function TabButton({
       className={[
         "rounded-full px-4 py-2 text-sm transition",
         active
-          ? "bg-white text-zinc-950"
-          : "text-zinc-400 hover:bg-white/10 hover:text-white",
+          ? "bg-slate-950 text-white dark:bg-white dark:text-zinc-950"
+          : "text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:bg-white/10 hover:text-slate-950 dark:text-white",
       ].join(" ")}
     >
       {label}
@@ -428,7 +428,7 @@ function MemoryCard({
       : "—"
 
   return (
-    <article className="flex min-h-64 flex-col justify-between rounded-2xl border border-white/10 bg-black/20 p-4">
+    <article className="flex min-h-64 flex-col justify-between rounded-2xl border border-slate-200/70 bg-white/75 p-4 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-black/20">
       <div>
         <div className="mb-3 flex flex-wrap gap-2">
           <Badge>{memory.category || "other"}</Badge>
@@ -438,18 +438,18 @@ function MemoryCard({
           {memory.superseded ? <Badge tone="archived">archived</Badge> : null}
         </div>
 
-        <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-100">
+        <p className="whitespace-pre-wrap text-sm leading-6 text-slate-900 dark:text-zinc-100">
           {memory.content}
         </p>
 
         {(memory.structured_field || memory.structured_value) ? (
-          <div className="mt-4 rounded-xl border border-cyan-300/15 bg-cyan-300/5 p-3 text-xs text-cyan-100">
+          <div className="mt-4 rounded-xl border border-cyan-500/20 bg-cyan-50/80 p-3 text-xs text-cyan-900 dark:border-cyan-300/15 dark:bg-cyan-300/5 dark:text-cyan-100">
             <p>
-              <span className="text-cyan-300/80">Field:</span>{" "}
+              <span className="text-cyan-700 dark:text-cyan-300/80">Field:</span>{" "}
               {memory.structured_field || "—"}
             </p>
             <p className="mt-1 break-all">
-              <span className="text-cyan-300/80">Value:</span>{" "}
+              <span className="text-cyan-700 dark:text-cyan-300/80">Value:</span>{" "}
               {memory.structured_value || "—"}
             </p>
           </div>
@@ -457,14 +457,14 @@ function MemoryCard({
 
         {memory.evidence?.length ? (
           <div className="mt-4">
-            <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">
+            <p className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-zinc-500">
               Evidence
             </p>
             <ul className="mt-2 space-y-1">
               {memory.evidence.slice(0, 3).map((item, index) => (
                 <li
                   key={`${memory.id}-evidence-${index}`}
-                  className="line-clamp-2 text-xs leading-5 text-zinc-400"
+                  className="line-clamp-2 text-xs leading-5 text-slate-500 dark:text-zinc-400"
                 >
                   · {item}
                 </li>
@@ -474,8 +474,8 @@ function MemoryCard({
         ) : null}
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
-        <div className="text-xs text-zinc-500">
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/70 dark:border-white/10 pt-4">
+        <div className="text-xs text-slate-500 dark:text-zinc-500">
           {memory.last_confirmed_at
             ? `Confirmed ${formatDate(memory.last_confirmed_at)}`
             : memory.created_at
@@ -516,7 +516,7 @@ function MemoryCard({
               </ActionButton>
             </>
           ) : (
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-xs text-zinc-400">
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 dark:border-white/10 px-3 py-1.5 text-xs text-slate-500 dark:text-zinc-400">
               <Archive className="h-4 w-4" />
               Archived
             </div>
@@ -547,8 +547,8 @@ function ActionButton({
       className={[
         "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition disabled:cursor-not-allowed disabled:opacity-50",
         danger
-          ? "border-red-400/30 text-red-200 hover:bg-red-500/10"
-          : "border-white/10 text-zinc-200 hover:bg-white/10",
+          ? "border-red-400/40 text-red-700 hover:bg-red-50 dark:border-red-400/30 dark:text-red-200 dark:hover:bg-red-500/10"
+          : "border-slate-200/70 dark:border-white/10 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:bg-white/10",
       ].join(" ")}
     >
       {icon}
@@ -569,8 +569,8 @@ function Badge({
       className={[
         "rounded-full border px-2.5 py-1 text-[11px]",
         tone === "archived"
-          ? "border-amber-300/20 bg-amber-300/10 text-amber-100"
-          : "border-white/10 bg-white/[0.06] text-zinc-300",
+          ? "border-amber-400/30 bg-amber-50 text-amber-800 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-100"
+          : "border-slate-200/70 dark:border-white/10 bg-slate-100/80 dark:bg-white/[0.06] text-slate-700 dark:text-zinc-300",
       ].join(" ")}
     >
       {children}
@@ -592,18 +592,18 @@ function EditDialog({
   onSave: () => void
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-2xl rounded-[1.5rem] border border-white/10 bg-[#10101c] p-5 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 dark:bg-black/70 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-2xl rounded-[1.5rem] border border-slate-200/70 dark:border-white/10 bg-white dark:bg-[#10101c] p-5 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-white">Edit memory</h2>
-            <p className="mt-1 text-sm text-zinc-400">
+            <h2 className="text-xl font-semibold text-slate-950 dark:text-white">Edit memory</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">
               This creates a corrected version and archives the old memory.
             </p>
           </div>
           <button
             onClick={onCancel}
-            className="rounded-full p-2 text-zinc-400 hover:bg-white/10 hover:text-white"
+            className="rounded-full p-2 text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:bg-white/10 hover:text-slate-950 dark:text-white"
           >
             <X className="h-5 w-5" />
           </button>
@@ -611,26 +611,26 @@ function EditDialog({
 
         <div className="mt-5 space-y-4">
           <label className="block">
-            <span className="text-sm text-zinc-300">Content</span>
+            <span className="text-sm text-slate-700 dark:text-zinc-300">Content</span>
             <textarea
               value={edit.content}
               onChange={(event) =>
                 onChange({ ...edit, content: event.target.value })
               }
               rows={5}
-              className="mt-2 w-full rounded-2xl border border-white/10 bg-black/25 p-3 text-sm text-white outline-none focus:border-cyan-300/70"
+              className="mt-2 w-full rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-black/25 p-3 text-sm text-slate-950 dark:text-white outline-none focus:border-cyan-300/70"
             />
           </label>
 
           <div className="grid gap-4 md:grid-cols-3">
             <label className="block">
-              <span className="text-sm text-zinc-300">Category</span>
+              <span className="text-sm text-slate-700 dark:text-zinc-300">Category</span>
               <select
                 value={edit.category}
                 onChange={(event) =>
                   onChange({ ...edit, category: event.target.value })
                 }
-                className="mt-2 w-full rounded-2xl border border-white/10 bg-black/25 p-3 text-sm text-white outline-none focus:border-cyan-300/70"
+                className="mt-2 w-full rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-black/25 p-3 text-sm text-slate-950 dark:text-white outline-none focus:border-cyan-300/70"
               >
                 {CATEGORY_OPTIONS.map((category) => (
                   <option key={category} value={category}>
@@ -641,26 +641,26 @@ function EditDialog({
             </label>
 
             <label className="block">
-              <span className="text-sm text-zinc-300">Structured field</span>
+              <span className="text-sm text-slate-700 dark:text-zinc-300">Structured field</span>
               <input
                 value={edit.structured_field}
                 onChange={(event) =>
                   onChange({ ...edit, structured_field: event.target.value })
                 }
                 placeholder="birthday, timezone..."
-                className="mt-2 w-full rounded-2xl border border-white/10 bg-black/25 p-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-cyan-300/70"
+                className="mt-2 w-full rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-black/25 p-3 text-sm text-slate-950 dark:text-white outline-none placeholder:text-slate-400 dark:text-zinc-600 focus:border-cyan-300/70"
               />
             </label>
 
             <label className="block">
-              <span className="text-sm text-zinc-300">Structured value</span>
+              <span className="text-sm text-slate-700 dark:text-zinc-300">Structured value</span>
               <input
                 value={edit.structured_value}
                 onChange={(event) =>
                   onChange({ ...edit, structured_value: event.target.value })
                 }
                 placeholder="1995-01-07..."
-                className="mt-2 w-full rounded-2xl border border-white/10 bg-black/25 p-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-cyan-300/70"
+                className="mt-2 w-full rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-black/25 p-3 text-sm text-slate-950 dark:text-white outline-none placeholder:text-slate-400 dark:text-zinc-600 focus:border-cyan-300/70"
               />
             </label>
           </div>
@@ -670,7 +670,7 @@ function EditDialog({
           <button
             onClick={onCancel}
             disabled={saving}
-            className="rounded-full border border-white/10 px-4 py-2 text-sm text-zinc-300 hover:bg-white/10 disabled:opacity-50"
+            className="rounded-full border border-slate-200/70 dark:border-white/10 px-4 py-2 text-sm text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:bg-white/10 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -690,7 +690,7 @@ function EditDialog({
 
 function LoadingState() {
   return (
-    <div className="flex items-center justify-center rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-12 text-zinc-400">
+    <div className="flex items-center justify-center rounded-[1.5rem] border border-slate-200/70 dark:border-white/10 bg-white/65 dark:bg-white/[0.03] p-12 text-slate-500 dark:text-zinc-400">
       <Loader2 className="mr-3 h-5 w-5 animate-spin" />
       Loading memories...
     </div>
@@ -699,9 +699,9 @@ function LoadingState() {
 
 function EmptyState({ tab, query }: { tab: string; query: string }) {
   return (
-    <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-12 text-center">
-      <p className="text-lg font-medium text-white">No memories found</p>
-      <p className="mt-2 text-sm text-zinc-400">
+    <div className="rounded-[1.5rem] border border-slate-200/70 dark:border-white/10 bg-white/65 dark:bg-white/[0.03] p-12 text-center">
+      <p className="text-lg font-medium text-slate-950 dark:text-white">No memories found</p>
+      <p className="mt-2 text-sm text-slate-500 dark:text-zinc-400">
         {query
           ? "Try a different search keyword."
           : tab === "active"
