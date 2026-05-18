@@ -735,3 +735,41 @@ button[data-selected="true"]::after {
 .background-style-settings .grid button[data-setting-card="true"] {
   border-radius: 1rem;
 }
+
+
+/* App sidebar readable hover
+   Keep hover behavior consistent across chat rows, footer menu links,
+   settings/sign out, context rows, desktop sidebar, and mobile drawer. */
+.app-sidebar a:not([class*="bg-accent"]):hover,
+.app-sidebar button:not([class*="bg-accent"]):hover {
+  background-color: rgb(15 23 42 / 0.06) !important;
+  color: rgb(15 23 42) !important;
+}
+
+.app-sidebar a:not([class*="bg-accent"]):hover svg,
+.app-sidebar button:not([class*="bg-accent"]):hover svg,
+.app-sidebar a:not([class*="bg-accent"]):hover span,
+.app-sidebar button:not([class*="bg-accent"]):hover span {
+  color: inherit !important;
+}
+
+.dark .app-sidebar a:not([class*="bg-accent"]):hover,
+.dark .app-sidebar button:not([class*="bg-accent"]):hover {
+  background-color: rgb(255 255 255 / 0.14) !important;
+  color: rgb(255 255 255) !important;
+}
+
+.dark .app-sidebar a:not([class*="bg-accent"]):hover svg,
+.dark .app-sidebar button:not([class*="bg-accent"]):hover svg,
+.dark .app-sidebar a:not([class*="bg-accent"]):hover span,
+.dark .app-sidebar button:not([class*="bg-accent"]):hover span {
+  color: rgb(255 255 255) !important;
+}
+
+/* Keep destructive menu actions visually destructive, not white/black. */
+.app-sidebar button[class*="danger"]:hover,
+.app-sidebar .text-red-700:hover,
+.dark .app-sidebar .dark\:hover\:text-red-300:hover {
+  color: rgb(248 113 113) !important;
+}
+
