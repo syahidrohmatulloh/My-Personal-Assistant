@@ -1190,3 +1190,32 @@ html[data-ambient-neon-parallax="true"] .ambient-background::after {
 }
 
 
+
+/* --------------------------------------------------------------------------
+   Final override: existing ambient object follows mouse.
+   This creates no new object; it only transforms current ::before/::after.
+-------------------------------------------------------------------------- */
+
+html[data-ambient-neon-parallax="true"] body .ambient-background::before {
+  transform:
+    translate3d(var(--ambient-magnet-x, 0px), var(--ambient-magnet-y, 0px), 0)
+    scale(var(--ambient-magnet-scale, 1)) !important;
+  transform-origin: center center !important;
+  animation-duration: calc(16s / var(--ambient-magnet-speed, 1)) !important;
+  will-change: transform, filter !important;
+}
+
+html[data-ambient-neon-parallax="true"] body .ambient-background::after {
+  transform:
+    translate3d(var(--ambient-magnet-far-x, 0px), var(--ambient-magnet-far-y, 0px), 0)
+    scale(calc(var(--ambient-magnet-scale, 1) * 0.995)) !important;
+  transform-origin: center center !important;
+  animation-duration: calc(24s / var(--ambient-magnet-speed, 1)) !important;
+  will-change: transform, filter !important;
+}
+
+/* Make the effect more obvious. */
+html[data-ambient-neon-parallax="true"] body {
+  --ambient-magnet-scale: 1.025;
+}
+

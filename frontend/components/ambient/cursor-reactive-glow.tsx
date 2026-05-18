@@ -13,7 +13,14 @@ function shouldEnableAmbientMagnetism() {
   const style = window.localStorage.getItem(STYLE_KEY);
   const motion = window.localStorage.getItem(MOTION_KEY);
 
-  return effect === "fluid-webgl" && style !== "off" && motion !== "false";
+  const effectIsFluid =
+    effect === "fluid-webgl" ||
+    effect === "fluid" ||
+    effect === "fluid-layer" ||
+    effect === "fluid-overlay" ||
+    effect?.includes("fluid");
+
+  return Boolean(effectIsFluid) && style !== "off" && motion !== "false";
 }
 
 function lerp(current: number, target: number, factor: number) {
