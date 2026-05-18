@@ -78,7 +78,7 @@ export default function PeoplePage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Remove this person and all notes about them?")) return
+    if (!confirm("Remove this person from Aliyya's people list?")) return
 
     const prev = people
     setPeople((p) => p.filter((x) => x.id !== id))
@@ -101,7 +101,7 @@ export default function PeoplePage() {
     <AppPageShell
       eyebrow="Aliyya People"
       title="People"
-      description="People who matter in your life. Aliyya uses this to remember relationship context, names, and meaningful dates."
+      description="Add people Aliyya should remember, like family, friends, colleagues, or important contacts."
       maxWidthClassName="max-w-5xl"
       actions={
         <>
@@ -118,7 +118,7 @@ export default function PeoplePage() {
       stats={
         <AppStatGrid>
           <AppStatCard label="People" value={people.length} icon={Users} />
-          <AppStatCard label="Avg importance" value={avgImportance ? `${avgImportance}/10` : "—"} />
+          <AppStatCard label="Average closeness" value={avgImportance ? `${avgImportance}/10` : "—"} />
           <AppStatCard label="Birthdays" value={birthdays} />
         </AppStatGrid>
       }
@@ -139,12 +139,12 @@ export default function PeoplePage() {
             </label>
 
             <label className="block">
-              <span className="text-sm font-medium text-slate-900 dark:text-white">Relationship</span>
+              <span className="text-sm font-medium text-slate-900 dark:text-white">How you know them</span>
               <input
                 type="text"
                 value={relationship}
                 onChange={(e) => setRelationship(e.target.value)}
-                placeholder="wife, co-founder, mother…"
+                placeholder="wife, friend, colleague, client…"
                 className={inputCls}
               />
             </label>
@@ -153,10 +153,10 @@ export default function PeoplePage() {
           <div className="mb-4 grid gap-4 sm:grid-cols-2">
             <label className="block">
               <span className="text-sm font-medium text-slate-900 dark:text-white">
-                Importance ({importance}/10)
+                How often they matter day to day ({importance}/10)
               </span>
               <span className="mt-0.5 block text-xs text-slate-500 dark:text-zinc-400">
-                How present they are in your daily life.
+                How often they come up in your daily life.
               </span>
               <input
                 type="range"
@@ -170,10 +170,10 @@ export default function PeoplePage() {
 
             <label className="block">
               <span className="text-sm font-medium text-slate-900 dark:text-white">
-                Emotional significance ({emotional}/10)
+                How close are they to you? ({emotional}/10)
               </span>
               <span className="mt-0.5 block text-xs text-slate-500 dark:text-zinc-400">
-                How much they matter, regardless of frequency.
+                How personally important they are to you.
               </span>
               <input
                 type="range"
@@ -188,7 +188,7 @@ export default function PeoplePage() {
 
           <label className="mb-4 block">
             <span className="text-sm font-medium text-slate-900 dark:text-white">
-              Birthday optional
+              Birthday, optional
             </span>
             <input
               type="date"

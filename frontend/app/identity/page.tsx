@@ -153,8 +153,8 @@ export default function IdentityPage() {
       actions={<AppHeaderAction href="/chat">Back to chat</AppHeaderAction>}
       stats={
         <AppStatGrid>
-          <AppStatCard label="Profile fields" value={`${filledFields}/8`} icon={UserRound} />
-          <AppStatCard label="Timezone" value={form.timezone || "—"} />
+          <AppStatCard label="Profile completed" value={`${filledFields}/8`} icon={UserRound} />
+          <AppStatCard label="Your timezone" value={form.timezone || "—"} />
           <AppStatCard
             label="Last saved"
             value={savedAt ? new Date(savedAt).toLocaleDateString() : "—"}
@@ -182,7 +182,7 @@ export default function IdentityPage() {
               />
             </Field>
 
-            <Field label="Location">
+            <Field label="Where you are based">
               <input
                 type="text"
                 value={form.location}
@@ -192,7 +192,7 @@ export default function IdentityPage() {
               />
             </Field>
 
-            <Field label="Role">
+            <Field label="Your role">
               <input
                 type="text"
                 value={form.role}
@@ -202,7 +202,7 @@ export default function IdentityPage() {
               />
             </Field>
 
-            <Field label="Industry / context">
+            <Field label="Work / life context">
               <input
                 type="text"
                 value={form.industry}
@@ -213,7 +213,7 @@ export default function IdentityPage() {
             </Field>
 
             <Field
-              label="Values"
+              label="What matters to you"
               hint="A few things that matter to you, comma-separated."
             >
               <input

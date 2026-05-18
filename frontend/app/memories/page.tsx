@@ -31,9 +31,9 @@ type MemoryItem = {
   confidence?: number | null
   source_priority?: string | null
   evidence?: string[]
-  superseded?: boolean
-  superseded_by?: string | null
-  superseded_at?: string | null
+  archived?: boolean
+  archived_by?: string | null
+  archived_at?: string | null
   last_confirmed_at?: string | null
   created_at?: string | null
   updated_at?: string | null
@@ -71,6 +71,51 @@ const CATEGORY_OPTIONS = [
   "constraints",
   "other",
 ]
+
+const CATEGORY_LABELS: Record<string, string> = {
+  identity: "Identity",
+  important_dates: "Important dates",
+  preferences: "Preferences",
+  relationships: "Relationships",
+  routines: "Routines",
+  goals: "Goals",
+  constraints: "Constraints",
+  other: "Other",
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  explicit_user_statement: "You said this clearly",
+  user_answer_in_context: "Learned from your answer",
+  user_correction: "Corrected by you",
+  repeated_pattern: "Repeated pattern",
+  assistant_confirmation: "Confirmed in chat",
+  manual_review: "Added manually",
+}
+
+function humanizeLabel(value?: string | null) {
+  if (!value) return "—"
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ")
+}
+
+function categoryLabel(value?: string | null) {
+  return CATEGORY_LABELS[value || ""] || humanizeLabel(value)
+}
+
+function sourceLabel(value?: string | null) {
+  return SOURCE_LABELS[value || ""] || humanizeLabel(value)
+}
+
+function strengthLabel(value?: number | null) {
+  if (value == null) return "Unknown"
+  if (value >= 0.9) return "Very strong"
+  if (value >= 0.75) return "Strong"
+  if (value >= 0.55) return "Medium"
+  return "Low"
+}
 
 const GROUP_ORDER = [
   "Identity",
@@ -234,7 +279,7 @@ export default function MemoriesPage() {
       setPinModal({
         title: "Set up Memory PIN first",
         description:
-          "Memory actions can add, archive, restore, or create long-term memories. Please create a 6-digit Memory PIN first in Settings.",
+          "Memory actions can add, edit, archive, restore, or summarize long-term memories. Please create a 6-digit Memory PIN first in Settings.",
         action: async () => {
           window.location.href = "/settings/security"
         },
@@ -248,8 +293,8 @@ export default function MemoriesPage() {
 
   async function consolidateMemories() {
     requireMemoryPin(
-      "Consolidate memories",
-      "Aliyya will create high-level memories from repeated patterns in your active memories.",
+      "Summarize patterns",
+      "Aliyya will turn repeated memory patterns into a clearer long-term summary.",
       async (pin) => {
         setConsolidating(true)
         setError(null)
@@ -369,7 +414,7 @@ export default function MemoriesPage() {
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-700 dark:text-zinc-300">
                 Review what Aliyya remembers, manage active memories, and
-                inspect archived or superseded memories in one place.
+                inspect archived or archived memories in one place.
               </p>
             </div>
 
@@ -410,7 +455,7 @@ export default function MemoriesPage() {
                   ) : (
                     <Brain className="h-4 w-4" />
                   )}
-                  Consolidate
+                  Summarize patterns
                 </button>
 
                 <div
@@ -418,7 +463,7 @@ export default function MemoriesPage() {
                   role="tooltip"
                   className="pointer-events-none absolute right-0 top-full z-30 mt-2 w-64 rounded-2xl border border-slate-200/70 bg-white/95 px-3 py-2 text-xs leading-5 text-slate-600 opacity-0 shadow-xl shadow-slate-900/10 backdrop-blur-xl transition group-hover:opacity-100 dark:border-white/10 dark:bg-zinc-950/95 dark:text-zinc-300"
                 >
-                  Summarizes repeated memory patterns into higher-level long-term memories.
+                  Creates a clearer summary from repeated memory patterns.
                 </div>
               </div>
 
@@ -439,7 +484,7 @@ export default function MemoriesPage() {
 
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <StatCard label="Active" value={activeCount} />
-            <StatCard label="Archived / Superseded" value={archivedCount} />
+            <StatCard label="Archived" value={archivedCount} />
             <StatCard label="Total" value={data?.counts?.total ?? 0} />
           </div>
         </header>
@@ -454,7 +499,7 @@ export default function MemoriesPage() {
             <TabButton
               active={tab === "archived"}
               onClick={() => setTab("archived")}
-              label={`Archived / Superseded (${archivedCount})`}
+              label={`Archived (${archivedCount})`}
             />
           </div>
 
@@ -463,7 +508,7 @@ export default function MemoriesPage() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search content, field, source, evidence..."
+              placeholder="Search memories..."
               className="w-full rounded-full border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-black/25 py-2 pl-10 pr-4 text-sm text-slate-950 dark:text-white outline-none placeholder:text-slate-500 dark:text-zinc-500 focus:border-cyan-300/70"
             />
           </div>
@@ -702,8 +747,8 @@ function MemoryCard({
           <Badge>{memory.category || "other"}</Badge>
           <Badge>{memory.kind || "fact"}</Badge>
           <Badge>conf {confidence}</Badge>
-          {memory.source_priority ? <Badge>{memory.source_priority}</Badge> : null}
-          {memory.superseded ? <Badge tone="archived">archived</Badge> : null}
+          {memory.source_priority ? <Badge>{sourceLabel(memory.source_priority)}</Badge> : null}
+          {memory.archived ? <Badge tone="archived">archived</Badge> : null}
         </div>
 
         <p className="whitespace-pre-wrap text-sm leading-6 text-slate-900 dark:text-zinc-100">
@@ -970,7 +1015,7 @@ function ManualAddDialog({
               Add memory
             </h2>
             <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">
-              Manually add something stable that Aliyya should remember.
+              Add something stable that Aliyya should remember long term.
             </p>
           </div>
           <button
@@ -984,7 +1029,7 @@ function ManualAddDialog({
         <div className="mt-5 space-y-4">
           <label className="block">
             <span className="text-sm text-slate-700 dark:text-zinc-300">
-              Memory content
+              What should Aliyya remember?
             </span>
             <textarea
               value={content}
@@ -994,6 +1039,15 @@ function ManualAddDialog({
               className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
             />
           </label>
+
+          <div>
+            <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">
+              Details
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-zinc-500">
+              Choose a category if you know it. Memory key/value are optional advanced details for exact facts like timezone, birthday, or nickname.
+            </p>
+          </div>
 
           <div className="grid gap-4 md:grid-cols-3">
             <label className="block">
@@ -1007,7 +1061,7 @@ function ManualAddDialog({
               >
                 {CATEGORY_OPTIONS.map((category) => (
                   <option key={category} value={category}>
-                    {category}
+                    {categoryLabel(category)}
                   </option>
                 ))}
               </select>
@@ -1015,24 +1069,24 @@ function ManualAddDialog({
 
             <label className="block">
               <span className="text-sm text-slate-700 dark:text-zinc-300">
-                Structured field
+                Memory key
               </span>
               <input
                 value={structuredField}
                 onChange={(event) => onStructuredFieldChange(event.target.value)}
-                placeholder="timezone, nickname..."
+                placeholder="Optional, e.g. timezone"
                 className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
               />
             </label>
 
             <label className="block">
               <span className="text-sm text-slate-700 dark:text-zinc-300">
-                Structured value
+                Memory value
               </span>
               <input
                 value={structuredValue}
                 onChange={(event) => onStructuredValueChange(event.target.value)}
-                placeholder="Asia/Jakarta..."
+                placeholder="Optional, e.g. Asia/Jakarta"
                 className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
               />
             </label>
@@ -1105,6 +1159,15 @@ function EditDialog({
             />
           </label>
 
+          <div>
+            <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">
+              Details
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-zinc-500">
+              Category organizes the memory. Memory key/value are optional advanced details for exact facts.
+            </p>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-3">
             <label className="block">
               <span className="text-sm text-slate-700 dark:text-zinc-300">Category</span>
@@ -1117,32 +1180,32 @@ function EditDialog({
               >
                 {CATEGORY_OPTIONS.map((category) => (
                   <option key={category} value={category}>
-                    {category}
+                    {categoryLabel(category)}
                   </option>
                 ))}
               </select>
             </label>
 
             <label className="block">
-              <span className="text-sm text-slate-700 dark:text-zinc-300">Structured field</span>
+              <span className="text-sm text-slate-700 dark:text-zinc-300">Memory key</span>
               <input
                 value={edit.structured_field}
                 onChange={(event) =>
                   onChange({ ...edit, structured_field: event.target.value })
                 }
-                placeholder="birthday, timezone..."
+                placeholder="Optional, e.g. birthday"
                 className="mt-2 w-full rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-black/25 p-3 text-sm text-slate-950 dark:text-white outline-none placeholder:text-slate-400 dark:text-zinc-600 focus:border-cyan-300/70"
               />
             </label>
 
             <label className="block">
-              <span className="text-sm text-slate-700 dark:text-zinc-300">Structured value</span>
+              <span className="text-sm text-slate-700 dark:text-zinc-300">Memory value</span>
               <input
                 value={edit.structured_value}
                 onChange={(event) =>
                   onChange({ ...edit, structured_value: event.target.value })
                 }
-                placeholder="1995-01-07..."
+                placeholder="Optional, e.g. 1995-01-07"
                 className="mt-2 w-full rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-black/25 p-3 text-sm text-slate-950 dark:text-white outline-none placeholder:text-slate-400 dark:text-zinc-600 focus:border-cyan-300/70"
               />
             </label>

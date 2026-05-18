@@ -25,6 +25,14 @@ const HORIZON_LABELS: Record<Goal["horizon"], string> = {
   life: "Lifetime",
 };
 
+const STATUS_LABELS: Record<Goal["status"] | "all", string> = {
+  active: "Active",
+  paused: "Paused",
+  achieved: "Done",
+  abandoned: "Dropped",
+  all: "All",
+};
+
 export default function GoalsPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,9 +41,9 @@ export default function GoalsPage() {
   const [error, setError] = useState<string | null>(null);
 
   // form state
-  const [title, setTitle] = useState("");
+  const [title, setGoal] = useState("");
   const [description, setDescription] = useState("");
-  const [horizon, setHorizon] = useState<Goal["horizon"]>("quarter");
+  const [horizon, setTimeline] = useState<Goal["horizon"]>("quarter");
   const [weight, setWeight] = useState(5);
   const [saving, setSaving] = useState(false);
 
@@ -65,7 +73,7 @@ export default function GoalsPage() {
       };
       const created = await createGoal(input);
       setGoals((prev) => [created, ...prev]);
-      setTitle("");
+      setGoal("");
       setDescription("");
       setShowForm(false);
     } catch (e) {
@@ -90,7 +98,7 @@ export default function GoalsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this goal? Check-ins on it will also be removed.")) return;
+    if (!confirm("Delete this goal? This cannot be undone.")) return;
     const prev = goals;
     setGoals((g) => g.filter((x) => x.id !== id));
     try {
@@ -105,7 +113,7 @@ export default function GoalsPage() {
     <AppPageShell
       eyebrow="Aliyya Goals"
       title="Goals"
-      description="Where you&apos;re heading. Aliyya uses these to reason about plans, tradeoffs, and decisions."
+      description="Tell Aliyya what you are working toward, so she can help you make better plans and decisions."
       maxWidthClassName="max-w-5xl"
       actions={
         <>
@@ -115,7 +123,7 @@ export default function GoalsPage() {
             variant="primary"
             icon={showForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
           >
-            {showForm ? "Close form" : "New goal"}
+            {showForm ? "Close" : "Add goal"}
           </AppHeaderAction>
         </>
       }
@@ -133,7 +141,7 @@ export default function GoalsPage() {
                   : "text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white",
               )}
             >
-              {s}
+              {STATUS_LABELS[s]}
             </button>
           ))}
         </div>
@@ -142,19 +150,19 @@ export default function GoalsPage() {
       {showForm && (
         <form onSubmit={handleCreate} className="rounded-[1.5rem] border border-slate-200/70 bg-white/75 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04]">
           <label className="mb-4 block">
-            <span className="text-sm font-medium text-slate-900 dark:text-white">Title</span>
+            <span className="text-sm font-medium text-slate-900 dark:text-white">Goal</span>
             <input
               type="text"
               required
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => setGoal(e.target.value)}
               placeholder="Get back in shape"
               className={inputCls}
             />
           </label>
 
           <label className="mb-4 block">
-            <span className="text-sm font-medium text-slate-900 dark:text-white">Why this matters (optional)</span>
+            <span className="text-sm font-medium text-slate-900 dark:text-white">Why this matters</span>
             <textarea
               rows={2}
               value={description}
@@ -166,10 +174,10 @@ export default function GoalsPage() {
 
           <div className="mb-4 grid gap-4 sm:grid-cols-2">
             <label className="block">
-              <span className="text-sm font-medium text-slate-900 dark:text-white">Horizon</span>
+              <span className="text-sm font-medium text-slate-900 dark:text-white">Timeline</span>
               <select
                 value={horizon}
-                onChange={(e) => setHorizon(e.target.value as Goal["horizon"])}
+                onChange={(e) => setTimeline(e.target.value as Goal["horizon"])}
                 className={inputCls}
               >
                 {HORIZONS.map((h) => (
@@ -182,7 +190,7 @@ export default function GoalsPage() {
 
             <label className="block">
               <span className="text-sm font-medium text-slate-900 dark:text-white">
-                Emotional weight ({weight})
+                How important is this? ({weight})
               </span>
               <input
                 type="range"
@@ -208,7 +216,7 @@ export default function GoalsPage() {
               disabled={saving || !title.trim()}
               className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-300 disabled:opacity-50"
             >
-              {saving ? "Saving…" : "Create"}
+              {saving ? "Saving…" : "Save goal"}
             </button>
           </div>
         </form>
@@ -248,7 +256,7 @@ export default function GoalsPage() {
                       {HORIZON_LABELS[g.horizon]}
                     </span>
                     <span>weight {g.emotional_weight}/10</span>
-                    {g.status !== "active" && <span>· {g.status}</span>}
+                    {g.status !== "active" && <span>· {STATUS_LABELS[g.status]}</span>}
                   </div>
                 </div>
 
@@ -257,7 +265,7 @@ export default function GoalsPage() {
                     <>
                       <button
                         onClick={() => handleStatus(g.id, "achieved")}
-                        aria-label="Mark achieved"
+                        aria-label="Mark done"
                         className="rounded-full border border-slate-200/70 p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:border-white/10 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
                       >
                         <Check className="h-3.5 w-3.5" />
