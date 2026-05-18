@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { buildClientTimeContext } from "@/lib/client-time-context";
 import { buildUiContextSnapshot } from "@/lib/ambient-background";
 import { buildCompanionMoodUiContext } from "@/lib/companion-mood";
 
@@ -141,6 +142,7 @@ export async function* streamChat(
       conversation_id: conversationId,
       message,
       attachment_ids: attachmentIds,
+      client_context: buildClientTimeContext(),
       ui_context: {
         ...buildUiContextSnapshot(),
         companion_mood: buildCompanionMoodUiContext(conversationId, message),

@@ -50,6 +50,7 @@ from app.services.user_mood_prompt import render_user_mood_block
 from app.services.claude import get_claude
 from app.services.prompt_builder import (
     BASE_PROMPT,
+    render_client_time_context,
     render_context,
     trim_history,
 )
@@ -486,6 +487,21 @@ async def chat(
 
     # === Build prompt with cached base + volatile context ===
     volatile_context = render_context(context)
+    identity = context.get("identity") or {}
+    profile = identity.get("profile") or {}
+    raw_client_context = None
+    if getattr(body, "client_context", None) is not None:
+        raw = body.client_context
+        raw_client_context = (
+            raw.model_dump(exclude_none=True)
+            if hasattr(raw, "model_dump")
+            else raw.dict(exclude_none=True)
+            if hasattr(raw, "dict")
+            else raw
+        )
+    client_time_block = render_client_time_context(raw_client_context, profile)
+    if client_time_block:
+        volatile_context += "\n\n" + client_time_block
     volatile_context += (
         f"\n\n## Assistant identity\n"
         f"- Your display name in this app is: {assistant_name}.\n"

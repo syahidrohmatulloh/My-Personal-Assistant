@@ -285,6 +285,65 @@ def _render_mood(mood_log: list[dict], tz: Any) -> str:
     return "\n".join(lines)
 
 
+
+# ---------------------------------------------------------------------------
+# Client local time context
+# ---------------------------------------------------------------------------
+
+def _format_utc_offset_label(offset_minutes: Any) -> str | None:
+    try:
+        minutes = int(offset_minutes)
+    except Exception:  # noqa: BLE001
+        return None
+    sign = "+" if minutes >= 0 else "-"
+    absolute = abs(minutes)
+    hours = absolute // 60
+    mins = absolute % 60
+    if mins == 0:
+        return f"GMT{sign}{hours}"
+    return f"GMT{sign}{hours}:{mins:02d}"
+
+
+def render_client_time_context(
+    client_context: dict[str, Any] | None,
+    profile: dict[str, Any] | None = None,
+) -> str:
+    """Render browser-provided time context for the current turn.
+
+    Browser local time is the source of truth for greetings and time-sensitive
+    wording. Server time is intentionally not used because the backend may run
+    in UTC or another region.
+    """
+    ctx = client_context or {}
+    profile = profile or {}
+
+    timezone_name = ctx.get("timezone") or profile.get("timezone")
+    local_time = ctx.get("local_time")
+    locale = ctx.get("locale")
+    offset_label = _format_utc_offset_label(ctx.get("utc_offset_minutes"))
+    captured_at_utc = ctx.get("captured_at_utc")
+
+    if not timezone_name and not local_time and not offset_label:
+        return ""
+
+    lines = [
+        "## User local time — source of truth for this turn",
+        "Use the browser/client local time below for greetings, date references, countdowns, and time-sensitive answers.",
+        "Do NOT infer the current time from server time, UTC, logs, or model knowledge unless the user explicitly asks for UTC/server time.",
+    ]
+    if timezone_name:
+        lines.append(f"- User local timezone: {timezone_name}")
+    if local_time:
+        lines.append(f"- User local time now: {local_time}")
+    if offset_label:
+        lines.append(f"- UTC offset: {offset_label}")
+    if locale:
+        lines.append(f"- Browser locale: {locale}")
+    if captured_at_utc:
+        lines.append(f"- Captured at UTC: {captured_at_utc} (debug only; do not prefer over local time)")
+
+    return "\n".join(lines)
+
 # ---------------------------------------------------------------------------
 # Main renderer
 # ---------------------------------------------------------------------------
