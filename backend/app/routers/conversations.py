@@ -14,11 +14,23 @@ from pydantic import BaseModel, Field
 
 from app.core.auth import get_current_user_id
 from app.schemas import ConversationOut, CreateConversationIn, MessageOut
+from app.services import companion
 from app.services.claude import get_claude
 from app.services.supabase_client import get_supabase, safe_execute
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+
+
+def _clean_assistant_name(value: object) -> str:
+    name = str(value or "").strip()
+    return name or "Assistant"
+
+
+def _main_chat_title_from_settings(settings_row: dict | None) -> str:
+    assistant_name = _clean_assistant_name((settings_row or {}).get("assistant_name"))
+    return f"Main Chat - {assistant_name}"
+
 
 
 class RenameConversationIn(BaseModel):
@@ -37,6 +49,85 @@ async def list_conversations(user_id: str = Depends(get_current_user_id)):
         .execute()
     )
     return result.data
+
+
+@router.get("/main", response_model=ConversationOut)
+async def get_or_create_main_conversation(
+    user_id: str = Depends(get_current_user_id),
+):
+    """Return the user's designated Main Chat.
+
+    If the mapping does not exist yet, create a stable Main Chat conversation
+    and store it in user_main_chats. The title follows the current assistant
+    display name, falling back to Assistant when no name is set.
+    """
+    supabase = get_supabase()
+    companion_settings = await companion.get_settings(user_id)
+    main_chat_title = _main_chat_title_from_settings(companion_settings)
+
+    mapping = (
+        supabase.table("user_main_chats")
+        .select("conversation_id")
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+    )
+
+    conversation_id = (mapping.data or {}).get("conversation_id") if mapping else None
+
+    if conversation_id:
+        existing = (
+            supabase.table("conversations")
+            .select("id, title, created_at, updated_at, style_profile_id")
+            .eq("id", conversation_id)
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+
+        if existing and existing.data:
+            main_chat = existing.data
+
+            if main_chat.get("title") != main_chat_title:
+                updated = (
+                    supabase.table("conversations")
+                    .update({"title": main_chat_title})
+                    .eq("id", conversation_id)
+                    .eq("user_id", user_id)
+                    .execute()
+                )
+                if updated.data:
+                    return updated.data[0]
+
+            return main_chat
+
+    created = (
+        supabase.table("conversations")
+        .insert(
+            {
+                "user_id": user_id,
+                "title": main_chat_title,
+            }
+        )
+        .execute()
+    )
+
+    if not created.data:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Failed to create Main Chat",
+        )
+
+    main_chat = created.data[0]
+
+    supabase.table("user_main_chats").upsert(
+        {
+            "user_id": user_id,
+            "conversation_id": main_chat["id"],
+        }
+    ).execute()
+
+    return main_chat
 
 
 @router.post("", response_model=ConversationOut, status_code=status.HTTP_201_CREATED)

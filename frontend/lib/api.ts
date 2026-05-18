@@ -80,6 +80,13 @@ export async function listConversations(): Promise<Conversation[]> {
   return r.json();
 }
 
+export async function getMainConversation(): Promise<Conversation> {
+  const headers = await getAuthHeader();
+  const r = await fetch(`${API_URL}/conversations/main`, { headers });
+  if (!r.ok) throw new Error(`getMainConversation failed: ${r.status}`);
+  return r.json();
+}
+
 export async function createConversation(
   title = "New chat",
   styleProfileId?: string | null,
