@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { BackToChatButton } from "@/components/settings/back-to-chat-button";
+import { AppHeaderAction, AppPageShell, AppPanel } from "@/components/ui/app-page-shell";
 
 type Scale = { value: number | null; set: (n: number | null) => void };
 
@@ -77,47 +78,50 @@ export default function JournalPage() {
   }
 
   return (
-    <main className="min-h-dvh">
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 sm:py-8 fade-up">
-        <BackToChatButton />
-
-        <h1 className="text-3xl font-semibold text-fg mb-1 tracking-tighter">
-          How are you today?
-        </h1>
-        <p className="text-base text-fg-muted mb-8">
-          {todayEntry
-            ? "You already checked in today — you can update if anything has shifted."
-            : "A quick check-in. Skip what you don't want to answer."}
-        </p>
-
-        {loading ? (
-          <p className="text-sm text-fg-muted">Loading…</p>
-        ) : (
-          <form onSubmit={handleSave} className="glass rounded-2xl p-6 space-y-6">
+    <AppPageShell
+      eyebrow="Aliyya Journal"
+      title="How are you today?"
+      description={
+        todayEntry
+          ? "You already checked in today — you can update if anything has shifted."
+          : "A quick check-in. Skip what you don't want to answer."
+      }
+      maxWidthClassName="max-w-4xl"
+      actions={<AppHeaderAction href="/chat">Back to chat</AppHeaderAction>}
+    >
+      {loading ? (
+        <AppPanel>
+          <div className="p-6 text-sm text-slate-600 dark:text-zinc-300">
+            Loading…
+          </div>
+        </AppPanel>
+      ) : (
+        <form onSubmit={handleSave} className="rounded-[1.5rem] border border-slate-200/70 bg-white/75 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04] sm:p-6">
+          <div className="space-y-6">
             <ScaleRow label="Mood" hint="how you feel overall" scale={{ value: mood, set: setMood }} />
             <ScaleRow label="Energy" hint="physical and mental" scale={{ value: energy, set: setEnergy }} />
             <ScaleRow label="Stress" hint="tension you're carrying" scale={{ value: stress, set: setStress }} />
 
             <div>
               <label className="block">
-                <span className="text-sm font-medium text-fg">A few sentences</span>
-                <span className="block text-xs text-fg-muted mt-0.5">
-                  What's going on? Anything worth remembering?
+                <span className="text-sm font-medium text-slate-900 dark:text-white">A few sentences</span>
+                <span className="mt-0.5 block text-xs text-slate-500 dark:text-zinc-400">
+                  What&apos;s going on? Anything worth remembering?
                 </span>
                 <textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   rows={4}
                   placeholder="Long meeting with the team about the launch. Felt clearer after lunch…"
-                  className="mt-2 w-full resize-none rounded-xl border border-border-strong bg-bg/40 backdrop-blur-sm px-3 py-2 text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-all"
+                  className="mt-2 w-full resize-none rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
                 />
               </label>
             </div>
 
-            {error && <p className="text-sm text-danger">{error}</p>}
+            {error && <p className="text-sm text-red-700 dark:text-red-300">{error}</p>}
 
-            <div className="flex items-center justify-between pt-1 border-t border-border">
-              <p className="text-xs text-fg-subtle">
+            <div className="flex flex-col gap-3 border-t border-slate-200/70 pt-4 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-slate-500 dark:text-zinc-500">
                 {todayEntry
                   ? `Last saved ${new Date(todayEntry.observed_at).toLocaleTimeString()}`
                   : "Not saved yet"}
@@ -125,7 +129,7 @@ export default function JournalPage() {
               <button
                 type="submit"
                 disabled={saving}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-accent text-on-accent px-4 py-2 text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition-all active:scale-[0.98] shadow-md shadow-accent/25"
+                className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-300 disabled:opacity-50 active:scale-[0.98] sm:w-auto"
               >
                 {justSaved ? (
                   <>
@@ -140,37 +144,41 @@ export default function JournalPage() {
                 )}
               </button>
             </div>
-          </form>
-        )}
-
-        {history.length > 1 && (
-          <div className="mt-10">
-            <h2 className="text-lg font-semibold text-fg mb-3 tracking-tighter">Recent</h2>
-            <ul className="space-y-2">
-              {history.slice(1, 8).map((h) => (
-                <li key={h.id} className="glass rounded-xl p-3.5">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-fg-muted">
-                      {new Date(h.observed_at).toLocaleDateString(undefined, {
-                        weekday: "short",
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </span>
-                    <div className="flex items-center gap-3 text-xs text-fg-muted">
-                      {h.mood != null && <Pill label="mood" value={h.mood} />}
-                      {h.energy != null && <Pill label="energy" value={h.energy} />}
-                      {h.stress != null && <Pill label="stress" value={h.stress} />}
-                    </div>
-                  </div>
-                  {h.note && <p className="text-sm text-fg-soft mt-1">{h.note}</p>}
-                </li>
-              ))}
-            </ul>
           </div>
-        )}
-      </div>
-    </main>
+        </form>
+      )}
+
+      {history.length > 1 && (
+        <AppPanel>
+          <div className="border-b border-slate-200/70 px-5 py-4 dark:border-white/10">
+            <h2 className="text-lg font-semibold tracking-tight text-slate-950 dark:text-white">
+              Recent
+            </h2>
+          </div>
+          <ul className="divide-y divide-slate-200/70 dark:divide-white/10">
+            {history.slice(1, 8).map((h) => (
+              <li key={h.id} className="p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <span className="text-xs text-slate-500 dark:text-zinc-400">
+                    {new Date(h.observed_at).toLocaleDateString(undefined, {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </span>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
+                    {h.mood != null && <Pill label="mood" value={h.mood} />}
+                    {h.energy != null && <Pill label="energy" value={h.energy} />}
+                    {h.stress != null && <Pill label="stress" value={h.stress} />}
+                  </div>
+                </div>
+                {h.note && <p className="mt-2 text-sm leading-6 text-slate-700 dark:text-zinc-300">{h.note}</p>}
+              </li>
+            ))}
+          </ul>
+        </AppPanel>
+      )}
+    </AppPageShell>
   );
 }
 

@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { BackToChatButton } from "@/components/settings/back-to-chat-button";
+import { AppHeaderAction, AppPageShell, AppPanel, AppToolbar } from "@/components/ui/app-page-shell";
 
 const HORIZONS: Goal["horizon"][] = ["week", "month", "quarter", "year", "multi_year", "life"];
 const HORIZON_LABELS: Record<Goal["horizon"], string> = {
@@ -101,191 +102,197 @@ export default function GoalsPage() {
   }
 
   return (
-    <main className="min-h-dvh">
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 sm:py-8 fade-up">
-        <BackToChatButton />
-
-        <div className="flex items-start justify-between mb-2">
-          <h1 className="text-3xl font-semibold text-fg tracking-tighter">Goals</h1>
-          <button
+    <AppPageShell
+      eyebrow="Aliyya Goals"
+      title="Goals"
+      description="Where you&apos;re heading. Aliyya uses these to reason about plans, tradeoffs, and decisions."
+      maxWidthClassName="max-w-5xl"
+      actions={
+        <>
+          <AppHeaderAction href="/chat">Back to chat</AppHeaderAction>
+          <AppHeaderAction
             onClick={() => setShowForm((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-accent text-on-accent px-3 py-1.5 text-sm font-medium hover:bg-accent-hover transition-all active:scale-[0.98] shadow-md shadow-accent/25"
+            variant="primary"
+            icon={showForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
           >
-            <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
-            New goal
-          </button>
-        </div>
-        <p className="text-base text-fg-muted mb-6">
-          Where you&apos;re heading. The assistant uses these to reason about decisions.
-        </p>
-
-        {/* Filter tabs */}
-        <div className="flex gap-1 mb-6">
+            {showForm ? "Close form" : "New goal"}
+          </AppHeaderAction>
+        </>
+      }
+    >
+      <AppToolbar>
+        <div className="flex w-full gap-1 overflow-x-auto rounded-full border border-slate-200/70 bg-white/65 p-1 dark:border-white/10 dark:bg-black/20 md:w-auto">
           {(["active", "paused", "achieved", "abandoned", "all"] as const).map((s) => (
             <button
               key={s}
               onClick={() => setFilter(s)}
               className={cn(
-                "px-3 py-1 rounded-lg text-xs font-medium transition-colors",
+                "whitespace-nowrap rounded-full px-3 py-2 text-xs font-medium transition-colors",
                 filter === s
-                  ? "bg-accent-soft text-fg"
-                  : "text-fg-muted hover:bg-fg/5 hover:text-fg",
+                  ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950"
+                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white",
               )}
             >
               {s}
             </button>
           ))}
         </div>
+      </AppToolbar>
 
-        {/* Create form */}
-        {showForm && (
-          <form onSubmit={handleCreate} className="glass rounded-2xl p-5 mb-6 fade-up">
-            <label className="block mb-4">
-              <span className="text-sm font-medium text-fg">Title</span>
-              <input
-                type="text"
-                required
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Get back in shape"
+      {showForm && (
+        <form onSubmit={handleCreate} className="rounded-[1.5rem] border border-slate-200/70 bg-white/75 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04]">
+          <label className="mb-4 block">
+            <span className="text-sm font-medium text-slate-900 dark:text-white">Title</span>
+            <input
+              type="text"
+              required
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Get back in shape"
+              className={inputCls}
+            />
+          </label>
+
+          <label className="mb-4 block">
+            <span className="text-sm font-medium text-slate-900 dark:text-white">Why this matters (optional)</span>
+            <textarea
+              rows={2}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Energy for the long haul, not aesthetics"
+              className={cn(inputCls, "resize-none")}
+            />
+          </label>
+
+          <div className="mb-4 grid gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-sm font-medium text-slate-900 dark:text-white">Horizon</span>
+              <select
+                value={horizon}
+                onChange={(e) => setHorizon(e.target.value as Goal["horizon"])}
                 className={inputCls}
-              />
+              >
+                {HORIZONS.map((h) => (
+                  <option key={h} value={h}>
+                    {HORIZON_LABELS[h]}
+                  </option>
+                ))}
+              </select>
             </label>
 
-            <label className="block mb-4">
-              <span className="text-sm font-medium text-fg">Why this matters (optional)</span>
-              <textarea
-                rows={2}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Energy for the long haul, not aesthetics"
-                className={cn(inputCls, "resize-none")}
+            <label className="block">
+              <span className="text-sm font-medium text-slate-900 dark:text-white">
+                Emotional weight ({weight})
+              </span>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                value={weight}
+                onChange={(e) => setWeight(Number(e.target.value))}
+                className="mt-3 w-full accent-cyan-400"
               />
             </label>
-
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <label className="block">
-                <span className="text-sm font-medium text-fg">Horizon</span>
-                <select
-                  value={horizon}
-                  onChange={(e) => setHorizon(e.target.value as Goal["horizon"])}
-                  className={inputCls}
-                >
-                  {HORIZONS.map((h) => (
-                    <option key={h} value={h}>
-                      {HORIZON_LABELS[h]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-medium text-fg">
-                  Emotional weight ({weight})
-                </span>
-                <input
-                  type="range"
-                  min={1}
-                  max={10}
-                  value={weight}
-                  onChange={(e) => setWeight(Number(e.target.value))}
-                  className="mt-3 w-full accent-accent"
-                />
-              </label>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-border">
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="px-3 py-1.5 rounded-lg text-sm text-fg-muted hover:bg-fg/5"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={saving || !title.trim()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-accent text-on-accent px-3 py-1.5 text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition-all"
-              >
-                {saving ? "Saving…" : "Create"}
-              </button>
-            </div>
-          </form>
-        )}
-
-        {error && <p className="text-sm text-danger mb-4">{error}</p>}
-
-        {/* List */}
-        {loading ? (
-          <p className="text-sm text-fg-muted">Loading…</p>
-        ) : goals.length === 0 ? (
-          <div className="text-center py-12 glass rounded-2xl">
-            <Target className="h-6 w-6 text-fg-subtle mx-auto mb-2 opacity-60" />
-            <p className="text-sm text-fg-muted">No {filter !== "all" ? filter : ""} goals.</p>
           </div>
-        ) : (
-          <ul className="space-y-2">
-            {goals.map((g) => (
-              <li key={g.id} className="group glass rounded-xl p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-fg break-words">{g.title}</p>
-                    {g.description && (
-                      <p className="text-xs text-fg-muted mt-1">{g.description}</p>
-                    )}
-                    <div className="mt-2 flex items-center gap-2 text-xs text-fg-muted">
-                      <span className="rounded-md px-1.5 py-0.5 text-[10px] font-medium bg-accent-soft border border-accent/20 text-fg-soft">
-                        {HORIZON_LABELS[g.horizon]}
-                      </span>
-                      <span>weight {g.emotional_weight}/10</span>
-                      {g.status !== "active" && (
-                        <span className="text-fg-subtle">· {g.status}</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
-                    {g.status === "active" && (
-                      <>
-                        <IconBtn
-                          onClick={() => handleStatus(g.id, "achieved")}
-                          label="Mark achieved"
-                          icon={<Check className="h-3.5 w-3.5" />}
-                        />
-                        <IconBtn
-                          onClick={() => handleStatus(g.id, "paused")}
-                          label="Pause"
-                          icon={<Pause className="h-3.5 w-3.5" />}
-                        />
-                      </>
-                    )}
-                    {g.status === "paused" && (
-                      <IconBtn
-                        onClick={() => handleStatus(g.id, "active")}
-                        label="Resume"
-                        icon={<Check className="h-3.5 w-3.5" />}
-                      />
-                    )}
-                    {(g.status === "achieved" || g.status === "abandoned") && (
-                      <IconBtn
-                        onClick={() => handleStatus(g.id, "active")}
-                        label="Reopen"
-                        icon={<X className="h-3.5 w-3.5" />}
-                      />
-                    )}
-                    <IconBtn
-                      onClick={() => handleDelete(g.id)}
-                      label="Delete"
-                      icon={<Trash2 className="h-3.5 w-3.5" />}
-                      danger
-                    />
+
+          <div className="flex flex-col gap-2 border-t border-slate-200/70 pt-4 dark:border-white/10 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="min-h-10 rounded-full border border-slate-200/70 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !title.trim()}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-300 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Create"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {error && (
+        <div className="rounded-2xl border border-red-400/40 bg-red-50 p-4 text-sm text-red-700 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-100">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <AppPanel>
+          <div className="p-6 text-sm text-slate-600 dark:text-zinc-300">Loading…</div>
+        </AppPanel>
+      ) : goals.length === 0 ? (
+        <AppPanel>
+          <div className="py-12 text-center">
+            <Target className="mx-auto mb-2 h-6 w-6 text-slate-400 opacity-70 dark:text-zinc-500" />
+            <p className="text-sm text-slate-500 dark:text-zinc-400">
+              No {filter !== "all" ? filter : ""} goals.
+            </p>
+          </div>
+        </AppPanel>
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {goals.map((g) => (
+            <article key={g.id} className="group rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-lg shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-black/20">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="break-words text-sm font-semibold text-slate-950 dark:text-white">{g.title}</p>
+                  {g.description && (
+                    <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-zinc-400">{g.description}</p>
+                  )}
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
+                    <span className="rounded-full border border-cyan-500/20 bg-cyan-50 px-2 py-1 text-[10px] font-medium text-cyan-800 dark:border-cyan-300/20 dark:bg-cyan-300/10 dark:text-cyan-100">
+                      {HORIZON_LABELS[g.horizon]}
+                    </span>
+                    <span>weight {g.emotional_weight}/10</span>
+                    {g.status !== "active" && <span>· {g.status}</span>}
                   </div>
                 </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </main>
+
+                <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+                  {g.status === "active" && (
+                    <>
+                      <button
+                        onClick={() => handleStatus(g.id, "achieved")}
+                        aria-label="Mark achieved"
+                        className="rounded-full border border-slate-200/70 p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:border-white/10 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleStatus(g.id, "paused")}
+                        aria-label="Pause"
+                        className="rounded-full border border-slate-200/70 p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:border-white/10 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
+                      >
+                        <Pause className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  )}
+                  {g.status === "paused" && (
+                    <button
+                      onClick={() => handleStatus(g.id, "active")}
+                      className="rounded-full border border-slate-200/70 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
+                    >
+                      Resume
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDelete(g.id)}
+                    aria-label="Delete"
+                    className="rounded-full border border-red-400/40 p-2 text-red-700 hover:bg-red-50 dark:border-red-400/30 dark:text-red-200 dark:hover:bg-red-500/10"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </AppPageShell>
   );
 }
 
