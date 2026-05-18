@@ -78,7 +78,7 @@ async def list_memory_review(
         .select(
             "id, content, kind, category, structured_field, structured_value, "
             "confidence, source_priority, evidence, superseded, superseded_by, "
-            "superseded_at, last_confirmed_at, created_at, updated_at, "
+            "superseded_at, last_confirmed_at, created_at, "
             "source, source_conversation_id"
         )
         .eq("user_id", user_id)
@@ -318,7 +318,6 @@ def _normalize_memory_row(row: dict[str, Any]) -> dict[str, Any]:
         "superseded_at": row.get("superseded_at"),
         "last_confirmed_at": row.get("last_confirmed_at"),
         "created_at": row.get("created_at"),
-        "updated_at": row.get("updated_at"),
         "source": row.get("source"),
         "source_conversation_id": row.get("source_conversation_id"),
     }
