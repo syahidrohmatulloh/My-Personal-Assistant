@@ -1122,3 +1122,28 @@ button[data-selected="true"]::after {
   border-radius: 1rem;
 }
 
+
+/* Stronger visible Fluid/WebGL layer.
+   Previous screen blend can disappear on light backgrounds. */
+.ambient-background .cosmic-fluid-mount,
+.cosmic-fluid-mount {
+  mix-blend-mode: normal !important;
+  opacity: 0.62 !important;
+  filter: saturate(1.35) contrast(1.12) blur(0.2px);
+}
+
+.ambient-background.ambient-intensity-low .cosmic-fluid-mount,
+.ambient-intensity-low .cosmic-fluid-mount {
+  opacity: 0.42 !important;
+}
+
+.ambient-background.ambient-intensity-medium .cosmic-fluid-mount,
+.ambient-intensity-medium .cosmic-fluid-mount {
+  opacity: 0.72 !important;
+}
+
+/* Make fluid feel more "boiled/liquid" above subtle orbital/neon layers. */
+.ambient-background canvas {
+  pointer-events: none;
+}
+
