@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, ChevronRight, MessageSquare } from "lucide-react";
+import { ArrowLeft, ChevronRight, MessageSquare, Heart } from "lucide-react";
 import { BackgroundStyleSettings } from "@/components/ambient/background-style-settings";
 import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 
@@ -23,6 +23,12 @@ export default function SettingsPage() {
             Personalization
           </h2>
           <div className="glass rounded-2xl divide-y divide-border">
+            <SettingsRow
+              href="/settings/companion"
+              icon={<Heart className="h-4 w-4" />}
+              title="Companion Mode"
+              subtitle="Choose how your assistant behaves emotionally"
+            />
             <SettingsRow
               href="/settings/style-profiles"
               icon={<MessageSquare className="h-4 w-4" />}

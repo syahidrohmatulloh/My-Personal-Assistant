@@ -757,3 +757,48 @@ export async function putCompanionMoodState(
   if (!r.ok) throw new Error(`putCompanionMoodState failed: ${r.status}`);
   return r.json();
 }
+// ---------------------------------------------------------------------------
+// Companion settings (Phase 4.12)
+//
+// Append to existing lib/api.ts. Uses the same getAuthHeader() + API_URL
+// patterns as the rest of the file.
+// ---------------------------------------------------------------------------
+
+export type CompanionMode = "professional" | "friendly" | "affectionate" | "partner";
+export type MoodRealism = "stable" | "dynamic";
+
+export type CompanionSettings = {
+  companion_mode: CompanionMode;
+  assistant_name: string;
+  mood_realism: MoodRealism;
+  repair_gate_enabled: boolean;
+};
+
+export type CompanionSettingsPatch = Partial<CompanionSettings>;
+
+export async function getCompanionSettings(): Promise<CompanionSettings> {
+  const headers = await getAuthHeader();
+  const r = await fetch(`${API_URL}/companion/settings`, { headers });
+  if (!r.ok) throw new Error(`getCompanionSettings failed: ${r.status}`);
+  return r.json();
+}
+
+export async function patchCompanionSettings(
+  patch: CompanionSettingsPatch,
+): Promise<CompanionSettings> {
+  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  const r = await fetch(`${API_URL}/companion/settings`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) {
+    let detail = `patchCompanionSettings failed: ${r.status}`;
+    try {
+      const j = await r.json();
+      if (j?.detail) detail = j.detail;
+    } catch {}
+    throw new Error(detail);
+  }
+  return r.json();
+}

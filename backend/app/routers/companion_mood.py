@@ -1,7 +1,21 @@
-"""Companion mood state API.
+"""Companion mood state API — frontend-facing endpoints.
 
-This stores Aliyya's current companion mood as an active state with expiry.
-It does not write to memories, messages, journal, goals, or identity.
+This router exists for frontend backwards compatibility. Internally it
+delegates to the `companion` service (new architecture) which reads/writes
+the singular `companion_mood_state` table.
+
+API contract unchanged from previous version:
+  - GET  /companion-mood?conversation_id=...  → returns {global, conversation, effective}
+  - PUT  /companion-mood                       → upsert mood state
+
+Changes vs previous implementation:
+  - No longer reads/writes `companion_mood_states` (plural, dropped in Zip 1)
+  - Conversation-scoped state requests collapse to global. Per audit decision:
+    one user has ONE mood at a time, not different moods per conversation tab.
+  - Mood ignored entirely if user's companion_settings is not partner+dynamic.
+    The service layer enforces this — PUT becomes a no-op for those users.
+  - `scope` and `conversation_id` fields preserved in request/response shape
+    so frontend doesn't need to change.
 """
 
 from __future__ import annotations
@@ -13,7 +27,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.core.auth import get_current_user_id
-from app.services.supabase_client import get_supabase
+from app.services import companion
 
 router = APIRouter(prefix="/companion-mood", tags=["companion_mood"])
 
@@ -41,7 +55,6 @@ class CompanionMoodIn(BaseModel):
     expires_at: str | None = None
 
 
-
 def _default_mood_scores() -> dict[str, int]:
     return {
         "calm": 2,
@@ -58,16 +71,24 @@ def _default_mood_scores() -> dict[str, int]:
         "withdrawn_soft": 0,
     }
 
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def _default_state(user_id: str, conversation_id: str | None = None) -> dict[str, Any]:
+    """Cold-start payload for frontend when no real state exists.
+
+    Shape preserved from previous implementation so frontend deserialization
+    doesn't break.
+    """
     now = _now()
     return {
         "id": None,
         "user_id": user_id,
         "conversation_id": conversation_id,
+        # Echo whatever scope the client asked for, even though backend
+        # collapses to global internally.
         "scope": "conversation" if conversation_id else "global",
         "mood": "calm",
         "intensity": 1,
@@ -89,28 +110,18 @@ def _default_state(user_id: str, conversation_id: str | None = None) -> dict[str
     }
 
 
-def _normalize_scope(scope: str, conversation_id: str | None) -> str:
-    if scope == "conversation" or conversation_id:
-        return "conversation"
-    return "global"
+def _new_table_row_to_legacy_shape(row: dict[str, Any] | None, user_id: str) -> dict[str, Any] | None:
+    """Convert companion_mood_state (new singular table) row to legacy shape.
 
-
-def _fetch_state(supabase, user_id: str, scope: str, conversation_id: str | None):
-    q = (
-        supabase.table("companion_mood_states")
-        .select("*")
-        .eq("user_id", user_id)
-        .eq("scope", scope)
-        .limit(1)
-    )
-
-    if scope == "conversation" and conversation_id:
-        q = q.eq("conversation_id", conversation_id)
-    else:
-        q = q.is_("conversation_id", "null")
-
-    result = q.execute()
-    return result.data[0] if result.data else None
+    The new table has the same columns minus `scope` and `conversation_id`,
+    so we inject those for frontend compatibility.
+    """
+    if not row:
+        return None
+    out = dict(row)
+    out["scope"] = "global"
+    out["conversation_id"] = None
+    return out
 
 
 @router.get("")
@@ -118,21 +129,29 @@ async def get_companion_mood(
     conversation_id: str | None = None,
     user_id: str = Depends(get_current_user_id),
 ):
-    supabase = get_supabase()
+    """Frontend-compat read endpoint.
 
-    global_state = _fetch_state(supabase, user_id, "global", None)
-    conversation_state = (
-        _fetch_state(supabase, user_id, "conversation", conversation_id)
-        if conversation_id
-        else None
-    )
+    Always returns the same global mood (single source of truth in the new
+    architecture). The `conversation` key is None unless we choose to mirror
+    the global state under it — we don't, because frontend logic that prefers
+    conversation over global would then double-render.
 
-    effective = conversation_state or global_state or _default_state(user_id, conversation_id)
+    For users not on partner+dynamic, returns the cold-start default and the
+    frontend's UI will look the same as before mood-realism was disabled.
+    """
+    current_mood = await companion.get_current_mood(user_id)
+    # current_mood is None when companion_mode != partner OR realism != dynamic.
+    # Frontend already deals with default state, just give it one.
+    global_state = _new_table_row_to_legacy_shape(current_mood, user_id)
+
+    if not global_state:
+        global_state = _default_state(user_id)
 
     return {
         "global": global_state,
-        "conversation": conversation_state,
-        "effective": effective,
+        # Conversation scope is intentionally None — no per-conversation moods anymore.
+        "conversation": None,
+        "effective": global_state,
     }
 
 
@@ -141,19 +160,44 @@ async def put_companion_mood(
     body: CompanionMoodIn,
     user_id: str = Depends(get_current_user_id),
 ):
-    supabase = get_supabase()
+    """Frontend-compat write endpoint.
 
-    scope = _normalize_scope(body.scope, body.conversation_id)
-    conversation_id = body.conversation_id if scope == "conversation" else None
-    existing = _fetch_state(supabase, user_id, scope, conversation_id)
+    Delegates to `companion.update_mood`. Silently no-ops if user is not on
+    partner+dynamic — that's per service-layer gating, not a router decision.
+    In that case we return the in-memory payload so the frontend's optimistic
+    update doesn't fail, but nothing is persisted.
 
+    Note: `scope` and `conversation_id` are accepted but ignored — mood is
+    always global now. We log nothing about this to keep frontend logs clean.
+    """
+    updated = await companion.update_mood(
+        user_id,
+        mood=body.mood,
+        intensity=body.intensity,
+        reason=body.reason,
+        last_trigger=body.last_trigger,
+        source=body.source,
+        valence=body.valence,
+        arousal=body.arousal,
+        attachment=body.attachment,
+        trust=body.trust,
+        insecurity=body.insecurity,
+        warmth=body.warmth,
+        playfulness=body.playfulness,
+        mood_scores=body.mood_scores or _default_mood_scores(),
+    )
+
+    if updated:
+        return _new_table_row_to_legacy_shape(updated, user_id)
+
+    # Service returned None = mood not enabled for this user. Return what the
+    # client sent so its optimistic UI doesn't reject the response.
     now = _now()
-    expires_at = body.expires_at or (now + timedelta(minutes=30)).isoformat()
-
-    row = {
+    return {
+        "id": None,
         "user_id": user_id,
-        "conversation_id": conversation_id,
-        "scope": scope,
+        "conversation_id": body.conversation_id,
+        "scope": "global",  # always global now
         "mood": body.mood,
         "intensity": body.intensity,
         "mood_scores": body.mood_scores or _default_mood_scores(),
@@ -166,21 +210,9 @@ async def put_companion_mood(
         "playfulness": body.playfulness,
         "reason": body.reason,
         "last_trigger": body.last_trigger,
-        "source": body.source,
-        "expires_at": expires_at,
+        "source": "noop_mood_disabled",
+        "version": 0,
+        "expires_at": (now + timedelta(minutes=30)).isoformat(),
+        "created_at": now.isoformat(),
         "updated_at": now.isoformat(),
-        "version": (existing.get("version", 0) + 1) if existing else 1,
     }
-
-    if existing:
-        result = (
-            supabase.table("companion_mood_states")
-            .update(row)
-            .eq("id", existing["id"])
-            .eq("user_id", user_id)
-            .execute()
-        )
-    else:
-        result = supabase.table("companion_mood_states").insert(row).execute()
-
-    return result.data[0] if result.data else row
