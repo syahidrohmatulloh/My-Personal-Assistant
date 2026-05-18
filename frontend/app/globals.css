@@ -1123,9 +1123,9 @@ button[data-selected="true"]::after {
 }
 
 /* --------------------------------------------------------------------------
-   Ambient cursor magnetism — clean version
-   No new visual object. No cursor glow. No particle canvas.
-   Only existing ambient pseudo-elements are translated/speed-adjusted.
+   Ambient layer magnetism — correct target
+   Existing background objects are .ambient-layer-a/b/c, not ::before/::after.
+   No new object. No particle canvas. No cursor glow.
 -------------------------------------------------------------------------- */
 
 :root {
@@ -1138,7 +1138,7 @@ button[data-selected="true"]::after {
   --ambient-magnet-blur: 0px;
 }
 
-/* Ensure all wrong previous extra visual layers are dead. */
+/* Kill previous wrong added visual objects. */
 .ambient-opera-neon-field,
 .ambient-opera-neon-canvas,
 .ambient-cursor-reactive-glow {
@@ -1148,7 +1148,7 @@ button[data-selected="true"]::after {
   pointer-events: none !important;
 }
 
-/* Fluid is only a subtle rear layer. */
+/* Fluid stays as a very subtle rear layer. */
 html[data-ambient-neon-parallax="true"] .ambient-background .cosmic-fluid-mount,
 html[data-ambient-neon-parallax="true"] .cosmic-fluid-mount {
   opacity: 0.06 !important;
@@ -1158,93 +1158,66 @@ html[data-ambient-neon-parallax="true"] .cosmic-fluid-mount {
   pointer-events: none !important;
 }
 
-/* IMPORTANT:
-   Do not redefine background gradients here.
-   This only moves/speeds up existing ::before/::after objects. */
-html[data-ambient-neon-parallax="true"] .ambient-background::before {
+/* The visible ambient objects are these layers. Move them with the cursor. */
+html[data-ambient-neon-parallax="true"] .ambient-background .ambient-layer-a {
   transform:
     translate3d(var(--ambient-magnet-x), var(--ambient-magnet-y), 0)
     scale(var(--ambient-magnet-scale)) !important;
-  transform-origin: center;
-  animation-duration: calc(18s / var(--ambient-magnet-speed)) !important;
-  filter: blur(var(--ambient-magnet-blur)) saturate(1.08);
+  transform-origin: center center !important;
+  animation-duration: calc(14s / var(--ambient-magnet-speed)) !important;
+  filter: blur(var(--ambient-magnet-blur)) saturate(1.12) contrast(1.05);
   will-change: transform, filter;
 }
 
-html[data-ambient-neon-parallax="true"] .ambient-background::after {
+html[data-ambient-neon-parallax="true"] .ambient-background .ambient-layer-b {
   transform:
     translate3d(var(--ambient-magnet-far-x), var(--ambient-magnet-far-y), 0)
     scale(calc(var(--ambient-magnet-scale) * 0.995)) !important;
-  transform-origin: center;
-  animation-duration: calc(26s / var(--ambient-magnet-speed)) !important;
-  filter: blur(calc(var(--ambient-magnet-blur) * 0.5)) saturate(1.04);
+  transform-origin: center center !important;
+  animation-duration: calc(20s / var(--ambient-magnet-speed)) !important;
+  filter: blur(calc(var(--ambient-magnet-blur) * 0.55)) saturate(1.08);
   will-change: transform, filter;
 }
 
+html[data-ambient-neon-parallax="true"] .ambient-background .ambient-layer-c {
+  transform:
+    translate3d(calc(var(--ambient-magnet-x) * 0.28), calc(var(--ambient-magnet-y) * 0.28), 0)
+    scale(calc(var(--ambient-magnet-scale) * 0.99)) !important;
+  transform-origin: center center !important;
+  animation-duration: calc(28s / var(--ambient-magnet-speed)) !important;
+  will-change: transform, filter;
+}
+
+/* Make the cursor response visible but not too aggressive. */
+html[data-ambient-neon-parallax="true"] body {
+  --ambient-magnet-scale: 1.025;
+}
+
+/* Keep selected orbital/pattern layer readable in light mode. */
+@media (prefers-color-scheme: light) {
+  html[data-ambient-neon-parallax="true"] .ambient-background .cosmic-fluid-mount,
+  html[data-ambient-neon-parallax="true"] .cosmic-fluid-mount {
+    opacity: 0.045 !important;
+    filter: blur(34px) saturate(0.88) contrast(0.9) !important;
+    mix-blend-mode: multiply !important;
+  }
+
+  html[data-ambient-neon-parallax="true"] .ambient-background .ambient-layer-a {
+    opacity: 0.95;
+  }
+
+  html[data-ambient-neon-parallax="true"] .ambient-background .ambient-layer-b {
+    opacity: 0.78;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  html[data-ambient-neon-parallax="true"] .ambient-background::before,
-  html[data-ambient-neon-parallax="true"] .ambient-background::after {
+  html[data-ambient-neon-parallax="true"] .ambient-background .ambient-layer-a,
+  html[data-ambient-neon-parallax="true"] .ambient-background .ambient-layer-b,
+  html[data-ambient-neon-parallax="true"] .ambient-background .ambient-layer-c {
     transform: none !important;
     animation-duration: inherit !important;
   }
 }
 
-
-
-/* --------------------------------------------------------------------------
-   Final override: existing ambient object follows mouse.
-   This creates no new object; it only transforms current ::before/::after.
--------------------------------------------------------------------------- */
-
-html[data-ambient-neon-parallax="true"] body .ambient-background::before {
-  transform:
-    translate3d(var(--ambient-magnet-x, 0px), var(--ambient-magnet-y, 0px), 0)
-    scale(var(--ambient-magnet-scale, 1)) !important;
-  transform-origin: center center !important;
-  animation-duration: calc(16s / var(--ambient-magnet-speed, 1)) !important;
-  will-change: transform, filter !important;
-}
-
-html[data-ambient-neon-parallax="true"] body .ambient-background::after {
-  transform:
-    translate3d(var(--ambient-magnet-far-x, 0px), var(--ambient-magnet-far-y, 0px), 0)
-    scale(calc(var(--ambient-magnet-scale, 1) * 0.995)) !important;
-  transform-origin: center center !important;
-  animation-duration: calc(24s / var(--ambient-magnet-speed, 1)) !important;
-  will-change: transform, filter !important;
-}
-
-/* Make the effect more obvious. */
-html[data-ambient-neon-parallax="true"] body {
-  --ambient-magnet-scale: 1.025;
-}
-
-
-/* --------------------------------------------------------------------------
-   Fix cursor magnetism not visible:
-   Existing ambient objects are animated with transform keyframes.
-   Use individual CSS transform property "translate" so mouse movement composes
-   with the existing animation instead of being overwritten by it.
--------------------------------------------------------------------------- */
-
-html[data-ambient-neon-parallax="true"] .ambient-background::before {
-  translate: var(--ambient-magnet-x, 0px) var(--ambient-magnet-y, 0px) !important;
-  scale: var(--ambient-magnet-scale, 1) !important;
-  transform-origin: center center !important;
-  animation-duration: calc(14s / var(--ambient-magnet-speed, 1)) !important;
-  will-change: translate, scale, filter !important;
-}
-
-html[data-ambient-neon-parallax="true"] .ambient-background::after {
-  translate: var(--ambient-magnet-far-x, 0px) var(--ambient-magnet-far-y, 0px) !important;
-  scale: calc(var(--ambient-magnet-scale, 1) * 0.995) !important;
-  transform-origin: center center !important;
-  animation-duration: calc(22s / var(--ambient-magnet-speed, 1)) !important;
-  will-change: translate, scale, filter !important;
-}
-
-/* Make movement more obvious while testing. */
-html[data-ambient-neon-parallax="true"] body {
-  --ambient-magnet-scale: 1.035;
-}
 
