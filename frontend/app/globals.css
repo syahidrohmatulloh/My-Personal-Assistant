@@ -1221,3 +1221,48 @@ html[data-ambient-neon-parallax="true"] body {
 }
 
 
+
+/* --------------------------------------------------------------------------
+   Tuning: reduce inner orbital movement
+   Layer A is the visually dominant/inner orbit, so keep it much calmer.
+   Layer B remains the subtle outer orbit.
+-------------------------------------------------------------------------- */
+
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings .ambient-layer-a {
+  transform:
+    translate3d(
+      calc(var(--ambient-magnet-x) * 0.22),
+      calc(var(--ambient-magnet-y) * 0.18),
+      0
+    )
+    scale(1.008) !important;
+  filter: blur(0.08px) saturate(1.08) contrast(1.03) !important;
+}
+
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings .ambient-layer-b {
+  transform:
+    translate3d(
+      calc(var(--ambient-magnet-far-x) * 0.45),
+      calc(var(--ambient-magnet-far-y) * 0.38),
+      0
+    )
+    scale(1.004) !important;
+  filter: blur(0.05px) saturate(1.04) !important;
+}
+
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings .ambient-layer-c {
+  transform:
+    translate3d(
+      calc(var(--ambient-magnet-x) * 0.08),
+      calc(var(--ambient-magnet-y) * 0.06),
+      0
+    )
+    scale(1) !important;
+}
+
+/* Also reduce speed spike specifically for orbital rings to avoid dizziness. */
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings .ambient-layer-a,
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings .ambient-layer-b {
+  animation-duration: 26s !important;
+}
+
