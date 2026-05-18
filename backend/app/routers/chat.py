@@ -44,7 +44,9 @@ from app.services import (
     conversation_summary,
     life_model,
     memory,
+    user_mood,
 )
+from app.services.user_mood_prompt import render_user_mood_block
 from app.services.claude import get_claude
 from app.services.prompt_builder import (
     BASE_PROMPT,
@@ -421,6 +423,7 @@ async def chat(
         detected_mode,
         companion_settings_row,
         current_mood,
+        user_mood_ctx,
     ) = await asyncio.gather(
         _check_ownership(supabase, body.conversation_id, user_id),
         _save_user_message(supabase, body.conversation_id, body.message),
@@ -444,6 +447,10 @@ async def chat(
         # Current companion mood. Returns None if mood is not applicable
         # per user settings (mode != 'partner' or realism != 'dynamic').
         companion.get_current_mood(user_id),
+        # User mood (Layer A) — inferred from emotional_state + current msg.
+        # Read-only, never overwrites companion mood. Returns has_data: False
+        # when there's nothing useful to render.
+        user_mood.infer_user_mood(user_id, current_message=body.message),
     )
 
     if not convo_result or not convo_result.data:
@@ -492,6 +499,13 @@ async def chat(
     ui_context_block = _render_ui_context(body.ui_context)
     if ui_context_block:
         volatile_context += "\n\n" + ui_context_block
+
+    # User mood (Layer A) — appended BEFORE companion mood so it sits
+    # higher in the context. User mood informs how the assistant should
+    # behave; companion mood is the assistant's own affect.
+    user_mood_block = render_user_mood_block(user_mood_ctx)
+    if user_mood_block:
+        volatile_context += "\n\n" + user_mood_block
 
     # Companion mood block — ONLY injected if user has dynamic mood enabled.
     # Default users (professional/friendly/affectionate or stable realism) get
