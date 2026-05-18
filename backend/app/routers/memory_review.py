@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from app.core.auth import get_current_user_id
 from app.services.embeddings import embed_document
 from app.services.supabase_client import get_supabase, safe_execute
+from app.services import memory_consolidation
 
 
 router = APIRouter(prefix="/memory-review", tags=["memory_review"])
@@ -64,6 +65,30 @@ class MemoryActionOut(BaseModel):
     action: str
     memory_id: str | None = None
     new_memory_id: str | None = None
+
+
+@router.post("/consolidate")
+async def consolidate_memories(
+    days: int = 30,
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    """Manually consolidate recent active memories into higher-level memories."""
+    if days < 7 or days > 180:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="days must be between 7 and 180",
+        )
+
+    try:
+        return await memory_consolidation.consolidate_and_persist(
+            user_id=user_id,
+            days=days,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to consolidate memories: {exc}",
+        ) from exc
 
 
 @router.get("")

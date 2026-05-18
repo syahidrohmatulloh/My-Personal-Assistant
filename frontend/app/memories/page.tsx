@@ -5,6 +5,7 @@ import type { ReactNode } from "react"
 import Link from "next/link"
 import {
   Archive,
+  Brain,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -82,6 +83,7 @@ export default function MemoriesPage() {
   const [data, setData] = useState<MemoryReviewPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [consolidating, setConsolidating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<"active" | "archived">("active")
   const [query, setQuery] = useState("")
@@ -177,6 +179,28 @@ export default function MemoriesPage() {
     }
   }
 
+  async function consolidateMemories() {
+    setConsolidating(true)
+    setError(null)
+
+    try {
+      const res = await fetch("/api/memory-review/consolidate?days=30", {
+        method: "POST",
+      })
+
+      if (!res.ok) {
+        const detail = await safeDetail(res)
+        throw new Error(detail || "Failed to consolidate memories")
+      }
+
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to consolidate memories")
+    } finally {
+      setConsolidating(false)
+    }
+  }
+
   async function saveEdit() {
     if (!edit) return
 
@@ -239,6 +263,19 @@ export default function MemoriesPage() {
               >
                 Back to chat
               </Link>
+              <button
+                onClick={() => void consolidateMemories()}
+                disabled={consolidating || loading}
+                className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/65 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm shadow-slate-900/5 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
+              >
+                {consolidating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Brain className="h-4 w-4" />
+                )}
+                Consolidate
+              </button>
+
               <button
                 onClick={() => void load()}
                 disabled={loading}
