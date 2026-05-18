@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from app.core.auth import get_current_user_id
-from app.services import briefing
+from app.services import briefing, companion
 from app.services.supabase_client import get_supabase, safe_execute
 
 log = logging.getLogger(__name__)
@@ -22,6 +22,12 @@ router = APIRouter(prefix="/briefing", tags=["briefing"])
 
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _main_chat_title_from_settings(settings_row: dict | None) -> str:
+    assistant_name = str((settings_row or {}).get("assistant_name") or "").strip()
+    return f"Main Chat - {assistant_name or 'Assistant'}"
+
 
 
 @router.get("/today")
@@ -48,19 +54,18 @@ class OpenBriefingIn(BaseModel):
     title: str | None = None
 
 
-@router.post("/{briefing_id}/open", status_code=status.HTTP_201_CREATED)
+@router.post("/{briefing_id}/open")
 async def open_briefing(
     briefing_id: str,
     body: OpenBriefingIn,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Create a new conversation seeded with the briefing as the first
-    assistant message. Returns {conversation_id}.
+    """Link the briefing to the user's Main Chat and return that conversation.
 
-    Idempotent — if the briefing was already opened, returns the existing
-    conversation_id.
+    This does not create a separate briefing conversation and does not insert
+    the briefing as an automatic chat message. The frontend can show the
+    briefing as a card and only discuss it when the user explicitly asks.
     """
-    # Look up the briefing.
     res = safe_execute(
         lambda sb: sb.table("daily_briefings")
         .select("id, content, conversation_id")
@@ -74,37 +79,60 @@ async def open_briefing(
 
     row = res.data
 
-    # If already opened, return existing convo.
-    if row.get("conversation_id"):
-        return {"conversation_id": row["conversation_id"]}
-
-    # Create the conversation.
-    title = body.title or "Morning briefing"
-    convo_res = safe_execute(
-        lambda sb: sb.table("conversations")
-        .insert({"user_id": user_id, "title": title})
+    mapping = safe_execute(
+        lambda sb: sb.table("user_main_chats")
+        .select("conversation_id")
+        .eq("user_id", user_id)
+        .maybe_single()
         .execute()
     )
-    conversation_id = convo_res.data[0]["id"]
 
-    # Seed the conversation with the briefing as an assistant message.
-    safe_execute(
-        lambda sb: sb.table("messages")
-        .insert(
-            {
-                "conversation_id": conversation_id,
-                "role": "assistant",
-                "content": row["content"],
-            }
+    conversation_id = (mapping.data or {}).get("conversation_id") if mapping else None
+
+    if conversation_id:
+        existing = safe_execute(
+            lambda sb: sb.table("conversations")
+            .select("id")
+            .eq("id", conversation_id)
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
         )
-        .execute()
-    )
+        if not existing or not existing.data:
+            conversation_id = None
 
-    # Link briefing → conversation.
-    await briefing.mark_briefing_opened(
-        user_id=user_id,
-        briefing_id=briefing_id,
-        conversation_id=conversation_id,
-    )
+    if not conversation_id:
+        companion_settings = await companion.get_settings(user_id)
+        title = _main_chat_title_from_settings(companion_settings)
+        created = safe_execute(
+            lambda sb: sb.table("conversations")
+            .insert({"user_id": user_id, "title": title})
+            .execute()
+        )
+        if not created.data:
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "Failed to create Main Chat",
+            )
+
+        conversation_id = created.data[0]["id"]
+
+        safe_execute(
+            lambda sb: sb.table("user_main_chats")
+            .upsert(
+                {
+                    "user_id": user_id,
+                    "conversation_id": conversation_id,
+                }
+            )
+            .execute()
+        )
+
+    if row.get("conversation_id") != conversation_id:
+        await briefing.mark_briefing_opened(
+            user_id=user_id,
+            briefing_id=briefing_id,
+            conversation_id=conversation_id,
+        )
 
     return {"conversation_id": conversation_id}
