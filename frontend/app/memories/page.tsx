@@ -141,9 +141,6 @@ export default function MemoriesPage() {
   const [edit, setEdit] = useState<EditState | null>(null)
   const [manualAddOpen, setManualAddOpen] = useState(false)
   const [manualContent, setManualContent] = useState("")
-  const [manualCategory, setManualCategory] = useState("other")
-  const [manualStructuredField, setManualStructuredField] = useState("")
-  const [manualStructuredValue, setManualStructuredValue] = useState("")
   const [pinStatus, setPinStatus] = useState<{ memory_pin_enabled: boolean } | null>(null)
   const [pinModal, setPinModal] = useState<null | {
     title: string
@@ -331,9 +328,6 @@ export default function MemoriesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           content: manualContent.trim(),
-          category: manualCategory,
-          structured_field: manualStructuredField.trim() || null,
-          structured_value: manualStructuredValue.trim() || null,
           pin,
         }),
       })
@@ -344,9 +338,6 @@ export default function MemoriesPage() {
       }
 
       setManualContent("")
-      setManualCategory("other")
-      setManualStructuredField("")
-      setManualStructuredValue("")
       setManualAddOpen(false)
       setVerifiedMemoryPin(null)
       await load()
@@ -370,9 +361,6 @@ export default function MemoriesPage() {
 
       const body = {
         content: edit.content.trim(),
-        category: edit.category || undefined,
-        structured_field: edit.structured_field.trim() || null,
-        structured_value: edit.structured_value.trim() || null,
         pin: verifiedMemoryPin,
       }
 
@@ -635,13 +623,7 @@ export default function MemoriesPage() {
         <ManualAddDialog
           saving={savingId === "manual-add"}
           content={manualContent}
-          category={manualCategory}
-          structuredField={manualStructuredField}
-          structuredValue={manualStructuredValue}
           onContentChange={setManualContent}
-          onCategoryChange={setManualCategory}
-          onStructuredFieldChange={setManualStructuredField}
-          onStructuredValueChange={setManualStructuredValue}
           onCancel={() => {
             setManualAddOpen(false)
             setVerifiedMemoryPin(null)
@@ -716,6 +698,21 @@ function TabButton({
       {label}
     </button>
   )
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "—"
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
 }
 
 function MemoryCard({
@@ -900,6 +897,46 @@ function Badge({
   )
 }
 
+
+function LoadingState() {
+  return (
+    <div className="rounded-[1.5rem] border border-slate-200/70 bg-white/70 p-6 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035]">
+      <div className="space-y-4">
+        <div className="h-5 w-40 animate-pulse rounded-full bg-slate-200 dark:bg-white/10" />
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="h-36 animate-pulse rounded-2xl bg-slate-100 dark:bg-white/5" />
+          <div className="h-36 animate-pulse rounded-2xl bg-slate-100 dark:bg-white/5" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EmptyState({
+  tab,
+  query,
+}: {
+  tab: "active" | "archived"
+  query: string
+}) {
+  const hasSearch = query.trim().length > 0
+
+  return (
+    <div className="rounded-[1.5rem] border border-slate-200/70 bg-white/70 p-8 text-center shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035]">
+      <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
+        {hasSearch ? "No matching memories" : "No memories found"}
+      </h2>
+      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500 dark:text-zinc-400">
+        {hasSearch
+          ? "Try a different search term."
+          : tab === "archived"
+            ? "Archived memories will appear here after you forget or replace an existing memory."
+            : "Aliyya has no active memories yet. Add one, or keep chatting so Aliyya can learn what matters."}
+      </p>
+    </div>
+  )
+}
+
 function MemoryPinDialog({
   title,
   description,
@@ -984,25 +1021,13 @@ function MemoryPinDialog({
 function ManualAddDialog({
   saving,
   content,
-  category,
-  structuredField,
-  structuredValue,
   onContentChange,
-  onCategoryChange,
-  onStructuredFieldChange,
-  onStructuredValueChange,
   onCancel,
   onSave,
 }: {
   saving: boolean
   content: string
-  category: string
-  structuredField: string
-  structuredValue: string
   onContentChange: (value: string) => void
-  onCategoryChange: (value: string) => void
-  onStructuredFieldChange: (value: string) => void
-  onStructuredValueChange: (value: string) => void
   onCancel: () => void
   onSave: () => void
 }) {
@@ -1015,12 +1040,13 @@ function ManualAddDialog({
               Add memory
             </h2>
             <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">
-              Add something stable that Aliyya should remember long term.
+              Write what Aliyya should remember. Aliyya will organize it automatically.
             </p>
           </div>
           <button
             onClick={onCancel}
             className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
+            aria-label="Close add memory"
           >
             <X className="h-5 w-5" />
           </button>
@@ -1034,62 +1060,14 @@ function ManualAddDialog({
             <textarea
               value={content}
               onChange={(event) => onContentChange(event.target.value)}
-              rows={5}
-              placeholder="User prefers careful, complete patches instead of incremental fixes."
+              rows={6}
+              placeholder="Example: I prefer careful, complete code fixes instead of quick incremental patches."
               className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
             />
           </label>
 
-          <div>
-            <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">
-              Details
-            </p>
-            <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-zinc-500">
-              Choose a category if you know it. Memory key/value are optional advanced details for exact facts like timezone, birthday, or nickname.
-            </p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <label className="block">
-              <span className="text-sm text-slate-700 dark:text-zinc-300">
-                Category
-              </span>
-              <select
-                value={category}
-                onChange={(event) => onCategoryChange(event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-sm text-slate-900 outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white"
-              >
-                {CATEGORY_OPTIONS.map((category) => (
-                  <option key={category} value={category}>
-                    {categoryLabel(category)}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="text-sm text-slate-700 dark:text-zinc-300">
-                Memory key
-              </span>
-              <input
-                value={structuredField}
-                onChange={(event) => onStructuredFieldChange(event.target.value)}
-                placeholder="Optional, e.g. timezone"
-                className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-sm text-slate-700 dark:text-zinc-300">
-                Memory value
-              </span>
-              <input
-                value={structuredValue}
-                onChange={(event) => onStructuredValueChange(event.target.value)}
-                placeholder="Optional, e.g. Asia/Jakarta"
-                className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
-              />
-            </label>
+          <div className="rounded-2xl border border-cyan-200/70 bg-cyan-50/70 p-3 text-xs leading-5 text-cyan-900 dark:border-cyan-300/15 dark:bg-cyan-300/10 dark:text-cyan-100">
+            Aliyya will automatically decide the memory type and details in the background.
           </div>
         </div>
 
@@ -1116,31 +1094,34 @@ function ManualAddDialog({
 }
 
 function EditDialog({
-  edit,
   saving,
+  edit,
   onChange,
   onCancel,
   onSave,
 }: {
-  edit: EditState
   saving: boolean
-  onChange: (value: EditState) => void
+  edit: EditState
+  onChange: (edit: EditState) => void
   onCancel: () => void
   onSave: () => void
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 dark:bg-black/70 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-2xl rounded-[1.5rem] border border-slate-200/70 dark:border-white/10 bg-white dark:bg-[#10101c] p-5 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm dark:bg-black/70">
+      <div className="w-full max-w-2xl rounded-[1.5rem] border border-slate-200/70 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-[#10101c]">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-slate-950 dark:text-white">Edit memory</h2>
+            <h2 className="text-xl font-semibold text-slate-950 dark:text-white">
+              Edit memory
+            </h2>
             <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">
-              This creates a corrected version and archives the old memory.
+              Update what Aliyya should remember. Aliyya will organize it automatically.
             </p>
           </div>
           <button
             onClick={onCancel}
-            className="rounded-full p-2 text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:bg-white/10 hover:text-slate-950 dark:text-white"
+            className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
+            aria-label="Close edit memory"
           >
             <X className="h-5 w-5" />
           </button>
@@ -1148,125 +1129,43 @@ function EditDialog({
 
         <div className="mt-5 space-y-4">
           <label className="block">
-            <span className="text-sm text-slate-700 dark:text-zinc-300">Content</span>
+            <span className="text-sm text-slate-700 dark:text-zinc-300">
+              What should Aliyya remember?
+            </span>
             <textarea
               value={edit.content}
-              onChange={(event) =>
-                onChange({ ...edit, content: event.target.value })
-              }
-              rows={5}
-              className="mt-2 w-full rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-black/25 p-3 text-sm text-slate-950 dark:text-white outline-none focus:border-cyan-300/70"
+              onChange={(event) => onChange({ ...edit, content: event.target.value })}
+              rows={6}
+              placeholder="Example: I prefer careful, complete code fixes instead of quick incremental patches."
+              className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
             />
           </label>
 
-          <div>
-            <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">
-              Details
-            </p>
-            <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-zinc-500">
-              Category organizes the memory. Memory key/value are optional advanced details for exact facts.
-            </p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <label className="block">
-              <span className="text-sm text-slate-700 dark:text-zinc-300">Category</span>
-              <select
-                value={edit.category}
-                onChange={(event) =>
-                  onChange({ ...edit, category: event.target.value })
-                }
-                className="mt-2 w-full rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-black/25 p-3 text-sm text-slate-950 dark:text-white outline-none focus:border-cyan-300/70"
-              >
-                {CATEGORY_OPTIONS.map((category) => (
-                  <option key={category} value={category}>
-                    {categoryLabel(category)}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="text-sm text-slate-700 dark:text-zinc-300">Memory key</span>
-              <input
-                value={edit.structured_field}
-                onChange={(event) =>
-                  onChange({ ...edit, structured_field: event.target.value })
-                }
-                placeholder="Optional, e.g. birthday"
-                className="mt-2 w-full rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-black/25 p-3 text-sm text-slate-950 dark:text-white outline-none placeholder:text-slate-400 dark:text-zinc-600 focus:border-cyan-300/70"
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-sm text-slate-700 dark:text-zinc-300">Memory value</span>
-              <input
-                value={edit.structured_value}
-                onChange={(event) =>
-                  onChange({ ...edit, structured_value: event.target.value })
-                }
-                placeholder="Optional, e.g. 1995-01-07"
-                className="mt-2 w-full rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-black/25 p-3 text-sm text-slate-950 dark:text-white outline-none placeholder:text-slate-400 dark:text-zinc-600 focus:border-cyan-300/70"
-              />
-            </label>
+          <div className="rounded-2xl border border-cyan-200/70 bg-cyan-50/70 p-3 text-xs leading-5 text-cyan-900 dark:border-cyan-300/15 dark:bg-cyan-300/10 dark:text-cyan-100">
+            Aliyya will automatically update the memory type and details in the background.
           </div>
         </div>
 
-        <div className="mt-6 flex justify-end gap-3">
+        <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
           <button
             onClick={onCancel}
             disabled={saving}
-            className="rounded-full border border-slate-200/70 dark:border-white/10 px-4 py-2 text-sm text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:bg-white/10 disabled:opacity-50"
+            className="rounded-full border border-slate-200/70 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
           >
             Cancel
           </button>
           <button
             onClick={onSave}
             disabled={saving || edit.content.trim().length < 3}
-            className="inline-flex items-center gap-2 rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Save edited memory
+            Save changes
           </button>
         </div>
       </div>
     </div>
   )
-}
-
-function LoadingState() {
-  return (
-    <div className="flex items-center justify-center rounded-[1.5rem] border border-slate-200/70 dark:border-white/10 bg-white/65 dark:bg-white/[0.03] p-12 text-slate-500 dark:text-zinc-400">
-      <Loader2 className="mr-3 h-5 w-5 animate-spin" />
-      Loading memories...
-    </div>
-  )
-}
-
-function EmptyState({ tab, query }: { tab: string; query: string }) {
-  return (
-    <div className="rounded-[1.5rem] border border-slate-200/70 dark:border-white/10 bg-white/65 dark:bg-white/[0.03] p-12 text-center">
-      <p className="text-lg font-medium text-slate-950 dark:text-white">No memories found</p>
-      <p className="mt-2 text-sm text-slate-500 dark:text-zinc-400">
-        {query
-          ? "Try a different search keyword."
-          : tab === "active"
-            ? "Aliyya has no active memories yet."
-            : "No archived memories yet."}
-      </p>
-    </div>
-  )
-}
-
-function formatDate(value: string) {
-  try {
-    return new Intl.DateTimeFormat("en", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(new Date(value))
-  } catch {
-    return value
-  }
 }
 
 async function safeDetail(res: Response) {
