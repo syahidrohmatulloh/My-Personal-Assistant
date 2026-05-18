@@ -898,6 +898,12 @@ function MemoryPinDialog({
           <input
             value={pin}
             onChange={(event) => onPinChange(cleanPin(event.target.value))}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && pin.length === 6 && !saving) {
+                event.preventDefault()
+                onConfirm()
+              }
+            }}
             inputMode="numeric"
             autoComplete="off"
             pattern="[0-9]*"

@@ -208,6 +208,11 @@ export default function SecuritySettingsPage() {
                         label="Confirm PIN"
                         value={confirmPin}
                         onChange={setConfirmPin}
+                        onEnter={() => {
+                          if (!saving && pin.length === 6 && confirmPin.length === 6) {
+                            void setupPin()
+                          }
+                        }}
                       />
 
                       <button
@@ -241,6 +246,16 @@ export default function SecuritySettingsPage() {
                         label="Confirm new PIN"
                         value={newPinConfirm}
                         onChange={setNewPinConfirm}
+                        onEnter={() => {
+                          if (
+                            !saving &&
+                            currentPin.length === 6 &&
+                            newPin.length === 6 &&
+                            newPinConfirm.length === 6
+                          ) {
+                            void changePin()
+                          }
+                        }}
                       />
 
                       <button
@@ -286,10 +301,12 @@ function PinInput({
   label,
   value,
   onChange,
+  onEnter,
 }: {
   label: string
   value: string
   onChange: (value: string) => void
+  onEnter?: () => void
 }) {
   return (
     <label className="block">
@@ -299,6 +316,12 @@ function PinInput({
       <input
         value={value}
         onChange={(event) => onChange(onlyDigits(event.target.value))}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && onEnter) {
+            event.preventDefault()
+            onEnter()
+          }
+        }}
         inputMode="numeric"
         autoComplete="off"
         pattern="[0-9]*"
