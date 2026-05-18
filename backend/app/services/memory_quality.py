@@ -90,6 +90,7 @@ class MemoryQualityIssue:
     title: str
     explanation: str
     suggested_action: str
+    reason: dict[str, Any]
     memories: list[dict[str, Any]]
 
 
@@ -278,6 +279,7 @@ def _duplicate_issues(groups: list[dict[str, Any]]) -> list[MemoryQualityIssue]:
             title="Possible duplicate memories",
             explanation="These memories look very similar and may be archived safely.",
             suggested_action="Keep the clearest memory and archive the others.",
+            reason=_duplicate_reason(group),
             memories=group["memories"],
         )
         for group in groups
@@ -293,6 +295,7 @@ def _conflict_issues(groups: list[dict[str, Any]]) -> list[MemoryQualityIssue]:
             title="Possible conflicting memories",
             explanation="These memories describe the same kind of fact but have different values.",
             suggested_action="Keep the version that is still true and archive the others.",
+            reason=_conflict_reason(group),
             memories=group["memories"],
         )
         for group in groups
@@ -308,6 +311,7 @@ def _low_quality_issues(items: list[dict[str, Any]]) -> list[MemoryQualityIssue]
             title="Memory may need more detail",
             explanation=", ".join(item["reasons"]),
             suggested_action="Edit the memory to make it clearer, or archive it.",
+            reason=_low_quality_reason(item),
             memories=[_issue_memory_payload(item)],
         )
         for item in items
@@ -331,6 +335,69 @@ def _group_payload(group_type: str, group: list[dict[str, Any]]) -> dict[str, An
     }
 
 
+def _duplicate_reason(group: dict[str, Any]) -> dict[str, Any]:
+    memories = group.get("memories") or []
+    fields = _unique_non_empty(memory.get("structured_field") for memory in memories)
+    values = _unique_non_empty(memory.get("structured_value") for memory in memories)
+
+    if len(fields) == 1 and len(values) == 1:
+        return {
+            "main": "These memories use the same memory key and store the same detail.",
+            "field": fields[0],
+            "values": values,
+        }
+
+    if len(fields) == 1:
+        return {
+            "main": "These memories use the same memory key and have very similar wording.",
+            "field": fields[0],
+            "values": values,
+        }
+
+    return {
+        "main": "These memories have very similar wording and may describe the same thing.",
+        "field": None,
+        "values": values,
+    }
+
+
+def _conflict_reason(group: dict[str, Any]) -> dict[str, Any]:
+    memories = group.get("memories") or []
+    fields = _unique_non_empty(memory.get("structured_field") for memory in memories)
+    values = _unique_non_empty(memory.get("structured_value") for memory in memories)
+
+    return {
+        "main": "These memories use the same memory key but store different details.",
+        "field": fields[0] if len(fields) == 1 else None,
+        "values": values,
+    }
+
+
+def _low_quality_reason(item: dict[str, Any]) -> dict[str, Any]:
+    reasons = item.get("reasons") or []
+
+    return {
+        "main": "This memory may not be clear enough to be useful later.",
+        "field": item.get("structured_field"),
+        "values": [item.get("structured_value")] if item.get("structured_value") else [],
+        "reasons": reasons,
+    }
+
+
+def _unique_non_empty(values: Any) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+
+    for value in values:
+        cleaned = _compact(value)
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        out.append(cleaned)
+
+    return out
+
+
 def _issue_to_dict(issue: MemoryQualityIssue) -> dict[str, Any]:
     return {
         "issue_type": issue.issue_type,
@@ -339,6 +406,7 @@ def _issue_to_dict(issue: MemoryQualityIssue) -> dict[str, Any]:
         "title": issue.title,
         "explanation": issue.explanation,
         "suggested_action": issue.suggested_action,
+        "reason": issue.reason,
         "memories": issue.memories,
     }
 

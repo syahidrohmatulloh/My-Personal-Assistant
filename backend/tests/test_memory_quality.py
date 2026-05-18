@@ -142,3 +142,78 @@ def test_review_items_include_memory_contents_for_user_resolution():
     assert item["memories"][0]["content"] == "User timezone is Asia/Jakarta."
     assert item["memories"][1]["id"] == "m2"
     assert item["memories"][1]["content"] == "User uses Asia/Jakarta timezone."
+
+
+def test_duplicate_review_item_explains_reason():
+    result = assess_memory_quality(
+        [
+            {
+                "id": "m1",
+                "content": "User timezone is Asia/Jakarta.",
+                "category": "identity",
+                "structured_field": "timezone",
+                "structured_value": "Asia/Jakarta",
+            },
+            {
+                "id": "m2",
+                "content": "User uses Asia/Jakarta timezone.",
+                "category": "identity",
+                "structured_field": "timezone",
+                "structured_value": "Asia/Jakarta",
+            },
+        ]
+    )
+
+    item = result["review_items"][0]
+    assert item["issue_type"] == "duplicate"
+    assert item["reason"]["field"] == "timezone"
+    assert item["reason"]["values"] == ["Asia/Jakarta"]
+    assert "same memory key" in item["reason"]["main"]
+
+
+def test_conflict_review_item_explains_different_values():
+    result = assess_memory_quality(
+        [
+            {
+                "id": "m1",
+                "content": "User prefers concise answers.",
+                "category": "preferences",
+                "structured_field": "communication_preference",
+                "structured_value": "concise answers",
+            },
+            {
+                "id": "m2",
+                "content": "User prefers detailed step-by-step answers.",
+                "category": "preferences",
+                "structured_field": "communication_preference",
+                "structured_value": "detailed step-by-step answers",
+            },
+        ]
+    )
+
+    item = result["review_items"][0]
+    assert item["issue_type"] == "conflict"
+    assert item["reason"]["field"] == "communication_preference"
+    assert set(item["reason"]["values"]) == {
+        "concise answers",
+        "detailed step-by-step answers",
+    }
+    assert "different details" in item["reason"]["main"]
+
+
+def test_low_quality_review_item_explains_reasons():
+    result = assess_memory_quality(
+        [
+            {
+                "id": "m1",
+                "content": "ok",
+                "category": "other",
+                "structured_field": "manual_memory",
+                "structured_value": "ok",
+            }
+        ]
+    )
+
+    item = result["review_items"][0]
+    assert item["issue_type"] == "low_quality"
+    assert item["reason"]["reasons"]

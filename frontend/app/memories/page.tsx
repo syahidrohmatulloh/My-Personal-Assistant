@@ -60,6 +60,13 @@ type MemoryQualityReviewMemory = {
   structured_value?: string | null
 }
 
+type MemoryQualityReasonInfo = {
+  main?: string
+  field?: string | null
+  values?: string[]
+  reasons?: string[]
+}
+
 type MemoryQualityReviewItem = {
   issue_type: "duplicate" | "conflict" | "low_quality" | string
   severity: "low" | "medium" | "high" | string
@@ -67,6 +74,7 @@ type MemoryQualityReviewItem = {
   title: string
   explanation: string
   suggested_action: string
+  reason?: MemoryQualityReasonInfo | null
   memories?: MemoryQualityReviewMemory[]
 }
 
@@ -881,6 +889,57 @@ function MemoryQualityPanel({
   )
 }
 
+function MemoryQualityReasonBox({
+  reason,
+}: {
+  reason?: MemoryQualityReasonInfo | null
+}) {
+  if (!reason) return null
+
+  const values = reason.values?.filter(Boolean) || []
+  const reasons = reason.reasons?.filter(Boolean) || []
+
+  return (
+    <div className="mt-3 rounded-2xl border border-cyan-200/70 bg-cyan-50/70 p-3 text-sm leading-6 text-cyan-950 dark:border-cyan-300/15 dark:bg-cyan-300/10 dark:text-cyan-100">
+      <p className="font-medium">Why this is flagged</p>
+
+      {reason.main ? <p className="mt-1">{reason.main}</p> : null}
+
+      {reason.field ? (
+        <p className="mt-2 text-xs text-cyan-800/80 dark:text-cyan-100/75">
+          Memory detail: {humanizeLabel(reason.field)}
+        </p>
+      ) : null}
+
+      {values.length ? (
+        <div className="mt-2">
+          <p className="text-xs text-cyan-800/80 dark:text-cyan-100/75">
+            Stored value{values.length === 1 ? "" : "s"}:
+          </p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            {values.map((value) => (
+              <li key={value}>{value}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {reasons.length ? (
+        <div className="mt-2">
+          <p className="text-xs text-cyan-800/80 dark:text-cyan-100/75">
+            Specific reason{reasons.length === 1 ? "" : "s"}:
+          </p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            {reasons.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function MemoryQualityIssueCard({
   item,
   saving,
@@ -943,6 +1002,8 @@ function MemoryQualityIssueCard({
             <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-zinc-400">
               Suggested action: {item.suggested_action}
             </p>
+
+          <MemoryQualityReasonBox reason={item.reason} />
           </div>
 
           <div className="shrink-0 rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-white/[0.06] dark:text-zinc-400">
