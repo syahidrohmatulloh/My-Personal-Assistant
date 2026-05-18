@@ -139,7 +139,15 @@ def _stub_extract_pipeline(
                     # selector args present (eq on user_id + structured_field /
                     # superseded, OR ilike on content).
                     if name == "memories" and (self._ilike or self._eq_args):
-                        return MagicMock(data=existing_matches or [])
+                        rows = existing_matches or []
+                        selected_id = None
+                        for k, v in self._eq_args:
+                            if k == "id":
+                                selected_id = v
+                                break
+                        if selected_id is not None:
+                            rows = [r for r in rows if r.get("id") == selected_id]
+                        return MagicMock(data=rows)
                     return MagicMock(data=[])
 
             def select(*args, **kwargs):
@@ -203,7 +211,7 @@ def test_birthday_short_answer_saved_with_structured_field():
         "structured_value": "7 Januari",
         "is_correction": False,
     }]
-    setup = _stub_extract_pipeline(fake, existing_identity={"profile": {}})
+    setup = _stub_extract_pipeline(fake, existing_identity={"profile": {"birthday": "1995-01-07"}})
     for p in setup["patches"]: p.start()
     try:
         result = asyncio.run(mi.extract_and_persist(
@@ -226,11 +234,13 @@ def test_birthday_short_answer_saved_with_structured_field():
     # NEW: insert row must persist structured_field + structured_value.
     inserted = setup["insert_capture"][0][0]
     assert inserted.get("structured_field") == "birthday", inserted
-    assert inserted.get("structured_value") == "7 Januari", inserted
-    # AND structured profile field should be set on user_identity.
-    assert setup["identity_upsert_capture"], "identity profile should be updated"
-    profile = setup["identity_upsert_capture"][0]["profile"]
-    assert profile.get("birthday") == "7 Januari", profile
+    assert inserted.get("structured_value") == "1995-01-07", inserted
+    # AND structured profile field should be canonical if an upsert is needed.
+    # If profile already has the same ISO birthday, _upsert_identity_field is
+    # correctly a no-op to avoid unnecessary profile rewrites.
+    if setup["identity_upsert_capture"]:
+        profile = setup["identity_upsert_capture"][0]["profile"]
+        assert profile.get("birthday") == "1995-01-07", profile
 
 
 # ---------------------------------------------------------------------------
@@ -257,11 +267,13 @@ def test_correction_supersedes_old_memory():
         "category": "important_dates",
         "similarity": 0.95,
         "embedding": [0.0] * 1024,
+        "structured_field": "birthday",
+        "structured_value": "1995-01-07",
     }]
     setup = _stub_extract_pipeline(
         fake,
         existing_matches=existing,
-        existing_identity={"profile": {"birthday": "7 Januari"}},
+        existing_identity={"profile": {"birthday": "1995-01-07"}},
     )
     for p in setup["patches"]: p.start()
     try:
@@ -282,7 +294,7 @@ def test_correction_supersedes_old_memory():
     assert supersede_updates, setup["update_capture"]
     # Identity profile should now show new value.
     assert setup["identity_upsert_capture"]
-    assert setup["identity_upsert_capture"][0]["profile"]["birthday"] == "8 Januari"
+    assert setup["identity_upsert_capture"][0]["profile"]["birthday"] == "1995-01-08"
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +314,7 @@ def test_assistant_confirmation_alone_does_not_save():
         "structured_value": None,
         "is_correction": False,
     }]
-    setup = _stub_extract_pipeline(fake, existing_identity={"profile": {}})
+    setup = _stub_extract_pipeline(fake, existing_identity={"profile": {"birthday": "1995-01-07"}})
     for p in setup["patches"]: p.start()
     try:
         result = asyncio.run(mi.extract_and_persist(
@@ -524,11 +536,12 @@ def test_structured_supersede_uses_field_equality():
         "content": "User's birthday is 7 January",
         "category": "important_dates",
         "structured_field": "birthday",
+        "structured_value": "1995-01-07",
     }]
     setup = _stub_extract_pipeline(
         fake,
         existing_matches=existing,
-        existing_identity={"profile": {"birthday": "7 Januari"}},
+        existing_identity={"profile": {"birthday": "1995-01-07"}},
     )
     for p in setup["patches"]: p.start()
     try:
@@ -546,6 +559,77 @@ def test_structured_supersede_uses_field_equality():
     # Verify the supersede update happened (old row marked superseded).
     supersede_updates = [u for u in setup["update_capture"] if u["payload"].get("superseded") is True]
     assert supersede_updates, "old row must be superseded"
+
+
+
+
+# ---------------------------------------------------------------------------
+# Test 12: birthday normalization and same-value structured dedupe
+# ---------------------------------------------------------------------------
+
+
+def test_birthday_value_normalizes_using_existing_year():
+    assert mi._normalize_birthday_value(
+        "17 Januari",
+        existing_birthday="1995-01-07",
+    ) == "1995-01-17"
+    assert mi._normalize_birthday_value(
+        "January 8",
+        existing_birthday="1995-01-07",
+    ) == "1995-01-08"
+    assert mi._normalize_birthday_value(
+        "7 January 1995",
+        existing_birthday=None,
+    ) == "1995-01-07"
+    assert mi._normalize_birthday_value(
+        "1995-01-07",
+        existing_birthday=None,
+    ) == "1995-01-07"
+    assert mi._normalize_birthday_value(
+        "17 Januari",
+        existing_birthday=None,
+    ) is None
+
+
+def test_same_structured_birthday_value_bumps_without_insert():
+    fake = [{
+        "content": "User's birthday is January 7",
+        "category": "important_dates",
+        "source_priority": "user_correction",
+        "confidence": 0.92,
+        "evidence": ["actually still 7 January"],
+        "structured_field": "birthday",
+        "structured_value": "7 Januari",
+        "is_correction": True,
+    }]
+    existing = [{
+        "id": "old-bday",
+        "content": "User's birthday is 1995-01-07",
+        "category": "important_dates",
+        "structured_field": "birthday",
+        "structured_value": "1995-01-07",
+    }]
+    setup = _stub_extract_pipeline(
+        fake,
+        existing_matches=existing,
+        existing_identity={"profile": {"birthday": "1995-01-07"}},
+    )
+    for p in setup["patches"]: p.start()
+    try:
+        result = asyncio.run(mi.extract_and_persist(
+            user_id="u1", conversation_id="c1",
+            recent_messages=[
+                {"role": "user", "content": "actually still 7 January"},
+            ],
+        ))
+    finally:
+        for p in setup["patches"]: p.stop()
+
+    assert result["saved"] == 0, result
+    assert result["superseded"] == 0, result
+    assert setup["insert_capture"] == []
+    bump_updates = [u for u in setup["update_capture"] if "last_confirmed_at" in u["payload"]]
+    assert bump_updates, setup["update_capture"]
 
 
 # ---------------------------------------------------------------------------

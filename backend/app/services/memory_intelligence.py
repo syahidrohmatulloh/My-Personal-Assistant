@@ -32,7 +32,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+import re
+from datetime import date, datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError
@@ -361,6 +362,185 @@ def _dedupe_candidates(cands: list[CandidateMemory]) -> list[CandidateMemory]:
 # ---------------------------------------------------------------------------
 
 
+
+# ---------------------------------------------------------------------------
+# Internal: structured value normalization
+# ---------------------------------------------------------------------------
+
+_MONTHS: dict[str, int] = {
+    "januari": 1, "jan": 1, "january": 1,
+    "februari": 2, "feb": 2, "february": 2,
+    "maret": 3, "mar": 3, "march": 3,
+    "april": 4, "apr": 4,
+    "mei": 5, "may": 5,
+    "juni": 6, "jun": 6, "june": 6,
+    "juli": 7, "jul": 7, "july": 7,
+    "agustus": 8, "agu": 8, "aug": 8, "august": 8,
+    "september": 9, "sep": 9,
+    "oktober": 10, "okt": 10, "october": 10, "oct": 10,
+    "november": 11, "nov": 11,
+    "desember": 12, "des": 12, "december": 12, "dec": 12,
+}
+
+
+def _normalize_structured_candidate(
+    cand: CandidateMemory,
+    *,
+    existing_profile: dict | None = None,
+) -> CandidateMemory:
+    """Normalize structured values before profile write / supersede."""
+    if cand.structured_field != "birthday" or not cand.structured_value:
+        return cand
+
+    existing_birthday = None
+    if isinstance(existing_profile, dict):
+        existing_birthday = existing_profile.get("birthday")
+
+    normalized = _normalize_birthday_value(
+        cand.structured_value,
+        existing_birthday=existing_birthday,
+    )
+    if not normalized:
+        return cand
+
+    content = cand.content
+    if normalized not in content:
+        content = f"User's birthday is {normalized}"
+
+    return cand.model_copy(
+        update={
+            "content": content,
+            "structured_value": normalized,
+        }
+    )
+
+
+def _normalize_birthday_value(
+    value: str,
+    *,
+    existing_birthday: str | None = None,
+) -> str | None:
+    """Return ISO YYYY-MM-DD when birthday can be safely normalized."""
+    raw = " ".join(str(value or "").strip().split())
+    if not raw:
+        return None
+
+    iso = _parse_iso_date(raw)
+    if iso:
+        return iso
+
+    existing_year = _extract_year_from_iso(existing_birthday)
+    parsed = _parse_day_month_year(raw)
+    if not parsed:
+        return None
+
+    day, month, year = parsed
+    if year is None:
+        year = existing_year
+    if year is None:
+        return None
+
+    try:
+        return date(year, month, day).isoformat()
+    except ValueError:
+        return None
+
+
+def _parse_iso_date(value: str) -> str | None:
+    m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", value.strip())
+    if not m:
+        return None
+    try:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3))).isoformat()
+    except ValueError:
+        return None
+
+
+def _extract_year_from_iso(value: str | None) -> int | None:
+    if not value:
+        return None
+    m = re.fullmatch(r"(\d{4})-\d{2}-\d{2}", str(value).strip())
+    if not m:
+        return None
+    return int(m.group(1))
+
+
+def _parse_day_month_year(value: str) -> tuple[int, int, int | None] | None:
+    text = value.lower()
+    text = re.sub(r"[,]", " ", text)
+    text = re.sub(r"(?<=\d)(st|nd|rd|th)\b", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    m = re.search(
+        r"\b(?P<day>\d{1,2})\s+(?P<month>[a-zA-Z]+)\s*(?P<year>\d{4})?\b",
+        text,
+    )
+    if m:
+        month = _MONTHS.get(m.group("month").lower())
+        if not month:
+            return None
+        year = int(m.group("year")) if m.group("year") else None
+        return int(m.group("day")), month, year
+
+    m = re.search(
+        r"\b(?P<month>[a-zA-Z]+)\s+(?P<day>\d{1,2})\s*(?P<year>\d{4})?\b",
+        text,
+    )
+    if m:
+        month = _MONTHS.get(m.group("month").lower())
+        if not month:
+            return None
+        year = int(m.group("year")) if m.group("year") else None
+        return int(m.group("day")), month, year
+
+    return None
+
+
+def _get_existing_identity_profile(user_id: str) -> dict:
+    """Best-effort read of user_identity.profile for normalization decisions."""
+    supabase = get_supabase()
+    try:
+        existing = (
+            supabase.table("user_identity")
+            .select("profile")
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("memory_intelligence: identity profile read failed: %s", exc)
+        return {}
+
+    return (existing.data or {}).get("profile") or {} if existing else {}
+
+
+def _get_active_structured_value(
+    *,
+    user_id: str,
+    memory_id: str,
+) -> str | None:
+    """Fetch structured_value for an active memory id."""
+    supabase = get_supabase()
+    try:
+        result = (
+            supabase.table("memories")
+            .select("structured_value")
+            .eq("user_id", user_id)
+            .eq("id", memory_id)
+            .eq("superseded", False)
+            .limit(1)
+            .execute()
+        )
+        rows = result.data or []
+        if rows:
+            value = rows[0].get("structured_value")
+            return str(value) if value is not None else None
+        return None
+    except Exception as exc:  # noqa: BLE001
+        log.warning("memory_intelligence: active structured value read failed: %s", exc)
+        return None
+
+
 async def _persist_candidate(
     *,
     user_id: str,
@@ -368,6 +548,12 @@ async def _persist_candidate(
     cand: CandidateMemory,
 ) -> dict:
     """Save one candidate. Handles supersede + structured identity write."""
+
+    existing_profile = {}
+    if cand.structured_field in _STRUCTURED_IDENTITY_FIELDS:
+        existing_profile = _get_existing_identity_profile(user_id)
+
+    cand = _normalize_structured_candidate(cand, existing_profile=existing_profile)
 
     # 1. If structured identity field, write to user_identity.profile too.
     if (
@@ -398,9 +584,25 @@ async def _persist_candidate(
         is_correction=cand.is_correction,
     )
 
-    # 4. If existing very-similar memory found AND not a correction, treat as
-    #    "still true" — bump last_confirmed_at on the existing row, don't insert
-    #    duplicate.
+    # 4. If an active structured memory already has the same value, treat it as
+    #    still true and only bump last_confirmed_at. If the value differs, insert
+    #    a new row and supersede the old one below.
+    if superseded_id and cand.structured_field:
+        existing_value = _get_active_structured_value(
+            user_id=user_id,
+            memory_id=superseded_id,
+        )
+        if existing_value == cand.structured_value:
+            await _bump_last_confirmed(superseded_id)
+            log.info(
+                "memory_intelligence: confirmed existing structured memory %s (no new row)",
+                superseded_id,
+            )
+            return {"saved": False, "confirmed": True}
+
+    # 4b. If existing very-similar memory found AND not a correction, treat as
+    #     "still true" — bump last_confirmed_at on the existing row, don't insert
+    #     duplicate.
     if superseded_id and not cand.is_correction and not cand.structured_field:
         await _bump_last_confirmed(superseded_id)
         log.info(
