@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from app.core.auth import get_current_user_id
 from app.services.embeddings import embed_document
 from app.services.supabase_client import get_supabase, safe_execute
-from app.services import memory_consolidation
+from app.services import memory_consolidation, memory_pin
 
 
 router = APIRouter(prefix="/memory-review", tags=["memory_review"])
@@ -60,6 +60,29 @@ class MemoryEditIn(BaseModel):
     structured_value: str | None = Field(default=None, max_length=300)
 
 
+class MemoryPinIn(BaseModel):
+    pin: str = Field(min_length=6, max_length=6)
+
+
+class MemoryPinSetupIn(BaseModel):
+    pin: str = Field(min_length=6, max_length=6)
+    confirm_pin: str = Field(min_length=6, max_length=6)
+
+
+class MemoryPinChangeIn(BaseModel):
+    current_pin: str = Field(min_length=6, max_length=6)
+    new_pin: str = Field(min_length=6, max_length=6)
+    confirm_pin: str = Field(min_length=6, max_length=6)
+
+
+class MemoryManualIn(BaseModel):
+    content: str = Field(min_length=3, max_length=500)
+    category: Category = "other"
+    structured_field: str | None = Field(default=None, max_length=80)
+    structured_value: str | None = Field(default=None, max_length=300)
+    pin: str = Field(min_length=6, max_length=6)
+
+
 class MemoryActionOut(BaseModel):
     ok: bool
     action: str
@@ -67,8 +90,59 @@ class MemoryActionOut(BaseModel):
     new_memory_id: str | None = None
 
 
+@router.get("/pin/status")
+async def memory_pin_status(
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    return await memory_pin.get_pin_status(user_id=user_id)
+
+
+@router.post("/pin/setup")
+async def memory_pin_setup(
+    body: MemoryPinSetupIn,
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    return await memory_pin.setup_pin(
+        user_id=user_id,
+        pin=body.pin,
+        confirm_pin=body.confirm_pin,
+    )
+
+
+@router.post("/pin/verify")
+async def memory_pin_verify(
+    body: MemoryPinIn,
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
+    return {"ok": True}
+
+
+@router.post("/pin/change")
+async def memory_pin_change(
+    body: MemoryPinChangeIn,
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    return await memory_pin.change_pin(
+        user_id=user_id,
+        current_pin=body.current_pin,
+        new_pin=body.new_pin,
+        confirm_pin=body.confirm_pin,
+    )
+
+
+@router.post("/pin/remove")
+async def memory_pin_remove(
+    body: MemoryPinIn,
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    return await memory_pin.remove_pin(user_id=user_id, pin=body.pin)
+
+
+
 @router.post("/consolidate")
 async def consolidate_memories(
+    body: MemoryPinIn,
     days: int = 30,
     user_id: str = Depends(get_current_user_id),
 ) -> dict[str, Any]:
@@ -78,6 +152,8 @@ async def consolidate_memories(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="days must be between 7 and 180",
         )
+
+    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
 
     try:
         return await memory_consolidation.consolidate_and_persist(
@@ -155,6 +231,7 @@ async def confirm_memory(
 @router.post("/{memory_id}/forget", response_model=MemoryActionOut)
 async def forget_memory(
     memory_id: str,
+    body: MemoryPinIn,
     user_id: str = Depends(get_current_user_id),
 ) -> MemoryActionOut:
     """Archive/forget a memory by marking it superseded.
@@ -164,6 +241,8 @@ async def forget_memory(
     await _assert_memory_owner(memory_id=memory_id, user_id=user_id)
 
     now = _now_iso()
+    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
+
     try:
         safe_execute(
             lambda sb: sb.table("memories")

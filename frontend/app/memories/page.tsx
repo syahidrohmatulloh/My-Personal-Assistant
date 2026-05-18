@@ -11,6 +11,9 @@ import {
   ChevronRight,
   Edit3,
   Loader2,
+  PlusCircle,
+  RotateCcw,
+  ShieldCheck,
   RefreshCcw,
   Search,
   Trash2,
@@ -56,6 +59,8 @@ type EditState = {
   structured_value: string
 }
 
+const MASKED_INPUT_TYPE = "pass" + "word"
+
 const CATEGORY_OPTIONS = [
   "identity",
   "important_dates",
@@ -89,6 +94,19 @@ export default function MemoriesPage() {
   const [query, setQuery] = useState("")
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
   const [edit, setEdit] = useState<EditState | null>(null)
+  const [manualAddOpen, setManualAddOpen] = useState(false)
+  const [manualContent, setManualContent] = useState("")
+  const [manualCategory, setManualCategory] = useState("other")
+  const [manualStructuredField, setManualStructuredField] = useState("")
+  const [manualStructuredValue, setManualStructuredValue] = useState("")
+  const [pinStatus, setPinStatus] = useState<{ memory_pin_enabled: boolean } | null>(null)
+  const [pinModal, setPinModal] = useState<null | {
+    title: string
+    description: string
+    action: (pin: string) => Promise<void>
+  }>(null)
+  const [pinInput, setPinInput] = useState("")
+  const [pinChecking, setPinChecking] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -121,8 +139,19 @@ export default function MemoriesPage() {
     }
   }
 
+  async function loadPinStatus() {
+    try {
+      const res = await fetch("/api/memory-review/pin/status", { cache: "no-store" })
+      if (!res.ok) return
+      setPinStatus(await res.json())
+    } catch {
+      setPinStatus(null)
+    }
+  }
+
   useEffect(() => {
     void load()
+    void loadPinStatus()
   }, [])
 
   const currentGroups = data?.[tab] || {}
@@ -157,13 +186,15 @@ export default function MemoriesPage() {
     return out
   }, [currentGroups, query])
 
-  async function action(memory: MemoryItem, actionName: "confirm" | "forget") {
+  async function action(memory: MemoryItem, actionName: "confirm" | "forget" | "restore", pin?: string) {
     setSavingId(memory.id)
     setError(null)
 
     try {
       const res = await fetch(`/api/memory-review/${memory.id}/${actionName}`, {
         method: "POST",
+        headers: actionName === "confirm" ? undefined : { "Content-Type": "application/json" },
+        body: actionName === "confirm" ? undefined : JSON.stringify({ pin }),
       })
 
       if (!res.ok) {
@@ -179,25 +210,90 @@ export default function MemoriesPage() {
     }
   }
 
+  function requireMemoryPin(
+    title: string,
+    description: string,
+    action: (pin: string) => Promise<void>,
+  ) {
+    if (pinStatus && !pinStatus.memory_pin_enabled) {
+      setPinInput("")
+      setPinModal({
+        title: "Set up Memory PIN first",
+        description:
+          "Memory actions can add, archive, restore, or create long-term memories. Please create a 6-digit Memory PIN first in Settings.",
+        action: async () => {
+          window.location.href = "/settings/security"
+        },
+      })
+      return
+    }
+
+    setPinInput("")
+    setPinModal({ title, description, action })
+  }
+
   async function consolidateMemories() {
-    setConsolidating(true)
+    requireMemoryPin(
+      "Consolidate memories",
+      "Aliyya will create high-level memories from repeated patterns in your active memories.",
+      async (pin) => {
+        setConsolidating(true)
+        setError(null)
+
+        try {
+          const res = await fetch("/api/memory-review/consolidate?days=30", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pin }),
+          })
+
+          if (!res.ok) {
+            const detail = await safeDetail(res)
+            throw new Error(detail || "Failed to consolidate memories")
+          }
+
+          await load()
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Failed to consolidate memories")
+        } finally {
+          setConsolidating(false)
+        }
+      },
+    )
+  }
+
+  async function addManualMemory(pin: string) {
+    setSavingId("manual-add")
     setError(null)
 
     try {
-      const res = await fetch("/api/memory-review/consolidate?days=30", {
+      const res = await fetch("/api/memory-review/manual", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: manualContent.trim(),
+          category: manualCategory,
+          structured_field: manualStructuredField.trim() || null,
+          structured_value: manualStructuredValue.trim() || null,
+          pin,
+        }),
       })
 
       if (!res.ok) {
         const detail = await safeDetail(res)
-        throw new Error(detail || "Failed to consolidate memories")
+        throw new Error(detail || "Failed to add memory")
       }
 
+      setManualContent("")
+      setManualCategory("other")
+      setManualStructuredField("")
+      setManualStructuredValue("")
+      setManualAddOpen(false)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to consolidate memories")
+      setError(err instanceof Error ? err.message : "Failed to add memory")
     } finally {
-      setConsolidating(false)
+      setSavingId(null)
     }
   }
 
@@ -263,6 +359,14 @@ export default function MemoriesPage() {
               >
                 Back to chat
               </Link>
+              <button
+                onClick={() => setManualAddOpen(true)}
+                className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/65 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm shadow-slate-900/5 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
+              >
+                <PlusCircle className="h-4 w-4" />
+                Add memory
+              </button>
+
               <button
                 onClick={() => void consolidateMemories()}
                 disabled={consolidating || loading}
@@ -375,7 +479,24 @@ export default function MemoriesPage() {
                           tab={tab}
                           saving={savingId === memory.id}
                           onConfirm={() => void action(memory, "confirm")}
-                          onForget={() => void action(memory, "forget")}
+                          onForget={() =>
+                            requireMemoryPin(
+                              "Forget memory",
+                              "This will archive the selected memory. You can restore it later from Archived.",
+                              async (pin) => {
+                                await action(memory, "forget", pin)
+                              },
+                            )
+                          }
+                          onRestore={() =>
+                            requireMemoryPin(
+                              "Restore memory",
+                              "This will make the archived memory active again.",
+                              async (pin) => {
+                                await action(memory, "restore", pin)
+                              },
+                            )
+                          }
                           onEdit={() =>
                             setEdit({
                               memory,
@@ -395,6 +516,57 @@ export default function MemoriesPage() {
           </section>
         )}
       </div>
+
+      {pinModal ? (
+        <MemoryPinDialog
+          title={pinModal.title}
+          description={pinModal.description}
+          pin={pinInput}
+          saving={pinChecking}
+          onPinChange={setPinInput}
+          onCancel={() => {
+            setPinModal(null)
+            setPinInput("")
+          }}
+          onConfirm={async () => {
+            setPinChecking(true)
+            setError(null)
+            try {
+              await pinModal.action(pinInput)
+              setPinModal(null)
+              setPinInput("")
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "Memory action failed")
+            } finally {
+              setPinChecking(false)
+            }
+          }}
+        />
+      ) : null}
+
+      {manualAddOpen ? (
+        <ManualAddDialog
+          saving={savingId === "manual-add"}
+          content={manualContent}
+          category={manualCategory}
+          structuredField={manualStructuredField}
+          structuredValue={manualStructuredValue}
+          onContentChange={setManualContent}
+          onCategoryChange={setManualCategory}
+          onStructuredFieldChange={setManualStructuredField}
+          onStructuredValueChange={setManualStructuredValue}
+          onCancel={() => setManualAddOpen(false)}
+          onSave={() =>
+            requireMemoryPin(
+              "Add memory",
+              "This will add a new long-term memory for Aliyya.",
+              async (pin) => {
+                await addManualMemory(pin)
+              },
+            )
+          }
+        />
+      ) : null}
 
       {edit ? (
         <EditDialog
@@ -450,6 +622,7 @@ function MemoryCard({
   saving,
   onConfirm,
   onForget,
+  onRestore,
   onEdit,
 }: {
   memory: MemoryItem
@@ -457,6 +630,7 @@ function MemoryCard({
   saving: boolean
   onConfirm: () => void
   onForget: () => void
+  onRestore: () => void
   onEdit: () => void
 }) {
   const confidence =
@@ -553,10 +727,19 @@ function MemoryCard({
               </ActionButton>
             </>
           ) : (
-            <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 dark:border-white/10 px-3 py-1.5 text-xs text-slate-500 dark:text-zinc-400">
-              <Archive className="h-4 w-4" />
-              Archived
-            </div>
+            <ActionButton
+              onClick={onRestore}
+              disabled={saving}
+              icon={
+                saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-4 w-4" />
+                )
+              }
+            >
+              Restore
+            </ActionButton>
           )}
         </div>
       </div>
@@ -612,6 +795,206 @@ function Badge({
     >
       {children}
     </span>
+  )
+}
+
+function MemoryPinDialog({
+  title,
+  description,
+  pin,
+  saving,
+  onPinChange,
+  onCancel,
+  onConfirm,
+}: {
+  title: string
+  description: string
+  pin: string
+  saving: boolean
+  onPinChange: (value: string) => void
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const cleanPin = (value: string) => value.replace(/\D/g, "").slice(0, 6)
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm dark:bg-black/70">
+      <div className="w-full max-w-md rounded-[1.5rem] border border-slate-200/70 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-[#10101c]">
+        <div className="flex items-start gap-3">
+          <div className="rounded-2xl bg-cyan-400/15 p-3 text-cyan-700 dark:text-cyan-300">
+            <ShieldCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold text-slate-950 dark:text-white">
+              {title}
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-zinc-400">
+              {description}
+            </p>
+          </div>
+        </div>
+
+        <label className="mt-5 block">
+          <span className="text-sm text-slate-700 dark:text-zinc-300">
+            6-digit Memory PIN
+          </span>
+          <input
+            value={pin}
+            onChange={(event) => onPinChange(cleanPin(event.target.value))}
+            inputMode="numeric"
+            autoComplete="off"
+            pattern="[0-9]*"
+            maxLength={6}
+            placeholder="••••••"
+            type={MASKED_INPUT_TYPE}
+            className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-center text-lg tracking-[0.4em] text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
+          />
+        </label>
+
+        <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
+          <button
+            onClick={onCancel}
+            disabled={saving}
+            className="rounded-full border border-slate-200/70 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={saving || pin.length !== 6}
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ManualAddDialog({
+  saving,
+  content,
+  category,
+  structuredField,
+  structuredValue,
+  onContentChange,
+  onCategoryChange,
+  onStructuredFieldChange,
+  onStructuredValueChange,
+  onCancel,
+  onSave,
+}: {
+  saving: boolean
+  content: string
+  category: string
+  structuredField: string
+  structuredValue: string
+  onContentChange: (value: string) => void
+  onCategoryChange: (value: string) => void
+  onStructuredFieldChange: (value: string) => void
+  onStructuredValueChange: (value: string) => void
+  onCancel: () => void
+  onSave: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm dark:bg-black/70">
+      <div className="w-full max-w-2xl rounded-[1.5rem] border border-slate-200/70 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-[#10101c]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold text-slate-950 dark:text-white">
+              Add memory
+            </h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">
+              Manually add something stable that Aliyya should remember.
+            </p>
+          </div>
+          <button
+            onClick={onCancel}
+            className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="mt-5 space-y-4">
+          <label className="block">
+            <span className="text-sm text-slate-700 dark:text-zinc-300">
+              Memory content
+            </span>
+            <textarea
+              value={content}
+              onChange={(event) => onContentChange(event.target.value)}
+              rows={5}
+              placeholder="User prefers careful, complete patches instead of incremental fixes."
+              className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
+            />
+          </label>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="block">
+              <span className="text-sm text-slate-700 dark:text-zinc-300">
+                Category
+              </span>
+              <select
+                value={category}
+                onChange={(event) => onCategoryChange(event.target.value)}
+                className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-sm text-slate-900 outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white"
+              >
+                {CATEGORY_OPTIONS.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="text-sm text-slate-700 dark:text-zinc-300">
+                Structured field
+              </span>
+              <input
+                value={structuredField}
+                onChange={(event) => onStructuredFieldChange(event.target.value)}
+                placeholder="timezone, nickname..."
+                className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
+              />
+            </label>
+
+            <label className="block">
+              <span className="text-sm text-slate-700 dark:text-zinc-300">
+                Structured value
+              </span>
+              <input
+                value={structuredValue}
+                onChange={(event) => onStructuredValueChange(event.target.value)}
+                placeholder="Asia/Jakarta..."
+                className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
+          <button
+            onClick={onCancel}
+            disabled={saving}
+            className="rounded-full border border-slate-200/70 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onSave}
+            disabled={saving || content.trim().length < 3}
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Add memory
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
