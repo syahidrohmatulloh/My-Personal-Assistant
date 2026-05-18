@@ -87,6 +87,55 @@ export async function getMainConversation(): Promise<Conversation> {
   return r.json();
 }
 
+export type MemoryHealthStatus = {
+  needs_review: number;
+  duplicate_groups?: number;
+  conflict_groups?: number;
+  low_quality_memories?: number;
+  stale_memories?: number;
+  source: "scheduler" | "live" | "none";
+};
+
+export async function getMemoryHealthStatus(): Promise<MemoryHealthStatus> {
+  const headers = await getAuthHeader();
+
+  const schedulerRes = await fetch(
+    `${API_URL}/memory-review/quality/scheduler/status`,
+    { headers },
+  );
+
+  if (schedulerRes.ok) {
+    const schedulerJson = await schedulerRes.json();
+    const schedulerCount = schedulerJson?.user_summary?.needs_review;
+
+    if (typeof schedulerCount === "number") {
+      return {
+        needs_review: Math.max(0, schedulerCount),
+        duplicate_groups: schedulerJson?.user_summary?.duplicate_groups ?? 0,
+        conflict_groups: schedulerJson?.user_summary?.conflict_groups ?? 0,
+        low_quality_memories: schedulerJson?.user_summary?.low_quality_memories ?? 0,
+        stale_memories: schedulerJson?.user_summary?.stale_memories ?? 0,
+        source: "scheduler",
+      };
+    }
+  }
+
+  const liveRes = await fetch(`${API_URL}/memory-review/quality`, { headers });
+  if (!liveRes.ok) {
+    return { needs_review: 0, source: "none" };
+  }
+
+  const liveJson = await liveRes.json();
+  return {
+    needs_review: Math.max(0, Number(liveJson?.summary?.needs_review || 0)),
+    duplicate_groups: Number(liveJson?.summary?.duplicate_groups || 0),
+    conflict_groups: Number(liveJson?.summary?.conflict_groups || 0),
+    low_quality_memories: Number(liveJson?.summary?.low_quality_memories || 0),
+    stale_memories: Number(liveJson?.summary?.stale_memories || 0),
+    source: "live",
+  };
+}
+
 export async function createConversation(
   title = "New chat",
   styleProfileId?: string | null,
