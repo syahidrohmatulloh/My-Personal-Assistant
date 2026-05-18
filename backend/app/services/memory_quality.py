@@ -90,6 +90,7 @@ class MemoryQualityIssue:
     title: str
     explanation: str
     suggested_action: str
+    memories: list[dict[str, Any]]
 
 
 def assess_memory_quality(memories: list[dict[str, Any]]) -> dict[str, Any]:
@@ -275,8 +276,9 @@ def _duplicate_issues(groups: list[dict[str, Any]]) -> list[MemoryQualityIssue]:
             severity="medium",
             memory_ids=group["memory_ids"],
             title="Possible duplicate memories",
-            explanation="These memories look very similar and may be merged or archived.",
-            suggested_action="Review and keep the clearest memory.",
+            explanation="These memories look very similar and may be archived safely.",
+            suggested_action="Keep the clearest memory and archive the others.",
+            memories=group["memories"],
         )
         for group in groups
     ]
@@ -290,7 +292,8 @@ def _conflict_issues(groups: list[dict[str, Any]]) -> list[MemoryQualityIssue]:
             memory_ids=group["memory_ids"],
             title="Possible conflicting memories",
             explanation="These memories describe the same kind of fact but have different values.",
-            suggested_action="Ask the user which one is still true.",
+            suggested_action="Keep the version that is still true and archive the others.",
+            memories=group["memories"],
         )
         for group in groups
     ]
@@ -305,6 +308,7 @@ def _low_quality_issues(items: list[dict[str, Any]]) -> list[MemoryQualityIssue]
             title="Memory may need more detail",
             explanation=", ".join(item["reasons"]),
             suggested_action="Edit the memory to make it clearer, or archive it.",
+            memories=[_issue_memory_payload(item)],
         )
         for item in items
     ]
@@ -335,6 +339,17 @@ def _issue_to_dict(issue: MemoryQualityIssue) -> dict[str, Any]:
         "title": issue.title,
         "explanation": issue.explanation,
         "suggested_action": issue.suggested_action,
+        "memories": issue.memories,
+    }
+
+
+def _issue_memory_payload(memory: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": memory.get("id"),
+        "content": memory.get("content"),
+        "category": memory.get("category"),
+        "structured_field": memory.get("structured_field"),
+        "structured_value": memory.get("structured_value"),
     }
 
 

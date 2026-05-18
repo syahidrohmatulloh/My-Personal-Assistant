@@ -113,3 +113,32 @@ def test_similar_but_not_duplicate_memories_are_not_overflagged():
 
     assert result["summary"]["duplicate_groups"] == 0
     assert result["summary"]["conflict_groups"] == 0
+
+
+
+def test_review_items_include_memory_contents_for_user_resolution():
+    result = assess_memory_quality(
+        [
+            {
+                "id": "m1",
+                "content": "User timezone is Asia/Jakarta.",
+                "category": "identity",
+                "structured_field": "timezone",
+                "structured_value": "Asia/Jakarta",
+            },
+            {
+                "id": "m2",
+                "content": "User uses Asia/Jakarta timezone.",
+                "category": "identity",
+                "structured_field": "timezone",
+                "structured_value": "Asia/Jakarta",
+            },
+        ]
+    )
+
+    item = result["review_items"][0]
+    assert item["issue_type"] == "duplicate"
+    assert item["memories"][0]["id"] == "m1"
+    assert item["memories"][0]["content"] == "User timezone is Asia/Jakarta."
+    assert item["memories"][1]["id"] == "m2"
+    assert item["memories"][1]["content"] == "User uses Asia/Jakarta timezone."
