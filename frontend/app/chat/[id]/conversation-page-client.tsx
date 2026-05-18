@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowRight, Heart, Sparkles, Sunrise, Target, Users, X } from "lucide-react";
+import { ArrowDown, ArrowRight, Sunrise, X } from "lucide-react";
 
 import { Composer } from "@/components/chat/composer";
 import { TypingIndicator } from "@/components/chat/typing-indicator";
@@ -14,9 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   getIdentity,
   getMainConversation,
-  getMemoryHealthStatus,
   getTodayBriefing,
-  getTodaysJournal,
   openBriefing,
   listMessages,
   streamChat,
@@ -44,8 +42,6 @@ import {
   shouldRespectCompanionMoodOverride,
 } from "@/lib/companion-mood";
 import { subscribeCompanionMoodRealtime } from "@/lib/companion-mood-realtime";
-
-
 
 
 type LocalMessage =
@@ -144,88 +140,6 @@ function BriefingDock({
   )
 }
 
-function MainChatShortcuts({
-  memoryNeedsReview,
-  journaledToday,
-}: {
-  memoryNeedsReview: number
-  journaledToday: boolean
-}) {
-  const [open, setOpen] = useState(false)
-
-  const memoryLabel =
-    memoryNeedsReview > 0
-      ? `${memoryNeedsReview > 99 ? "99+" : memoryNeedsReview} review`
-      : "Memory"
-
-  const chips = [
-    {
-      href: "/memories",
-      label: memoryLabel,
-      icon: <Sparkles className="h-3 w-3" />,
-      highlight: memoryNeedsReview > 0,
-    },
-    {
-      href: "/journal",
-      label: journaledToday ? "Journal done" : "Journal",
-      icon: <Heart className="h-3 w-3" />,
-      highlight: !journaledToday,
-    },
-    {
-      href: "/goals",
-      label: "Goals",
-      icon: <Target className="h-3 w-3" />,
-      highlight: false,
-    },
-    {
-      href: "/people",
-      label: "People",
-      icon: <Users className="h-3 w-3" />,
-      highlight: false,
-    },
-  ]
-
-  return (
-    <section className="shrink-0 border-t border-border bg-bg/35 px-3 py-1.5 backdrop-blur-xl sm:px-6">
-      <div className="mx-auto flex max-w-3xl items-center gap-1.5">
-        <button
-          onClick={() => setOpen((value) => !value)}
-          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-fg/[0.025] px-2.5 py-1 text-[11px] font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg"
-          aria-expanded={open}
-        >
-          <Sparkles className="h-3 w-3" />
-          Shortcuts
-          {memoryNeedsReview > 0 ? (
-            <span className="ml-0.5 rounded-full bg-amber-300/25 px-1.5 py-0.5 text-[10px] text-amber-800 dark:text-amber-100">
-              {memoryNeedsReview > 99 ? "99+" : memoryNeedsReview}
-            </span>
-          ) : null}
-        </button>
-
-        {open ? (
-          <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto">
-            {chips.map((chip) => (
-              <Link
-                key={chip.href}
-                href={chip.href}
-                className={
-                  chip.highlight
-                    ? "inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-300/35 bg-amber-300/12 px-2.5 py-1 text-[11px] font-medium text-amber-800 transition hover:bg-amber-300/20 dark:text-amber-100"
-                    : "inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-fg/[0.025] px-2.5 py-1 text-[11px] font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg"
-                }
-              >
-                {chip.icon}
-                {chip.label}
-              </Link>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </section>
-  )
-}
-
-
 export function ConversationPageClient({ conversationId }: { conversationId: string }) {
   const qc = useQueryClient();
 
@@ -269,30 +183,8 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
     enabled: isMainChat,
   });
 
-  const { data: memoryHealthStatus } = useQuery({
-    queryKey: ["memory-health-status", "main-chat"],
-    queryFn: getMemoryHealthStatus,
-    staleTime: 60_000,
-    retry: false,
-    enabled: isMainChat,
-  });
 
-  const { data: todaysJournal } = useQuery({
-    queryKey: ["journal", "today"],
-    queryFn: getTodaysJournal,
-    staleTime: 60_000,
-    retry: false,
-    enabled: isMainChat,
-  });
-
-  const memoryNeedsReview = Math.max(
-    0,
-    Number(memoryHealthStatus?.needs_review || 0),
-  );
-
-  const journaledToday = Boolean(todaysJournal?.entry);
-
-  const [briefingDismissed, setBriefingDismissed] = useState(false);
+const [briefingDismissed, setBriefingDismissed] = useState(false);
   const [briefingPanelOpen, setBriefingPanelOpen] = useState(false);
   const [briefingDismissalLoaded, setBriefingDismissalLoaded] = useState(false);
 
@@ -633,14 +525,7 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
         </button>
       )}
 
-      {isMainChat ? (
-        <MainChatShortcuts
-          memoryNeedsReview={memoryNeedsReview}
-          journaledToday={journaledToday}
-        />
-      ) : null}
-
-      {isMainChat && briefing && briefingDismissalLoaded && !briefingDismissed ? (
+{isMainChat && briefing && briefingDismissalLoaded && !briefingDismissed ? (
         <BriefingDock
           briefing={briefing}
           expanded={briefingPanelOpen}
