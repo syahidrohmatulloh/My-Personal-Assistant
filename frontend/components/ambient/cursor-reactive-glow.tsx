@@ -48,22 +48,19 @@ export function CursorReactiveGlow() {
 
       pointer.targetX = Math.max(-1, Math.min(1, (clientX - centerX) / Math.max(centerX, 1)));
       pointer.targetY = Math.max(-1, Math.min(1, (clientY - centerY) / Math.max(centerY, 1)));
-
-      root.style.setProperty("--ambient-pointer-x", `${clientX}px`);
-      root.style.setProperty("--ambient-pointer-y", `${clientY}px`);
     };
 
     const tick = () => {
       if (!running) return;
 
-      pointer.currentX = lerp(pointer.currentX, pointer.targetX, 0.11);
-      pointer.currentY = lerp(pointer.currentY, pointer.targetY, 0.11);
+      pointer.currentX = lerp(pointer.currentX, pointer.targetX, 0.16);
+      pointer.currentY = lerp(pointer.currentY, pointer.targetY, 0.16);
 
       const dx = pointer.currentX - pointer.lastX;
       const dy = pointer.currentY - pointer.lastY;
-      const rawVelocity = Math.min(1, Math.sqrt(dx * dx + dy * dy) * 18);
+      const rawVelocity = Math.min(1, Math.sqrt(dx * dx + dy * dy) * 26);
 
-      pointer.velocity = lerp(pointer.velocity, rawVelocity, 0.18);
+      pointer.velocity = lerp(pointer.velocity, rawVelocity, 0.22);
       pointer.lastX = pointer.currentX;
       pointer.lastY = pointer.currentY;
 
@@ -71,22 +68,22 @@ export function CursorReactiveGlow() {
       const y = pointer.currentY;
       const v = pointer.velocity;
 
-      // Move the internal composition center toward cursor.
-      root.style.setProperty("--ambient-object-center-x", `${50 + x * 24}%`);
-      root.style.setProperty("--ambient-object-center-y", `${50 + y * 20}%`);
-      root.style.setProperty("--ambient-object-far-center-x", `${50 + x * 12}%`);
-      root.style.setProperty("--ambient-object-far-center-y", `${50 + y * 10}%`);
+      // Existing ambient object follows cursor.
+      root.style.setProperty("--ambient-magnet-x", `${x * 150}px`);
+      root.style.setProperty("--ambient-magnet-y", `${y * 112}px`);
+      root.style.setProperty("--ambient-magnet-far-x", `${x * 72}px`);
+      root.style.setProperty("--ambient-magnet-far-y", `${y * 54}px`);
 
-      // Move the existing background object itself.
-      root.style.setProperty("--ambient-object-x", `${x * 78}px`);
-      root.style.setProperty("--ambient-object-y", `${y * 58}px`);
-      root.style.setProperty("--ambient-object-far-x", `${x * 34}px`);
-      root.style.setProperty("--ambient-object-far-y", `${y * 26}px`);
+      // Existing internal gradient center also shifts toward cursor.
+      root.style.setProperty("--ambient-magnet-center-x", `${50 + x * 34}%`);
+      root.style.setProperty("--ambient-magnet-center-y", `${50 + y * 28}%`);
+      root.style.setProperty("--ambient-magnet-far-center-x", `${50 + x * 18}%`);
+      root.style.setProperty("--ambient-magnet-far-center-y", `${50 + y * 14}%`);
 
-      // Cursor movement temporarily speeds up / disturbs the object.
-      root.style.setProperty("--ambient-object-speed", `${1 + v * 1.8}`);
-      root.style.setProperty("--ambient-object-pulse", `${1 + v * 0.08}`);
-      root.style.setProperty("--ambient-object-blur", `${0.1 + v * 0.7}px`);
+      // Cursor movement disturbs existing animation speed/scale slightly.
+      root.style.setProperty("--ambient-magnet-speed", `${1 + v * 2.8}`);
+      root.style.setProperty("--ambient-magnet-scale", `${1 + v * 0.045}`);
+      root.style.setProperty("--ambient-magnet-blur", `${v * 0.35}px`);
 
       raf = window.requestAnimationFrame(tick);
     };

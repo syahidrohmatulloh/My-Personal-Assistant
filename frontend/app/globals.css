@@ -1864,3 +1864,171 @@ html[data-ambient-neon-parallax="true"] .ambient-background::after {
   }
 }
 
+
+/* --------------------------------------------------------------------------
+   FINAL: Ambient object magnetism only
+   No extra cursor glow.
+   No extra particle canvas.
+   Only existing selected ambient object is altered by mouse movement.
+-------------------------------------------------------------------------- */
+
+:root {
+  --ambient-magnet-x: 0px;
+  --ambient-magnet-y: 0px;
+  --ambient-magnet-far-x: 0px;
+  --ambient-magnet-far-y: 0px;
+  --ambient-magnet-center-x: 50%;
+  --ambient-magnet-center-y: 50%;
+  --ambient-magnet-far-center-x: 50%;
+  --ambient-magnet-far-center-y: 50%;
+  --ambient-magnet-speed: 1;
+  --ambient-magnet-scale: 1;
+  --ambient-magnet-blur: 0px;
+}
+
+/* Kill previous wrong added objects completely. */
+.ambient-opera-neon-field,
+.ambient-opera-neon-canvas,
+.ambient-cursor-reactive-glow {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+/* Fluid is only background blur/supporting layer. */
+html[data-ambient-neon-parallax="true"] .ambient-background .cosmic-fluid-mount,
+html[data-ambient-neon-parallax="true"] .cosmic-fluid-mount {
+  opacity: 0.08 !important;
+  filter: blur(30px) saturate(0.92) contrast(0.94) !important;
+  transform: scale(1.005) !important;
+  mix-blend-mode: normal !important;
+}
+
+/* Existing animated object follows cursor. */
+html[data-ambient-neon-parallax="true"] .ambient-background::before {
+  transform:
+    translate3d(var(--ambient-magnet-x), var(--ambient-magnet-y), 0)
+    scale(calc(1.02 * var(--ambient-magnet-scale))) !important;
+  transform-origin: center;
+  animation-duration: calc(18s / var(--ambient-magnet-speed)) !important;
+  filter: blur(var(--ambient-magnet-blur)) saturate(1.18) contrast(1.08);
+  will-change: transform, filter;
+}
+
+html[data-ambient-neon-parallax="true"] .ambient-background::after {
+  transform:
+    translate3d(var(--ambient-magnet-far-x), var(--ambient-magnet-far-y), 0)
+    scale(calc(1.01 * var(--ambient-magnet-scale))) !important;
+  transform-origin: center;
+  animation-duration: calc(26s / var(--ambient-magnet-speed)) !important;
+  filter: blur(calc(var(--ambient-magnet-blur) * 0.6)) saturate(1.1);
+  will-change: transform, filter;
+}
+
+/* Orbital Rings: keep existing concept, but move ellipse center toward cursor. */
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings::before {
+  opacity: 0.86 !important;
+  background:
+    radial-gradient(
+      ellipse at var(--ambient-magnet-center-x) var(--ambient-magnet-center-y),
+      transparent 0%,
+      transparent 33%,
+      rgb(105 175 255 / 0.2) 35.2%,
+      rgb(105 175 255 / 0.32) 37.4%,
+      transparent 40%,
+      transparent 51%,
+      rgb(160 120 255 / 0.18) 52.8%,
+      rgb(160 120 255 / 0.28) 55.2%,
+      transparent 58%,
+      transparent 69%,
+      rgb(70 230 220 / 0.16) 71%,
+      rgb(70 230 220 / 0.24) 73.2%,
+      transparent 76%
+    ) !important;
+}
+
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings::after {
+  opacity: 0.62 !important;
+  background:
+    radial-gradient(
+      ellipse at var(--ambient-magnet-far-center-x) var(--ambient-magnet-far-center-y),
+      transparent 0%,
+      transparent 28%,
+      rgb(255 150 210 / 0.14) 29.3%,
+      rgb(255 150 210 / 0.22) 31.4%,
+      transparent 34%,
+      transparent 60%,
+      rgb(130 160 255 / 0.14) 62%,
+      rgb(130 160 255 / 0.22) 64.2%,
+      transparent 67%
+    ) !important;
+}
+
+/* Cosmic Plasma: alter existing plasma core, no new object. */
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-cosmic-plasma::before {
+  opacity: 0.7 !important;
+  background:
+    radial-gradient(
+      circle at var(--ambient-magnet-center-x) var(--ambient-magnet-center-y),
+      rgb(110 255 235 / 0.2) 0%,
+      rgb(120 170 255 / 0.15) 24%,
+      rgb(255 120 220 / 0.11) 46%,
+      transparent 72%
+    ) !important;
+}
+
+/* Nebula Drift: alter existing cloud center. */
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-nebula-drift::before {
+  opacity: 0.68 !important;
+  background:
+    radial-gradient(
+      ellipse at var(--ambient-magnet-center-x) var(--ambient-magnet-center-y),
+      rgb(120 190 255 / 0.16) 0%,
+      rgb(170 120 255 / 0.11) 32%,
+      rgb(255 150 210 / 0.08) 52%,
+      transparent 76%
+    ) !important;
+}
+
+/* Micro Particle Flow: shift existing particle texture with cursor. */
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-micro-particle-flow::before {
+  opacity: 0.74 !important;
+  background-position:
+    var(--ambient-magnet-x) var(--ambient-magnet-y),
+    var(--ambient-magnet-far-x) var(--ambient-magnet-far-y) !important;
+}
+
+/* Voice Wave: shift existing wave origin. */
+html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-voice-wave::before {
+  opacity: 0.76 !important;
+  background-position:
+    var(--ambient-magnet-x) var(--ambient-magnet-y),
+    var(--ambient-magnet-far-x) var(--ambient-magnet-far-y) !important;
+}
+
+/* Light mode: avoid heavy fluid, keep pattern visible. */
+@media (prefers-color-scheme: light) {
+  html[data-ambient-neon-parallax="true"] .ambient-background .cosmic-fluid-mount,
+  html[data-ambient-neon-parallax="true"] .cosmic-fluid-mount {
+    opacity: 0.045 !important;
+    filter: blur(34px) saturate(0.88) contrast(0.9) !important;
+    mix-blend-mode: multiply !important;
+  }
+
+  html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings::before {
+    opacity: 0.9 !important;
+  }
+
+  html[data-ambient-neon-parallax="true"] .ambient-background.ambient-style-orbital-rings::after {
+    opacity: 0.68 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-ambient-neon-parallax="true"] .ambient-background::before,
+  html[data-ambient-neon-parallax="true"] .ambient-background::after {
+    transform: none !important;
+    animation-duration: inherit !important;
+  }
+}
+
