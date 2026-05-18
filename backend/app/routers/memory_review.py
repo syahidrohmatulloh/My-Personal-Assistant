@@ -58,6 +58,7 @@ class MemoryEditIn(BaseModel):
     category: Category | None = None
     structured_field: str | None = Field(default=None, max_length=80)
     structured_value: str | None = Field(default=None, max_length=300)
+    pin: str = Field(min_length=6, max_length=6)
 
 
 class MemoryPinIn(BaseModel):
@@ -276,6 +277,8 @@ async def edit_memory(
     This is safer than mutating the original row in-place because it preserves
     an audit trail and keeps superseded-chain semantics consistent.
     """
+    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
+
     old = await _assert_memory_owner(memory_id=memory_id, user_id=user_id)
 
     category = body.category or old.get("category") or "other"

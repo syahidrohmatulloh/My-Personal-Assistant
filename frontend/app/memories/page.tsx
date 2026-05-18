@@ -107,6 +107,7 @@ export default function MemoriesPage() {
   }>(null)
   const [pinInput, setPinInput] = useState("")
   const [pinChecking, setPinChecking] = useState(false)
+  const [verifiedMemoryPin, setVerifiedMemoryPin] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
@@ -210,6 +211,19 @@ export default function MemoriesPage() {
     }
   }
 
+  async function verifyMemoryPinOnly(pin: string) {
+    const res = await fetch("/api/memory-review/pin/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
+    })
+
+    if (!res.ok) {
+      const detail = await safeDetail(res)
+      throw new Error(detail || "Incorrect Memory PIN")
+    }
+  }
+
   function requireMemoryPin(
     title: string,
     description: string,
@@ -289,6 +303,7 @@ export default function MemoriesPage() {
       setManualStructuredField("")
       setManualStructuredValue("")
       setManualAddOpen(false)
+      setVerifiedMemoryPin(null)
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add memory")
@@ -304,11 +319,16 @@ export default function MemoriesPage() {
     setError(null)
 
     try {
+      if (!verifiedMemoryPin) {
+        throw new Error("Memory PIN verification is required before editing.")
+      }
+
       const body = {
         content: edit.content.trim(),
         category: edit.category || undefined,
         structured_field: edit.structured_field.trim() || null,
         structured_value: edit.structured_value.trim() || null,
+        pin: verifiedMemoryPin,
       }
 
       const res = await fetch(`/api/memory-review/${edit.memory.id}`, {
@@ -323,6 +343,7 @@ export default function MemoriesPage() {
       }
 
       setEdit(null)
+      setVerifiedMemoryPin(null)
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to edit memory")
@@ -360,7 +381,17 @@ export default function MemoriesPage() {
                 Back to chat
               </Link>
               <button
-                onClick={() => setManualAddOpen(true)}
+                onClick={() =>
+                  requireMemoryPin(
+                    "Add memory",
+                    "Enter your 6-digit Memory PIN before adding a new long-term memory.",
+                    async (pin) => {
+                      await verifyMemoryPinOnly(pin)
+                      setVerifiedMemoryPin(pin)
+                      setManualAddOpen(true)
+                    },
+                  )
+                }
                 className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/65 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm shadow-slate-900/5 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
               >
                 <PlusCircle className="h-4 w-4" />
@@ -555,16 +586,28 @@ export default function MemoriesPage() {
           onCategoryChange={setManualCategory}
           onStructuredFieldChange={setManualStructuredField}
           onStructuredValueChange={setManualStructuredValue}
-          onCancel={() => setManualAddOpen(false)}
-          onSave={() =>
-            requireMemoryPin(
-              "Add memory",
-              "This will add a new long-term memory for Aliyya.",
-              async (pin) => {
-                await addManualMemory(pin)
-              },
-            )
-          }
+          onCancel={() => {
+            setManualAddOpen(false)
+            setVerifiedMemoryPin(null)
+          }}
+          onSave={async () => {
+            if (!verifiedMemoryPin) {
+              setManualAddOpen(false)
+              requireMemoryPin(
+                "Add memory",
+                "Enter your 6-digit Memory PIN before adding a new long-term memory.",
+                async (pin) => {
+                  await verifyMemoryPinOnly(pin)
+                  setVerifiedMemoryPin(pin)
+                  setManualAddOpen(true)
+                },
+              )
+              return
+            }
+
+            await addManualMemory(verifiedMemoryPin)
+            setVerifiedMemoryPin(null)
+          }}
         />
       ) : null}
 
@@ -573,7 +616,10 @@ export default function MemoriesPage() {
           edit={edit}
           saving={savingId === edit.memory.id}
           onChange={setEdit}
-          onCancel={() => setEdit(null)}
+          onCancel={() => {
+            setEdit(null)
+            setVerifiedMemoryPin(null)
+          }}
           onSave={() => void saveEdit()}
         />
       ) : null}

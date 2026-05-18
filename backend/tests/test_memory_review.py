@@ -64,3 +64,27 @@ def test_build_review_payload_splits_active_and_archived():
     assert "Identity" in payload["active"]
     assert "Behavioral Patterns" in payload["active"]
     assert "Identity" in payload["archived"]
+
+
+
+def test_edit_memory_model_requires_pin():
+    from pydantic import ValidationError
+    from app.routers.memory_review import MemoryEditIn
+
+    body = MemoryEditIn(
+        content="User prefers careful complete patches.",
+        category="preferences",
+        pin="123456",
+    )
+
+    assert body.pin == "123456"
+
+    try:
+        MemoryEditIn(
+            content="User prefers careful complete patches.",
+            category="preferences",
+        )
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("MemoryEditIn should require pin")
