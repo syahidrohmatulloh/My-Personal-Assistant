@@ -25,6 +25,7 @@ from app.services.supabase_client import get_supabase, safe_execute
 from app.services import memory_consolidation, memory_pin
 from app.services.memory_quality import assess_memory_quality
 from app.services.memory_quality_resolve import build_quality_resolve_plan
+from app.services.memory_health_scheduler import get_memory_health_scheduler_status
 
 
 router = APIRouter(prefix="/memory-review", tags=["memory_review"])
@@ -228,6 +229,13 @@ async def memory_quality(
     )
 
     return assess_memory_quality(result.data or [])
+
+
+@router.get("/quality/scheduler/status")
+async def memory_quality_scheduler_status(
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    return get_memory_health_scheduler_status(user_id=user_id)
 
 
 @router.post("/quality/resolve")

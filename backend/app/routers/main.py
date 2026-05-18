@@ -18,6 +18,7 @@ from app.routers import (
     reflections,
     style_profiles,
 )
+from app.services import memory_health_scheduler
 
 app = FastAPI(
     title="My Assistant API",
@@ -48,6 +49,17 @@ app.include_router(attachments.router)
 app.include_router(reflections.router)
 app.include_router(style_profiles.router)
 
+
+
+
+@app.on_event("startup")
+async def start_memory_health_scheduler() -> None:
+    await memory_health_scheduler.start_memory_health_scheduler()
+
+
+@app.on_event("shutdown")
+async def stop_memory_health_scheduler() -> None:
+    await memory_health_scheduler.stop_memory_health_scheduler()
 
 @app.get("/health", tags=["meta"])
 async def health():
