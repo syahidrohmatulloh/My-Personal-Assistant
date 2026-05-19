@@ -726,7 +726,7 @@ async def chat(
     # === Build prompt with cached base + volatile context ===
     volatile_context = render_context(context)
     temporal_grounding_block = temporal_grounding.render_temporal_grounding_block(
-        user_message=user_message,
+        user_message=body.message,
         client_context=getattr(body, "client_context", None),
     )
     if temporal_grounding_block:

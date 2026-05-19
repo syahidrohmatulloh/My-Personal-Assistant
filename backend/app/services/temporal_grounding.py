@@ -51,13 +51,13 @@ def _parse_local_datetime(client_context: Any) -> tuple[str, datetime]:
     timezone = (
         _get_context_value(client_context, "timezone")
         or _get_context_value(client_context, "time_zone")
-        or "Asia/Jakarta"
+        or "UTC"
     )
 
     try:
         tz = ZoneInfo(timezone)
     except Exception:
-        timezone = "Asia/Jakarta"
+        timezone = "UTC"
         tz = ZoneInfo(timezone)
 
     local_time = (
