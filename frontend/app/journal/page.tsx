@@ -1,6 +1,5 @@
 "use client";
 
-import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -12,8 +11,9 @@ import {
   postJournal,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 import { AppHeaderAction, AppPageShell, AppPanel } from "@/components/ui/app-page-shell";
+import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
+import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 
 type Scale = { value: number | null; set: (n: number | null) => void };
 
@@ -90,7 +90,7 @@ export default function JournalPage() {
           : "A quick check-in. Skip what you don't want to answer."
       }
       maxWidthClassName="max-w-4xl"
-      actions={<AppHeaderAction href="/chat">Back to chat</AppHeaderAction>}
+      actions={<BackToChatButton />}
     >
       {loading ? (
         <AppPanel>

@@ -131,7 +131,7 @@ export function classifyUserMessage(message: string): AffectClassification {
 
   const simulationRequest =
     /(simulasi|simulate|testing|test|tes|pura-pura).{0,90}(romantis|romantic|santai|calm|cemburu|jealous|marah|angry|playful|posesif|mood|mode|sayang|mawar)/i.test(lower) ||
-    /(coba|tolong|please|pls|ayo|boleh).{0,50}(kamu|aliyya|ai).{0,100}(inisiasi|trigger|simulasi|simulate|masuk|jadi|bikin|tunjukin|demonstrate)/i.test(lower);
+    /(coba|tolong|please|pls|ayo|boleh).{0,50}(kamu|asisten|assistant|ai|bot).{0,100}(inisiasi|trigger|simulasi|simulate|masuk|jadi|bikin|tunjukin|demonstrate)/i.test(lower);
 
   if (simulationRequest && targetMood) {
     return result(
@@ -181,7 +181,7 @@ export function classifyUserMessage(message: string): AffectClassification {
       { concerned: 8, calm: 4, affectionate: 3 },
       "user_affect",
       0.82,
-      "user distress should put Aliyya into caring mode",
+      "user distress should put the assistant into caring mode",
       true,
       "concerned",
     );

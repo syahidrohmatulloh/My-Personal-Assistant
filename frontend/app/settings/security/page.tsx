@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { CheckCircle2, KeyRound, Loader2, ShieldCheck } from "lucide-react"
+import { useAssistantDisplayName } from "@/hooks/use-identity-owned-label";
 
 const MASKED_INPUT_TYPE = "pass" + "word"
 
@@ -24,6 +25,7 @@ function onlyDigits(value: string) {
 }
 
 export default function SecuritySettingsPage() {
+  const assistantName = useAssistantDisplayName();
   const [status, setStatus] = useState<PinStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -280,7 +282,7 @@ export default function SecuritySettingsPage() {
                     Protected memory actions
                   </p>
                   <p className="mt-2">
-                    Aliyya will ask for your 6-digit PIN before adding, editing,
+                    {assistantName} will ask for your 6-digit PIN before adding, editing,
                     archiving, restoring, or consolidating memories.
                   </p>
                   <p className="mt-3">

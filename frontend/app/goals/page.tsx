@@ -18,8 +18,8 @@ import {
   updateGoalStatus,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 import { AppHeaderAction, AppPageShell, AppPanel, AppToolbar } from "@/components/ui/app-page-shell";
+import { useAssistantDisplayName } from "@/hooks/use-identity-owned-label";
 import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 
 const HORIZONS: Goal["horizon"][] = ["week", "month", "quarter", "year", "multi_year", "life"];
@@ -41,6 +41,7 @@ const STATUS_LABELS: Record<Goal["status"] | "all", string> = {
 };
 
 export default function GoalsPage() {
+  const assistantName = useAssistantDisplayName();
   const [goals, setGoals] = useState<Goal[]>([]);
   const [suggestions, setSuggestions] = useState<GoalSuggestion[]>([]);
   const [identity, setIdentity] = useState<Identity | null>(null);
@@ -180,10 +181,15 @@ export default function GoalsPage() {
     if (!cleaned) return null;
 
     // Guard against assistant/companion name leaking into user identity.
-    // User Goals should never become "Aliyya Goals".
+    // User Goals should never become the assistant name.
     const lowered = cleaned.toLowerCase();
+    const assistantNameLowered =
+      typeof profile.assistant_name === "string"
+        ? profile.assistant_name.trim().toLowerCase()
+        : "";
+
     if (
-      lowered === "aliyya" ||
+      (assistantNameLowered.length > 0 && lowered === assistantNameLowered) ||
       lowered === "assistant" ||
       lowered === "my assistant" ||
       lowered === "ai assistant"
@@ -214,7 +220,7 @@ export default function GoalsPage() {
     <AppPageShell
       eyebrow={goalsEyebrow}
       title="Goals"
-      description="Tell Aliyya what you are working toward, so she can help you make better plans and decisions."
+      description={`Tell ${assistantName} what you are working toward, so she can help you make better plans and decisions.`}
       maxWidthClassName="max-w-5xl"
       actions={
         <>
@@ -252,10 +258,10 @@ export default function GoalsPage() {
         <AppPanel>
           <div className="border-b border-slate-200/70 dark:border-white/10 px-5 py-4 dark:border-white/10">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-300">
-              Suggested by Aliyya
+              Suggested by {assistantName}
             </p>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 dark:text-zinc-400">
-              These came from your conversations. Confirm only the ones you want Aliyya to track.
+              These came from your conversations. Confirm only the ones you want {assistantName} to track.
             </p>
           </div>
 
@@ -294,7 +300,7 @@ export default function GoalsPage() {
 
                     {suggestion.assistant_reason && (
                       <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400 dark:text-zinc-500">
-                        Why Aliyya suggested this: {suggestion.assistant_reason}
+                        Why {assistantName} suggested this: {suggestion.assistant_reason}
                       </p>
                     )}
                   </div>

@@ -1,6 +1,5 @@
 "use client";
 
-import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
 
 import { type FormEvent, type ReactNode, useEffect, useState } from "react"
 import { Save, UserRound } from "lucide-react"
@@ -12,6 +11,9 @@ import {
   AppStatCard,
   AppStatGrid,
 } from "@/components/ui/app-page-shell"
+import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
+import { useAssistantDisplayName } from "@/hooks/use-identity-owned-label";
+import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 
 type FormState = {
   name: string
@@ -92,6 +94,7 @@ function formToProfile(f: FormState): {
 }
 
 export default function IdentityPage() {
+  const assistantName = useAssistantDisplayName();
   const identityEyebrow = useUserOwnedLabel("Identity");
   const [form, setForm] = useState<FormState>(EMPTY)
   const [loading, setLoading] = useState(true)
@@ -151,9 +154,9 @@ export default function IdentityPage() {
     <AppPageShell
       eyebrow={identityEyebrow}
       title="Who you are"
-      description="The grounding Aliyya uses to understand you. Everything is optional, editable, and meant to make conversations more consistent."
+      description={`The grounding ${assistantName} uses to understand you. Everything is optional, editable, and meant to make conversations more consistent.`}
       maxWidthClassName="max-w-5xl"
-      actions={<AppHeaderAction href="/chat">Back to chat</AppHeaderAction>}
+      actions={<BackToChatButton />}
       stats={
         <AppStatGrid>
           <AppStatCard label="Profile completed" value={`${filledFields}/8`} icon={UserRound} />
@@ -243,7 +246,7 @@ export default function IdentityPage() {
 
             <Field
               label="Your timezone"
-              hint="So Aliyya gets dates and greetings right."
+              hint={`So ${assistantName} gets dates and greetings right.`}
             >
               <input
                 type="text"

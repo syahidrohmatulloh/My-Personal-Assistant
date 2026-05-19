@@ -92,7 +92,7 @@ export function ConversationPageClient({
     (typeof identity?.profile?.assistant_name === "string" &&
     identity.profile.assistant_name.trim().length > 0
       ? identity.profile.assistant_name.trim()
-      : "Aliyya");
+      : "Assistant");
 
   const { data: mainChat } = useQuery({
     queryKey: ["conversations", "main"],

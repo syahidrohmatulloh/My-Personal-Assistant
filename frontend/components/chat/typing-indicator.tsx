@@ -20,7 +20,7 @@ type Props = {
  *
  * Uses existing CSS tokens — no new colours, no new utility classes.
  */
-function TypingIndicatorBase({ visible, assistantName = "Aliyya" }: Props) {
+function TypingIndicatorBase({ visible, assistantName = "Assistant" }: Props) {
   return (
     <div
       // Sticky at the top of the scroll container. z-10 keeps it above

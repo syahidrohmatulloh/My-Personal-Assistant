@@ -1,6 +1,5 @@
 "use client";
 
-import { useAssistantOwnedLabel } from "@/hooks/use-identity-owned-label";
 
 import { useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
@@ -22,6 +21,9 @@ import {
   Trash2,
   X,
 } from "lucide-react"
+import { useAssistantOwnedLabel } from "@/hooks/use-identity-owned-label";
+import { useAssistantDisplayName } from "@/hooks/use-identity-owned-label";
+import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 
 type MemoryItem = {
   id: string
@@ -188,6 +190,7 @@ const GROUP_ORDER = [
 ]
 
 export default function MemoriesPage() {
+  const assistantName = useAssistantDisplayName();
   const memoriesEyebrow = useAssistantOwnedLabel("Memories");
   const [data, setData] = useState<MemoryReviewPayload | null>(null)
   const [quality, setQuality] = useState<MemoryQualityPayload | null>(null)
@@ -412,7 +415,7 @@ export default function MemoriesPage() {
   async function consolidateMemories() {
     requireMemoryPin(
       "Summarize patterns",
-      "Aliyya will turn repeated memory patterns into a clearer long-term summary.",
+      `${assistantName} will turn repeated memory patterns into a clearer long-term summary.`,
       async (pin) => {
         setConsolidating(true)
         setError(null)
@@ -591,18 +594,15 @@ export default function MemoriesPage() {
                 Memories
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-700 dark:text-zinc-300">
-                Review what Aliyya remembers, manage active memories, and
+                Review what {assistantName} remembers, manage active memories, and
                 inspect archived or archived memories in one place.
               </p>
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <Link
-                href="/chat"
-                className="rounded-full border border-slate-200/70 dark:border-white/10 px-4 py-2 text-sm text-slate-700 dark:text-zinc-200 transition hover:bg-slate-100 dark:bg-white/10"
-              >
+              <BackToLastChat className="inline-flex h-10 items-center justify-center rounded-full border border-border bg-fg/[0.035] px-4 text-sm font-medium text-fg-muted shadow-sm transition hover:bg-fg/5 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 active:scale-[0.98]">
                 Back to chat
-              </Link>
+              </BackToLastChat>
               <button
                 onClick={() =>
                   requireMemoryPin(
@@ -949,7 +949,7 @@ function MemoryQualityPanel({
           No memory issues found
         </h2>
         <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600 dark:text-zinc-300">
-          Aliyya did not find obvious duplicates, conflicts, or unclear memories.
+          The assistant did not find obvious duplicates, conflicts, or unclear memories.
         </p>
       </div>
     )
@@ -1438,7 +1438,7 @@ function EmptyState({
           ? "Try a different search term."
           : tab === "archived"
             ? "Archived memories will appear here after you forget or replace an existing memory."
-            : "Aliyya has no active memories yet. Add one, or keep chatting so Aliyya can learn what matters."}
+            : "The assistant has no active memories yet. Add one, or keep chatting so the assistant can learn what matters."}
       </p>
     </div>
   )
@@ -1547,7 +1547,7 @@ function ManualAddDialog({
               Add memory
             </h2>
             <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">
-              Write what Aliyya should remember. Aliyya will organize it automatically.
+              Write what the assistant should remember. The assistant will organize it automatically.
             </p>
           </div>
           <button
@@ -1562,7 +1562,7 @@ function ManualAddDialog({
         <div className="mt-5 space-y-4">
           <label className="block">
             <span className="text-sm text-slate-700 dark:text-zinc-300">
-              What should Aliyya remember?
+              What should the assistant remember?
             </span>
             <textarea
               value={content}
@@ -1574,7 +1574,7 @@ function ManualAddDialog({
           </label>
 
           <div className="rounded-2xl border border-cyan-200/70 bg-cyan-50/70 p-3 text-xs leading-5 text-cyan-900 dark:border-cyan-300/15 dark:bg-cyan-300/10 dark:text-cyan-100">
-            Aliyya will automatically decide the memory type and details in the background.
+            The assistant will automatically decide the memory type and details in the background.
           </div>
         </div>
 
@@ -1622,7 +1622,7 @@ function EditDialog({
               Edit memory
             </h2>
             <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">
-              Update what Aliyya should remember. Aliyya will organize it automatically.
+              Update what the assistant should remember. The assistant will organize it automatically.
             </p>
           </div>
           <button
@@ -1637,7 +1637,7 @@ function EditDialog({
         <div className="mt-5 space-y-4">
           <label className="block">
             <span className="text-sm text-slate-700 dark:text-zinc-300">
-              What should Aliyya remember?
+              What should the assistant remember?
             </span>
             <textarea
               value={edit.content}
@@ -1649,7 +1649,7 @@ function EditDialog({
           </label>
 
           <div className="rounded-2xl border border-cyan-200/70 bg-cyan-50/70 p-3 text-xs leading-5 text-cyan-900 dark:border-cyan-300/15 dark:bg-cyan-300/10 dark:text-cyan-100">
-            Aliyya will automatically update the memory type and details in the background.
+            The assistant will automatically update the memory type and details in the background.
           </div>
         </div>
 

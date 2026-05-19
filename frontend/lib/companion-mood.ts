@@ -765,7 +765,7 @@ export function updateCompanionMoodFromMessage(
       attachment: Math.min(1, previous.attachment + 0.12),
       warmth: 0.85,
       playfulness: 0.42,
-      reason: "user comforted or reassured Aliyya",
+      reason: "user comforted or reassured the assistant",
       last_trigger: "comfort",
       source: "user_message",
       expires_at: minutesFromNow(25),

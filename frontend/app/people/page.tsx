@@ -1,6 +1,5 @@
 "use client";
 
-import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
 
 import { type FormEvent, useEffect, useState } from "react"
 import { Heart, Plus, Trash2, Users, X } from "lucide-react"
@@ -18,11 +17,15 @@ import {
   AppStatCard,
   AppStatGrid,
 } from "@/components/ui/app-page-shell"
+import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
+import { useAssistantDisplayName } from "@/hooks/use-identity-owned-label";
+import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 
 const inputCls =
   "mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
 
 export default function PeoplePage() {
+  const assistantName = useAssistantDisplayName();
   const peopleEyebrow = useUserOwnedLabel("People");
   const [people, setPeople] = useState<Person[]>([])
   const [loading, setLoading] = useState(true)
@@ -81,7 +84,7 @@ export default function PeoplePage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Remove this person from Aliyya's people list?")) return
+    if (!confirm(`Remove this person from ${assistantName}\'s people list?`)) return
 
     const prev = people
     setPeople((p) => p.filter((x) => x.id !== id))
@@ -104,11 +107,11 @@ export default function PeoplePage() {
     <AppPageShell
       eyebrow={peopleEyebrow}
       title="People"
-      description="Add people Aliyya should remember, like family, friends, colleagues, or important contacts."
+      description={`Add people ${assistantName} should remember, like family, friends, colleagues, or important contacts.`}
       maxWidthClassName="max-w-5xl"
       actions={
         <>
-          <AppHeaderAction href="/chat">Back to chat</AppHeaderAction>
+          <BackToChatButton />
           <AppHeaderAction
             onClick={() => setShowForm((v) => !v)}
             variant="primary"

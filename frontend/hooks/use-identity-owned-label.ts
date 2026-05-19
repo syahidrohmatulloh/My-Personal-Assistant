@@ -90,3 +90,9 @@ export function useAssistantOwnedLabel(section: string): string {
     ? `${assistantDisplayName} ${section}`
     : `Assistant ${section}`;
 }
+
+
+export function useAssistantDisplayName(fallback = "Assistant"): string {
+  const profile = useIdentityProfile();
+  return pickAssistantDisplayName(profile) ?? fallback;
+}
