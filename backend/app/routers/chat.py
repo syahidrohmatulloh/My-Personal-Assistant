@@ -48,6 +48,7 @@ from app.services import (
     memory_intelligence,
     mood_memory_feedback,
     relationship_memory,
+    response_texture,
     interaction_preferences,
     user_mood,
 )
@@ -839,6 +840,16 @@ async def chat(
         )
         if mood_block:
             volatile_context += "\n\n" + mood_block
+
+    response_texture_block = response_texture.render_response_texture_block(
+        user_message=body.message,
+        messages=messages,
+        companion_settings_row=companion_settings_row,
+        current_mood=current_mood,
+        user_mood_context=user_mood_ctx,
+    )
+    if response_texture_block:
+        volatile_context += "\n\n" + response_texture_block
 
     if legacy_memories:
         extra = "\n".join(f"- {m['content']}" for m in legacy_memories[:5])
