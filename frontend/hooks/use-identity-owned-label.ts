@@ -5,6 +5,9 @@ import { getIdentity } from "@/lib/api";
 
 type IdentityProfile = Record<string, unknown> | undefined | null;
 
+const USER_NAME_CACHE_KEY = "app:user-display-name";
+const ASSISTANT_NAME_CACHE_KEY = "app:assistant-name";
+
 function cleanString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const cleaned = value.trim();
@@ -51,20 +54,71 @@ function pickUserDisplayName(profile: IdentityProfile): string | null {
   return null;
 }
 
-function useIdentityProfile(): IdentityProfile {
+function readCache(key: string): string | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const value = window.localStorage.getItem(key);
+    return value && value.trim().length > 0 ? value.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(key: string, value: string | null): void {
+  if (typeof window === "undefined" || !value) return;
+
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function useIdentityNames() {
+  const [ready, setReady] = useState(false);
   const [profile, setProfile] = useState<IdentityProfile>(null);
+  const [cachedUserName, setCachedUserName] = useState<string | null>(null);
+  const [cachedAssistantName, setCachedAssistantName] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
 
+    const initialUserName = readCache(USER_NAME_CACHE_KEY);
+    const initialAssistantName = readCache(ASSISTANT_NAME_CACHE_KEY);
+
+    if (mounted) {
+      setCachedUserName(initialUserName);
+      setCachedAssistantName(initialAssistantName);
+      setReady(true);
+    }
+
     getIdentity()
       .then((identity) => {
         if (!mounted) return;
-        setProfile(identity?.profile ?? null);
+
+        const nextProfile = identity?.profile ?? null;
+        const nextUserName = pickUserDisplayName(nextProfile);
+        const nextAssistantName = pickAssistantDisplayName(nextProfile);
+
+        setProfile(nextProfile);
+
+        if (nextUserName) {
+          setCachedUserName(nextUserName);
+          writeCache(USER_NAME_CACHE_KEY, nextUserName);
+        }
+
+        if (nextAssistantName) {
+          setCachedAssistantName(nextAssistantName);
+          writeCache(ASSISTANT_NAME_CACHE_KEY, nextAssistantName);
+        }
+
+        setReady(true);
       })
       .catch(() => {
         if (!mounted) return;
         setProfile(null);
+        setReady(true);
       });
 
     return () => {
@@ -72,27 +126,39 @@ function useIdentityProfile(): IdentityProfile {
     };
   }, []);
 
-  return profile;
+  const userDisplayName = pickUserDisplayName(profile) ?? cachedUserName;
+  const assistantDisplayName = pickAssistantDisplayName(profile) ?? cachedAssistantName;
+
+  return {
+    ready,
+    userDisplayName,
+    assistantDisplayName,
+  };
 }
 
 export function useUserOwnedLabel(section: string): string {
-  const profile = useIdentityProfile();
-  const userDisplayName = pickUserDisplayName(profile);
+  const { ready, userDisplayName } = useIdentityNames();
 
-  return userDisplayName ? `${userDisplayName} ${section}` : `Your ${section}`;
+  if (userDisplayName) return `${userDisplayName} ${section}`;
+  if (!ready) return "\u00A0";
+
+  return `Your ${section}`;
 }
 
 export function useAssistantOwnedLabel(section: string): string {
-  const profile = useIdentityProfile();
-  const assistantDisplayName = pickAssistantDisplayName(profile);
+  const { ready, assistantDisplayName } = useIdentityNames();
 
-  return assistantDisplayName
-    ? `${assistantDisplayName} ${section}`
-    : `Assistant ${section}`;
+  if (assistantDisplayName) return `${assistantDisplayName} ${section}`;
+  if (!ready) return "\u00A0";
+
+  return `Assistant ${section}`;
 }
 
-
 export function useAssistantDisplayName(fallback = "Assistant"): string {
-  const profile = useIdentityProfile();
-  return pickAssistantDisplayName(profile) ?? fallback;
+  const { ready, assistantDisplayName } = useIdentityNames();
+
+  if (assistantDisplayName) return assistantDisplayName;
+  if (!ready) return "";
+
+  return fallback;
 }
