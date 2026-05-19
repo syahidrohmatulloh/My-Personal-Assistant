@@ -19,7 +19,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-from app.core.config import settings
 from app.services.claude import get_claude
 from app.services.supabase_client import get_supabase
 from app.services import life_model
