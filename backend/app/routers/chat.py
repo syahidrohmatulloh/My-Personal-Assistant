@@ -46,6 +46,7 @@ from app.services import (
     life_model,
     memory,
     memory_intelligence,
+    background_extraction_gate,
     goal_intelligence,
     mood_memory_feedback,
     relationship_memory,
@@ -1020,58 +1021,69 @@ async def _stream_claude_response(
             )
         )
 
-    # Background memory extraction (writes to legacy unstructured table)
-    background_tasks.add_task(
-        memory.extract_and_save,
-        user_id=user_id,
-        conversation_id=conversation_id,
-        recent_messages=[
-            {"role": "user", "content": user_message},
-            {"role": "assistant", "content": assistant_text},
-        ],
-    )
-
-    # Background memory intelligence — wider window, structured identity
-    # writes, conflict resolution via supersede chain. Reads `messages`
-    # (already in scope from the streamer) plus the new assistant reply.
-    background_tasks.add_task(
-        memory_intelligence.extract_and_persist,
-        user_id=user_id,
-        conversation_id=conversation_id,
+    extraction_decision = background_extraction_gate.decide(
+        user_message=user_message,
+        assistant_response=assistant_text,
         recent_messages=[
             *messages,
             {"role": "assistant", "content": assistant_text},
         ],
+        is_first_message=is_first_message,
     )
 
-    # Background mood-memory feedback — conservative behavioral preferences.
-    # Uses USER mood context only. Does not touch companion mood/state.
-    background_tasks.add_task(
-        mood_memory_feedback.extract_and_persist,
-        user_id=user_id,
-        user_message=user_message,
-        assistant_response=assistant_text,
-        user_mood_context=user_mood_context,
-    )
+    # Legacy memory extraction is now gated because memory_intelligence is the
+    # primary structured extractor. This prevents duplicate durable memories.
+    if extraction_decision.run_legacy_memory:
+        background_tasks.add_task(
+            memory.extract_and_save,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            recent_messages=[
+                {"role": "user", "content": user_message},
+                {"role": "assistant", "content": assistant_text},
+            ],
+        )
 
-    # Background relationship memory — stable user↔Aliyya interaction preferences.
-    # Does not touch companion mood/state and does not store temporary mood.
-    background_tasks.add_task(
-        relationship_memory.extract_and_persist,
-        user_id=user_id,
-        user_message=user_message,
-        assistant_response=assistant_text,
-    )
+    # Structured memory intelligence — identity/preferences/routines/dates/etc.
+    if extraction_decision.run_memory_intelligence:
+        background_tasks.add_task(
+            memory_intelligence.extract_and_persist,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            recent_messages=[
+                *messages,
+                {"role": "assistant", "content": assistant_text},
+            ],
+        )
 
-    # Background goal intelligence — suggests trackable goals and logs progress
-    # against existing active goals. Suggestions require user confirmation.
-    background_tasks.add_task(
-        goal_intelligence.extract_and_persist,
-        user_id=user_id,
-        conversation_id=conversation_id,
-        user_message=user_message,
-        assistant_response=assistant_text,
-    )
+    # Mood-memory feedback — only when debugging/frustration/support-style signal exists.
+    if extraction_decision.run_mood_memory_feedback:
+        background_tasks.add_task(
+            mood_memory_feedback.extract_and_persist,
+            user_id=user_id,
+            user_message=user_message,
+            assistant_response=assistant_text,
+            user_mood_context=user_mood_context,
+        )
+
+    # Relationship memory — only when user gives interaction-style or Aliyya-specific signal.
+    if extraction_decision.run_relationship_memory:
+        background_tasks.add_task(
+            relationship_memory.extract_and_persist,
+            user_id=user_id,
+            user_message=user_message,
+            assistant_response=assistant_text,
+        )
+
+    # Goal intelligence — only on goal-like turns. Suggestions still require confirmation.
+    if extraction_decision.run_goal_intelligence:
+        background_tasks.add_task(
+            goal_intelligence.extract_and_persist,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            user_message=user_message,
+            assistant_response=assistant_text,
+        )
 
 
     # Background conversation-summary update. Idempotent — only runs Haiku
