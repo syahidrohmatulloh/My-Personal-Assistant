@@ -99,6 +99,7 @@ export function ChatHomePageClient({ initialAssistantName = "" }: { initialAssis
 
   const journaledToday = Boolean(today?.entry);
   const [briefingCtaVisible, setBriefingCtaVisible] = useState(false);
+  const [suggestionsVisible, setSuggestionsVisible] = useState(false);
   const assistantName =
     typeof identity?.profile?.assistant_name === "string" &&
     identity.profile.assistant_name.trim().length > 0
@@ -262,6 +263,23 @@ export function ChatHomePageClient({ initialAssistantName = "" }: { initialAssis
     journaledToday,
   ]);
 
+  const suggestionsReady = !goalsLoading && !journalLoading && !briefingLoading;
+
+  useEffect(() => {
+    if (!suggestionsReady) {
+      setSuggestionsVisible(false);
+      return;
+    }
+
+    setSuggestionsVisible(false);
+
+    const frame = window.requestAnimationFrame(() => {
+      setSuggestionsVisible(true);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [suggestionsReady, suggestions]);
+
   return (
     <main className="flex min-h-[calc(100vh-64px)] flex-1 items-center justify-center px-4 sm:px-6">
       <div className="w-full max-w-3xl">
@@ -337,18 +355,28 @@ export function ChatHomePageClient({ initialAssistantName = "" }: { initialAssis
           </div>
         </form>
 
-        <div className="mx-auto mt-3 flex max-w-2xl flex-wrap justify-center gap-2">
-          {suggestions.map((suggestion) => (
-            <button
-              key={suggestion.label}
-              type="button"
-              disabled={createMut.isPending || startBriefingMut.isPending}
-              onClick={() => startChat(suggestion.prompt)}
-              className="rounded-full border border-border bg-fg/[0.025] px-3 py-1.5 text-xs text-fg-muted transition hover:bg-fg/5 hover:text-fg disabled:opacity-60"
+        <div className="mx-auto mt-3 min-h-[34px] max-w-2xl">
+          {suggestionsReady ? (
+            <div
+              className={`flex flex-wrap justify-center gap-2 transition-opacity duration-1000 ease-out ${
+                suggestionsVisible ? "opacity-100" : "opacity-0"
+              }`}
             >
-              {suggestion.label}
-            </button>
-          ))}
+              {suggestions.map((suggestion) => (
+                <button
+                  key={suggestion.label}
+                  type="button"
+                  disabled={createMut.isPending || startBriefingMut.isPending}
+                  onClick={() => startChat(suggestion.prompt)}
+                  className="rounded-full border border-border bg-fg/[0.025] px-3 py-1.5 text-xs text-fg-muted transition hover:bg-fg/5 hover:text-fg disabled:opacity-60"
+                >
+                  {suggestion.label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div aria-hidden="true" className="min-h-[34px] opacity-0" />
+          )}
         </div>
       </div>
     </main>
