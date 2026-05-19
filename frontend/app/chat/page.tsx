@@ -254,11 +254,11 @@ export default function ChatIndexPage() {
 
         <form onSubmit={handleSubmit} className="mx-auto w-full max-w-2xl">
           <div className="rounded-[1.65rem] border border-slate-300/75 bg-white/92 px-3.5 py-3 shadow-[0_8px_28px_rgba(15,23,42,0.07)] backdrop-blur dark:border-white/10 dark:bg-[#111827]/88 dark:shadow-[0_10px_30px_rgba(0,0,0,0.32)]">
-            <div className="flex items-end gap-2.5">
+            <div className="flex items-center gap-2.5">
               <button
                 type="button"
                 aria-label="Add"
-                className="mb-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-700 transition hover:bg-slate-100 dark:text-zinc-200 dark:hover:bg-white/10"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-700 transition hover:bg-slate-100 dark:text-zinc-200 dark:hover:bg-white/10"
               >
                 <Plus className="h-5 w-5" strokeWidth={2.2} />
               </button>
@@ -270,7 +270,7 @@ export default function ChatIndexPage() {
                   onKeyDown={handleKeyDown}
                   rows={1}
                   placeholder={`Ask ${assistantName} anything`}
-                  className="max-h-40 min-h-[42px] w-full resize-none border-0 bg-transparent px-1 py-2.5 text-[0.98rem] leading-6 text-slate-950 outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-zinc-500"
+                  className="max-h-40 min-h-[42px] w-full resize-none border-0 bg-transparent px-1 py-[9px] text-[0.98rem] leading-6 text-slate-950 outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-zinc-500"
                 />
               </div>
 
@@ -278,7 +278,7 @@ export default function ChatIndexPage() {
                 type="submit"
                 disabled={createMut.isPending || draft.trim().length === 0}
                 aria-label="Start chat"
-                className="mb-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-35 dark:bg-white dark:text-slate-950 dark:hover:bg-zinc-200"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-35 dark:bg-white dark:text-slate-950 dark:hover:bg-zinc-200"
               >
                 <ArrowUp className="h-4 w-4" strokeWidth={2.3} />
               </button>
