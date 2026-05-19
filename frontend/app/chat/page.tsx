@@ -98,6 +98,12 @@ export default function ChatIndexPage() {
   });
 
   const journaledToday = Boolean(today?.entry);
+  const assistantName =
+    typeof identity?.profile?.assistant_name === "string" &&
+    identity.profile.assistant_name.trim().length > 0
+      ? identity.profile.assistant_name.trim()
+      : "your assistant";
+
   const initialTitleReady =
     !briefingLoading && !journalLoading && !goalsLoading && !identityLoading;
 
@@ -220,7 +226,17 @@ export default function ChatIndexPage() {
           </h1>
         </div>
 
-        {briefing?.content ? (
+        {briefingLoading ? (
+          <button
+            type="button"
+            disabled
+            aria-live="polite"
+            className="mx-auto mb-3 flex max-w-2xl items-center gap-2 rounded-2xl border border-border bg-fg/[0.025] px-3.5 py-2.5 text-left text-xs text-fg-muted opacity-70"
+          >
+            <CalendarDays className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Checking today’s briefing</span>
+          </button>
+        ) : briefing?.content ? (
           <button
             type="button"
             onClick={() => briefing?.id && startBriefingMut.mutate(briefing.id)}
@@ -229,7 +245,9 @@ export default function ChatIndexPage() {
           >
             <CalendarDays className="h-4 w-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">
-              {briefing.opened_at || briefing.conversation_id ? "Want to revisit today’s briefing?" : "Today’s briefing is ready — discuss it with Aliyya"}
+              {briefing.opened_at || briefing.conversation_id
+                ? "Want to revisit today’s briefing?"
+                : `Today’s briefing is ready — discuss it with ${assistantName}`}
             </span>
           </button>
         ) : null}
@@ -251,7 +269,7 @@ export default function ChatIndexPage() {
                   onChange={(event) => setDraft(event.target.value)}
                   onKeyDown={handleKeyDown}
                   rows={1}
-                  placeholder="Ask Aliyya anything"
+                  placeholder={`Ask ${assistantName} anything`}
                   className="max-h-40 min-h-[42px] w-full resize-none border-0 bg-transparent px-1 py-2.5 text-[0.98rem] leading-6 text-slate-950 outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-zinc-500"
                 />
               </div>
