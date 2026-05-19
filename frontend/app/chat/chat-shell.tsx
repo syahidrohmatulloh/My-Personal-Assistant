@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect } from "react";
 import { Sidebar } from "@/components/chat/sidebar";
 import type { Conversation } from "@/lib/api";
 
@@ -15,15 +15,13 @@ export function ChatShell({
   children: React.ReactNode;
 }) {
   const qc = useQueryClient();
-  const [hydrated, setHydrated] = useState(false);
 
-  if (!hydrated) {
+  useEffect(() => {
     qc.setQueryData(["conversations"], initialConversations);
     qc.setQueryData(["journal", "today"], {
       entry: initialJournaled ? { id: "hydrated" } : null,
     });
-    setHydrated(true);
-  }
+  }, [initialConversations, initialJournaled, qc]);
 
   return (
     // h-dvh = dynamic viewport. overflow-hidden prevents flex children from
