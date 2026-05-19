@@ -171,7 +171,7 @@ export default function ChatIndexPage() {
             <button
               key={suggestion.label}
               type="button"
-              disabled={createMut.isPending}
+              disabled={createMut.isPending || startBriefingMut.isPending}
               onClick={() => startChat(suggestion.prompt)}
               className="rounded-full border border-border bg-fg/[0.025] px-3 py-1.5 text-xs text-fg-muted transition hover:bg-fg/5 hover:text-fg disabled:opacity-60"
             >

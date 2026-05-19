@@ -37,6 +37,48 @@ class RenameConversationIn(BaseModel):
     title: str = Field(min_length=1, max_length=120)
 
 
+
+async def _is_protected_conversation(user_id: str, conversation_id: str) -> bool:
+    main_chat = await asyncio.to_thread(
+        lambda: safe_execute(
+            lambda sb: sb.table("user_main_chats")
+            .select("conversation_id")
+            .eq("user_id", user_id)
+            .eq("conversation_id", conversation_id)
+            .maybe_single()
+            .execute()
+        )
+    )
+    if main_chat and main_chat.data:
+        return True
+
+    briefing_chat = await asyncio.to_thread(
+        lambda: safe_execute(
+            lambda sb: sb.table("user_briefing_chats")
+            .select("conversation_id")
+            .eq("user_id", user_id)
+            .eq("conversation_id", conversation_id)
+            .maybe_single()
+            .execute()
+        )
+    )
+    if briefing_chat and briefing_chat.data:
+        return True
+
+    linked_briefing = await asyncio.to_thread(
+        lambda: safe_execute(
+            lambda sb: sb.table("daily_briefings")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("conversation_id", conversation_id)
+            .limit(1)
+            .maybe_single()
+            .execute()
+        )
+    )
+    return bool(linked_briefing and linked_briefing.data)
+
+
 @router.get("", response_model=list[ConversationOut])
 async def list_conversations(user_id: str = Depends(get_current_user_id)):
     """Return all conversations for the current user, newest first."""
@@ -386,6 +428,12 @@ async def list_messages(
     )
     if not convo or not convo.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+
+    if await _is_protected_conversation(user_id, conversation_id):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Protected conversations cannot be deleted",
+        )
 
     result = (
         supabase.table("messages")
