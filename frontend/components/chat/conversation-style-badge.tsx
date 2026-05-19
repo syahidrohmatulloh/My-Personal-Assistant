@@ -16,13 +16,10 @@ import { cn } from "@/lib/utils";
  * Subtle indicator + picker for the active conversation style.
  *
  * Rules:
- * - If conversation has no style attached AND user has no profiles → render nothing.
- * - If conversation has no style attached BUT user has profiles → render small
- *   "Default" pill that lets user attach one without leaving the chat.
+ * - If conversation has no style attached → render nothing.
  * - If conversation has style → render the style name as a pill, clickable.
  *
- * Picker reuses the same logic as the sidebar's Change-style popover but
- * is anchored top-right of the chat area so it doesn't fight with the input.
+ * Default should feel invisible, not like a mode the user needs to manage.
  */
 export function ConversationStyleBadge({ conversationId }: { conversationId: string }) {
   const qc = useQueryClient();
@@ -77,9 +74,9 @@ export function ConversationStyleBadge({ conversationId }: { conversationId: str
     };
   }, [open]);
 
-  // Render nothing if user has no profiles AND no style is currently active.
-  // Keeps default users' UI 100% unchanged.
-  if (profiles.length === 0 && !currentProfile) return null;
+  // Default style should be invisible. Only show the badge when a style
+  // profile is actively attached to this conversation.
+  if (!currentProfile) return null;
 
   return (
     <div
@@ -98,7 +95,7 @@ export function ConversationStyleBadge({ conversationId }: { conversationId: str
       >
         <Sparkles className="h-3 w-3" />
         <span className="truncate max-w-[140px]">
-          {currentProfile ? currentProfile.profile_name : "Default"}
+          {currentProfile.profile_name}
         </span>
       </button>
       {open && (

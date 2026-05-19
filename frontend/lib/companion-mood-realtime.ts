@@ -18,7 +18,7 @@ export async function subscribeCompanionMoodRealtime(conversationId: string) {
       {
         event: "*",
         schema: "public",
-        table: "companion_mood_states",
+        table: "companion_mood_state",
         filter: `user_id=eq.${user.id}`,
       },
       (payload) => {
