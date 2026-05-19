@@ -76,7 +76,7 @@ function writeCache(key: string, value: string | null): void {
 }
 
 function useIdentityNames() {
-  const [ready, setReady] = useState(false);
+  const [identityLoaded, setIdentityLoaded] = useState(false);
   const [profile, setProfile] = useState<IdentityProfile>(null);
   const [cachedUserName, setCachedUserName] = useState<string | null>(null);
   const [cachedAssistantName, setCachedAssistantName] = useState<string | null>(null);
@@ -90,7 +90,6 @@ function useIdentityNames() {
     if (mounted) {
       setCachedUserName(initialUserName);
       setCachedAssistantName(initialAssistantName);
-      setReady(true);
     }
 
     getIdentity()
@@ -113,12 +112,12 @@ function useIdentityNames() {
           writeCache(ASSISTANT_NAME_CACHE_KEY, nextAssistantName);
         }
 
-        setReady(true);
+        setIdentityLoaded(true);
       })
       .catch(() => {
         if (!mounted) return;
         setProfile(null);
-        setReady(true);
+        setIdentityLoaded(true);
       });
 
     return () => {
@@ -130,35 +129,35 @@ function useIdentityNames() {
   const assistantDisplayName = pickAssistantDisplayName(profile) ?? cachedAssistantName;
 
   return {
-    ready,
+    identityLoaded,
     userDisplayName,
     assistantDisplayName,
   };
 }
 
 export function useUserOwnedLabel(section: string): string {
-  const { ready, userDisplayName } = useIdentityNames();
+  const { identityLoaded, userDisplayName } = useIdentityNames();
 
   if (userDisplayName) return `${userDisplayName} ${section}`;
-  if (!ready) return "\u00A0";
+  if (!identityLoaded) return "\u00A0";
 
   return `Your ${section}`;
 }
 
 export function useAssistantOwnedLabel(section: string): string {
-  const { ready, assistantDisplayName } = useIdentityNames();
+  const { identityLoaded, assistantDisplayName } = useIdentityNames();
 
   if (assistantDisplayName) return `${assistantDisplayName} ${section}`;
-  if (!ready) return "\u00A0";
+  if (!identityLoaded) return "\u00A0";
 
   return `Assistant ${section}`;
 }
 
 export function useAssistantDisplayName(fallback = "Assistant"): string {
-  const { ready, assistantDisplayName } = useIdentityNames();
+  const { identityLoaded, assistantDisplayName } = useIdentityNames();
 
   if (assistantDisplayName) return assistantDisplayName;
-  if (!ready) return "";
+  if (!identityLoaded) return "";
 
   return fallback;
 }
