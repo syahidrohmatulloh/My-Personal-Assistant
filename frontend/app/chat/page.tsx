@@ -35,22 +35,10 @@ export default function ChatIndexPage() {
   const title = useMemo(() => {
     const hour = new Date().getHours();
 
-    if (briefing?.content) {
-      return "There’s a thread we can pick up.";
-    }
-
-    if (!journaledToday && hour >= 18) {
-      return "Want to close the day together?";
-    }
-
-    if (hour < 11) {
-      return "What should we start with today?";
-    }
-
-    if (hour < 17) {
-      return "What should we work through first?";
-    }
-
+    if (briefing?.content) return "There’s a thread we can pick up.";
+    if (!journaledToday && hour >= 18) return "Want to close the day together?";
+    if (hour < 11) return "What should we start with today?";
+    if (hour < 17) return "What should we work through first?";
     return "Where do you want to continue?";
   }, [briefing?.content, journaledToday]);
 
@@ -63,6 +51,7 @@ export default function ChatIndexPage() {
       ]);
 
       const text = (message ?? draft).trim();
+
       if (text) {
         router.push(`/chat/${conversation.id}?prefill=${encodeURIComponent(text)}`);
       } else {
@@ -73,14 +62,14 @@ export default function ChatIndexPage() {
 
   function startChat(message?: string) {
     if (createMut.isPending) return;
-    createMut.mutate(message);
+    const text = (message ?? draft).trim();
+    if (!text) return;
+    createMut.mutate(text);
   }
 
   function handleSubmit(event?: FormEvent) {
     event?.preventDefault();
-    const text = draft.trim();
-    if (!text) return;
-    startChat(text);
+    startChat();
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -89,6 +78,31 @@ export default function ChatIndexPage() {
       handleSubmit();
     }
   }
+
+  const briefingPrompt = [
+    "Let's discuss today's briefing.",
+    "",
+    "Please start by explaining the most important point from the briefing in a personal way.",
+    "Then give me a few practical ideas or suggestions that fit my current context, mood, and recent conversations.",
+  ].join("\n");
+
+  const suggestions = [
+    {
+      label: "Plan my day",
+      prompt:
+        "Help me plan my day based on what you know about my priorities, recent context, and current energy. Make it practical and not too long.",
+    },
+    {
+      label: "Reflect on today",
+      prompt:
+        "Help me reflect on today. Ask me a few thoughtful questions first if you need more context, then help me turn it into a useful journal-style reflection.",
+    },
+    {
+      label: "Continue from memory",
+      prompt:
+        "Continue from what matters most in my recent memory and conversations. Pick the most useful thread to continue, explain why, then suggest the next step.",
+    },
+  ];
 
   return (
     <main className="flex min-h-[calc(100vh-64px)] flex-1 items-center justify-center px-4 sm:px-6">
@@ -106,7 +120,7 @@ export default function ChatIndexPage() {
         {briefing?.content ? (
           <button
             type="button"
-            onClick={() => startChat("Let's discuss today's briefing.")}
+            onClick={() => startChat(briefingPrompt)}
             disabled={createMut.isPending}
             className="mx-auto mb-3 flex max-w-2xl items-center gap-2 rounded-2xl border border-border bg-fg/[0.035] px-3.5 py-2.5 text-left text-xs text-fg-muted transition hover:bg-fg/5 hover:text-fg disabled:opacity-60"
           >
@@ -152,20 +166,15 @@ export default function ChatIndexPage() {
         </form>
 
         <div className="mx-auto mt-3 flex max-w-2xl flex-wrap justify-center gap-2">
-          {[
-            "Plan my day",
-            "Reflect on today",
-            "Continue from memory",
-          ].map((suggestion) => (
+          {suggestions.map((suggestion) => (
             <button
-              key={suggestion}
+              key={suggestion.label}
               type="button"
-              onClick={() => {
-                setDraft(suggestion);
-              }}
-              className="rounded-full border border-border bg-fg/[0.025] px-3 py-1.5 text-xs text-fg-muted transition hover:bg-fg/5 hover:text-fg"
+              disabled={createMut.isPending}
+              onClick={() => startChat(suggestion.prompt)}
+              className="rounded-full border border-border bg-fg/[0.025] px-3 py-1.5 text-xs text-fg-muted transition hover:bg-fg/5 hover:text-fg disabled:opacity-60"
             >
-              {suggestion}
+              {suggestion.label}
             </button>
           ))}
         </div>

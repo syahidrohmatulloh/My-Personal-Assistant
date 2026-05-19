@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown } from "lucide-react";
 
@@ -66,6 +67,8 @@ export function ConversationPageClient({
   initialMessages?: Message[]
 }) {
   const qc = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [messages, setMessages] = useState<LocalMessage[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -102,6 +105,7 @@ export function ConversationPageClient({
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
+  const consumedPrefillRef = useRef<string | null>(null);
 
   const applyAssistantMoodAfterLatestMessagePaint = useCallback(
     (assistantText: string) => {
@@ -246,8 +250,8 @@ export function ConversationPageClient({
   }
 
 const handleSend = useCallback(
-    async (attachmentIds: string[] = []) => {
-      const text = input.trim();
+    async (attachmentIds: string[] = [], overrideText?: string) => {
+      const text = (overrideText ?? input).trim();
       if (shouldDeferCompanionMoodToAssistant(text)) {
         setPendingCompanionMoodSimulation(text, conversationId);
       } else {
@@ -260,7 +264,9 @@ const handleSend = useCallback(
       // backend always has at least one text block in the user content array.
       const messageText = text || (attachmentIds.length > 0 ? "(shared an attachment)" : "");
 
-      setInput("");
+      if (!overrideText) {
+        setInput("");
+      }
       setSending(true);
       setStreamMeta(null);
       stickToBottomRef.current = true;
@@ -376,6 +382,36 @@ const handleSend = useCallback(
       setStreamMeta(null);
     }
   }, [conversationId, input, messages.length, qc, sending]);
+
+  // Auto-send a landing-page prefill once when a new conversation is opened.
+  useEffect(() => {
+    const prefill = searchParams.get("prefill")?.trim();
+
+    if (!prefill) return;
+    if (loading || sending) return;
+    if (consumedPrefillRef.current === prefill) return;
+    if (messages.length > 0) return;
+
+    consumedPrefillRef.current = prefill;
+    setInput(prefill);
+
+    void handleSend([], prefill);
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete("prefill");
+    const qs = nextParams.toString();
+    router.replace(qs ? `/chat/${conversationId}?${qs}` : `/chat/${conversationId}`, {
+      scroll: false,
+    });
+  }, [
+    conversationId,
+    handleSend,
+    loading,
+    messages.length,
+    router,
+    searchParams,
+    sending,
+  ]);
 
   return (
     <main className="flex-1 flex flex-col min-w-0 min-h-0 relative">
