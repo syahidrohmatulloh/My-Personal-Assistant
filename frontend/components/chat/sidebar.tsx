@@ -10,7 +10,24 @@ import { createClient } from "@/lib/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils"; // Group conversations by relative time, like ChatGPT / Claude.ai
 type ConvoGroup = { label: string; conversations: Conversation[] }; function groupConversations(convos: Conversation[]): ConvoGroup[] { const now = Date.now(); const ONE_DAY = 86_400_000; const buckets: { [k: string]: Conversation[] } = { Today: [], Yesterday: [], "Previous 7 days": [], "Previous 30 days": [], Older: [], }; for (const c of convos) { const age = now - new Date(c.updated_at).getTime(); if (age < ONE_DAY) buckets.Today.push(c); else if (age < 2 * ONE_DAY) buckets.Yesterday.push(c); else if (age < 7 * ONE_DAY) buckets["Previous 7 days"].push(c); else if (age < 30 * ONE_DAY) buckets["Previous 30 days"].push(c); else buckets.Older.push(c); } return Object.entries(buckets) .filter(([, items]) => items.length > 0) .map(([label, conversations]) => ({ label, conversations }));
-} export function Sidebar() { const router = useRouter(); const params = useParams<{ id?: string }>(); const activeId = params?.id; const qc = useQueryClient(); const [open, setOpen] = useState(false); const { data: identity } = useQuery({ queryKey: ["identity"], queryFn: getIdentity, staleTime: 5 * 60 * 1000, gcTime: 30 * 60 * 1000, refetchOnMount: false, refetchOnWindowFocus: false, }); const assistantName = typeof identity?.profile?.assistant_name === "string" && identity.profile.assistant_name.trim().length > 0 ? identity.profile.assistant_name.trim() : "Aliyya"; const { data: conversations = [], isLoading } = useQuery({ queryKey: ["conversations"], queryFn: listConversations, staleTime: 5 * 60 * 1000, gcTime: 30 * 60 * 1000, refetchOnMount: false, refetchOnWindowFocus: false, refetchOnReconnect: false, }); const { data: today } = useQuery({ queryKey: ["journal", "today"], queryFn: getTodaysJournal, }); const journaledToday = today?.entry != null;
+} export function Sidebar({
+  initialConversations = [],
+  initialJournaled = false,
+}: {
+  initialConversations?: Conversation[];
+  initialJournaled?: boolean;
+}) { const router = useRouter(); const params = useParams<{ id?: string }>(); const activeId = params?.id; const qc = useQueryClient(); const [open, setOpen] = useState(false); const { data: identity } = useQuery({ queryKey: ["identity"], queryFn: getIdentity, staleTime: 5 * 60 * 1000, gcTime: 30 * 60 * 1000, refetchOnMount: false, refetchOnWindowFocus: false, }); const assistantName = typeof identity?.profile?.assistant_name === "string" && identity.profile.assistant_name.trim().length > 0 ? identity.profile.assistant_name.trim() : "Aliyya"; const { data: conversations = [], isLoading } = useQuery({ queryKey: ["conversations"], queryFn: listConversations, staleTime: 5 * 60 * 1000, gcTime: 30 * 60 * 1000, refetchOnMount: false, refetchOnWindowFocus: false, refetchOnReconnect: false, initialData: initialConversations, }); const { data: today } = useQuery({ queryKey: ["journal", "today"], queryFn: getTodaysJournal, initialData: {
+      entry: initialJournaled
+        ? {
+            id: "hydrated",
+            mood: null,
+            energy: null,
+            stress: null,
+            note: null,
+            observed_at: new Date().toISOString(),
+          }
+        : null,
+    }, }); const journaledToday = today?.entry != null;
 
   const { data: memoryHealthStatus } = useQuery({
     queryKey: ["memory-health-status-live"],
