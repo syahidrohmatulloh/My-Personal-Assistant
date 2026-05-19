@@ -171,17 +171,42 @@ export default function GoalsPage() {
   }
 
   const profile = identity?.profile ?? {};
-  const userDisplayName =
-    typeof profile.preferred_name === "string" && profile.preferred_name.trim()
-      ? profile.preferred_name.trim()
-      : typeof profile.name === "string" && profile.name.trim()
-        ? profile.name.trim()
-        : typeof profile.full_name === "string" && profile.full_name.trim()
-          ? profile.full_name.trim()
-          : typeof profile.first_name === "string" && profile.first_name.trim()
-            ? profile.first_name.trim()
-            : null;
 
+  function pickProfileName(value: unknown): string | null {
+    if (typeof value !== "string") return null;
+
+    const cleaned = value.trim();
+    if (!cleaned) return null;
+
+    // Guard against assistant/companion name leaking into user identity.
+    // User Goals should never become "Aliyya Goals".
+    const lowered = cleaned.toLowerCase();
+    if (
+      lowered === "aliyya" ||
+      lowered === "assistant" ||
+      lowered === "my assistant" ||
+      lowered === "ai assistant"
+    ) {
+      return null;
+    }
+
+    return cleaned;
+  }
+
+  const rawUserName =
+    pickProfileName(profile.preferred_name) ||
+    pickProfileName(profile.nickname) ||
+    pickProfileName(profile.user_name) ||
+    pickProfileName(profile.userName) ||
+    pickProfileName(profile.first_name) ||
+    pickProfileName(profile.firstName) ||
+    pickProfileName(profile.full_name) ||
+    pickProfileName(profile.fullName) ||
+    pickProfileName(profile.display_name) ||
+    pickProfileName(profile.displayName) ||
+    pickProfileName(profile.name);
+
+  const userDisplayName = rawUserName ? rawUserName.split(/\s+/)[0] : null;
   const goalsEyebrow = userDisplayName ? `${userDisplayName} Goals` : "Your Goals";
 
   return (
