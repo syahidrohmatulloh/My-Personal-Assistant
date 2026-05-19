@@ -251,25 +251,33 @@ export function ChatHomePageClient({ initialAssistantName = "" }: { initialAssis
           </h1>
         </div>
 
-        {briefing?.content ? (
-          <button
-            type="button"
-            onClick={() => briefing?.id && startBriefingMut.mutate(briefing.id)}
-            disabled={createMut.isPending || startBriefingMut.isPending}
-            className={`mx-auto mb-3 flex max-w-2xl items-center gap-2 rounded-2xl border border-border bg-fg/[0.035] px-3.5 py-2.5 text-left text-xs text-fg-muted transition-all duration-300 ease-out hover:bg-fg/5 hover:text-fg disabled:opacity-60 ${
-              briefingCtaVisible
-                ? "translate-y-0 opacity-100"
-                : "-translate-y-1 opacity-0 pointer-events-none"
-            }`}
-          >
-            <CalendarDays className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">
-              {briefing.opened_at || briefing.conversation_id
-                ? "Want to revisit today’s briefing?"
-                : assistantName ? `Today’s briefing is ready — discuss it with ${assistantName}` : "Today’s briefing is ready"}
-            </span>
-          </button>
-        ) : null}
+        <div className="mx-auto mb-3 w-full max-w-2xl">
+          <div className="h-[46px]">
+            {briefing?.content ? (
+              <button
+                type="button"
+                onClick={() => briefing?.id && startBriefingMut.mutate(briefing.id)}
+                disabled={createMut.isPending || startBriefingMut.isPending}
+                className={`flex h-[46px] w-full items-center gap-2 rounded-2xl border border-border bg-fg/[0.035] px-3.5 text-left text-xs text-fg-muted transition-opacity duration-1000 ease-out hover:bg-fg/5 hover:text-fg disabled:opacity-60 ${
+                  briefingCtaVisible
+                    ? "opacity-100"
+                    : "opacity-0 pointer-events-none"
+                }`}
+              >
+                <CalendarDays className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">
+                  {briefing.opened_at || briefing.conversation_id
+                    ? "Want to revisit today’s briefing?"
+                    : assistantName
+                      ? `Today’s briefing is ready — discuss it with ${assistantName}`
+                      : "Today’s briefing is ready"}
+                </span>
+              </button>
+            ) : (
+              <div aria-hidden="true" className="h-[46px] w-full opacity-0" />
+            )}
+          </div>
+        </div>
 
         <form onSubmit={handleSubmit} className="mx-auto w-full max-w-2xl">
           <div className="rounded-[1.65rem] border border-slate-300/75 bg-white/92 px-3.5 py-3 shadow-[0_8px_28px_rgba(15,23,42,0.07)] backdrop-blur dark:border-white/10 dark:bg-[#111827]/88 dark:shadow-[0_10px_30px_rgba(0,0,0,0.32)]">
