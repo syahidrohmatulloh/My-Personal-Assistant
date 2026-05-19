@@ -58,14 +58,20 @@ function scrollContainerToBottom(el: HTMLDivElement | null, smooth = false) {
   }
 }
 
-export function ConversationPageClient({ conversationId }: { conversationId: string }) {
+export function ConversationPageClient({
+  conversationId,
+  initialMessages = [],
+}: {
+  conversationId: string
+  initialMessages?: Message[]
+}) {
   const qc = useQueryClient();
 
-  const [messages, setMessages] = useState<LocalMessage[]>([]);
+  const [messages, setMessages] = useState<LocalMessage[]>(initialMessages);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [historySettled, setHistorySettled] = useState(false);
+  const [loading, setLoading] = useState(initialMessages.length === 0);
+  const [historySettled, setHistorySettled] = useState(initialMessages.length === 0);
   const [showJumpBtn, setShowJumpBtn] = useState(false);
   const [streamMeta, setStreamMeta] = useState<ChatStreamMeta | null>(null);
 
@@ -163,12 +169,34 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
 
 
   // Load messages, then scroll the container to bottom on next frame.
+  // Server-prefetched messages make direct opens much faster. The client fetch
+  // is only a fallback for cases where no initial messages were provided.
   useEffect(() => {
     let cancelled = false;
 
-    setLoading(true);
+    setLoading(initialMessages.length === 0);
     setHistorySettled(false);
     stickToBottomRef.current = true;
+
+    const settleAfterPaint = () => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (cancelled) return;
+          scrollContainerToBottom(scrollRef.current);
+          setHistorySettled(true);
+        });
+      });
+    };
+
+    if (initialMessages.length > 0) {
+      setMessages(initialMessages);
+      setLoading(false);
+      settleAfterPaint();
+
+      return () => {
+        cancelled = true;
+      };
+    }
 
     listMessages(conversationId)
       .then((msgs) => {
@@ -176,14 +204,7 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
 
         setMessages(msgs);
         setLoading(false);
-
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            if (cancelled) return;
-            scrollContainerToBottom(scrollRef.current);
-            setHistorySettled(true);
-          });
-        });
+        settleAfterPaint();
       })
       .catch((err) => {
         console.error(err);
@@ -196,7 +217,7 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
     return () => {
       cancelled = true;
     };
-  }, [conversationId]);
+  }, [conversationId, initialMessages]);
 
   // Detect whether user is near the bottom — affects auto-follow during stream.
   useEffect(() => {
