@@ -128,9 +128,13 @@ def _coerce_goal_intelligence_result(parsed: dict[str, Any]) -> GoalIntelligence
         raw_suggestion = {}
 
     try:
-        goal_suggestion = GoalCandidate.model_validate(raw_suggestion)
+        goal_suggestion = _coerce_goal_candidate(raw_suggestion)
     except ValidationError as exc:
-        log.warning("goal intelligence: invalid goal_suggestion skipped: %s", exc)
+        log.warning(
+            "goal intelligence: invalid goal_suggestion skipped: %s raw=%r",
+            exc,
+            raw_suggestion,
+        )
         goal_suggestion = GoalCandidate()
 
     progress_items: list[GoalProgressSignal] = []
@@ -179,6 +183,117 @@ def _valid_date_or_none(value: str | None) -> str | None:
         return date.fromisoformat(value[:10]).isoformat()
     except ValueError:
         return None
+
+
+def _coerce_horizon(value: Any) -> Horizon:
+    raw = str(value or "").lower().strip().replace("-", "_").replace(" ", "_")
+    mapping: dict[str, Horizon] = {
+        "week": "week",
+        "weekly": "week",
+        "this_week": "week",
+        "month": "month",
+        "monthly": "month",
+        "this_month": "month",
+        "quarter": "quarter",
+        "quarterly": "quarter",
+        "3_months": "quarter",
+        "three_months": "quarter",
+        "year": "year",
+        "yearly": "year",
+        "annual": "year",
+        "annually": "year",
+        "this_year": "year",
+        "ongoing": "year",
+        "long_term": "multi_year",
+        "long-term": "multi_year",
+        "multi_year": "multi_year",
+        "multiyear": "multi_year",
+        "life": "life",
+        "lifetime": "life",
+    }
+    return mapping.get(raw, "quarter")
+
+
+def _coerce_int_range(value: Any, *, default: int, low: int, high: int) -> int:
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        number = default
+    return max(low, min(high, number))
+
+
+def _coerce_float_range(value: Any, *, default: float, low: float, high: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = default
+    return max(low, min(high, number))
+
+
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    raw = str(value or "").lower().strip()
+    return raw in {"true", "yes", "y", "1", "candidate", "goal_candidate"}
+
+
+def _coerce_goal_candidate(raw: dict[str, Any]) -> GoalCandidate:
+    normalized = dict(raw)
+
+    if "title" not in normalized or not normalized.get("title"):
+        normalized["title"] = (
+            normalized.get("goal_title")
+            or normalized.get("goal")
+            or normalized.get("name")
+            or normalized.get("summary")
+        )
+
+    if "description" not in normalized:
+        normalized["description"] = (
+            normalized.get("why")
+            or normalized.get("reason")
+            or normalized.get("details")
+        )
+
+    if "assistant_reason" not in normalized:
+        normalized["assistant_reason"] = (
+            normalized.get("reason")
+            or normalized.get("rationale")
+            or normalized.get("why_this_matters")
+        )
+
+    normalized["is_goal_candidate"] = _coerce_bool(
+        normalized.get("is_goal_candidate", normalized.get("goal_candidate", False))
+    )
+    normalized["confidence"] = _coerce_float_range(
+        normalized.get("confidence"),
+        default=0.0,
+        low=0.0,
+        high=1.0,
+    )
+    normalized["horizon"] = _coerce_horizon(normalized.get("horizon"))
+    normalized["emotional_weight"] = _coerce_int_range(
+        normalized.get("emotional_weight", normalized.get("importance")),
+        default=5,
+        low=1,
+        high=10,
+    )
+
+    target_date = normalized.get("target_date")
+    normalized["target_date"] = _valid_date_or_none(str(target_date)) if target_date else None
+
+    milestones = normalized.get("suggested_milestones") or normalized.get("milestones") or []
+    if isinstance(milestones, str):
+        milestones = [milestones]
+    if not isinstance(milestones, list):
+        milestones = []
+    normalized["suggested_milestones"] = [str(item).strip() for item in milestones if str(item).strip()][:8]
+
+    # If the model wrote a useful title but forgot the boolean, infer candidate.
+    if normalized.get("title") and normalized["confidence"] >= 0.60:
+        normalized["is_goal_candidate"] = True
+
+    return GoalCandidate.model_validate(normalized)
 
 
 async def _load_pending_suggestions(user_id: str) -> list[dict]:
