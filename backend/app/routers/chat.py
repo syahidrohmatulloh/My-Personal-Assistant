@@ -46,6 +46,7 @@ from app.services import (
     life_model,
     memory,
     memory_intelligence,
+    goal_intelligence,
     mood_memory_feedback,
     relationship_memory,
     response_texture,
@@ -1058,6 +1059,16 @@ async def _stream_claude_response(
     background_tasks.add_task(
         relationship_memory.extract_and_persist,
         user_id=user_id,
+        user_message=user_message,
+        assistant_response=assistant_text,
+    )
+
+    # Background goal intelligence — suggests trackable goals and logs progress
+    # against existing active goals. Suggestions require user confirmation.
+    background_tasks.add_task(
+        goal_intelligence.extract_and_persist,
+        user_id=user_id,
+        conversation_id=conversation_id,
         user_message=user_message,
         assistant_response=assistant_text,
     )

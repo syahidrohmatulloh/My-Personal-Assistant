@@ -6,8 +6,12 @@ import { ArrowLeft, Check, Pause, Plus, Target, Trash2, X } from "lucide-react";
 import {
   type Goal,
   type GoalInput,
+  type GoalSuggestion,
+  confirmGoalSuggestion,
   createGoal,
   deleteGoal,
+  dismissGoalSuggestion,
+  listGoalSuggestions,
   listGoals,
   updateGoalStatus,
 } from "@/lib/api";
@@ -35,6 +39,7 @@ const STATUS_LABELS: Record<Goal["status"] | "all", string> = {
 
 export default function GoalsPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [suggestions, setSuggestions] = useState<GoalSuggestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Goal["status"] | "all">("active");
   const [showForm, setShowForm] = useState(false);
@@ -50,10 +55,16 @@ export default function GoalsPage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    listGoals(filter)
-      .then((data) => !cancelled && setGoals(data))
+
+    Promise.all([listGoals(filter), listGoalSuggestions()])
+      .then(([goalData, suggestionData]) => {
+        if (cancelled) return;
+        setGoals(goalData);
+        setSuggestions(suggestionData);
+      })
       .catch((e) => !cancelled && setError(String(e)))
       .finally(() => !cancelled && setLoading(false));
+
     return () => {
       cancelled = true;
     };
@@ -109,6 +120,35 @@ export default function GoalsPage() {
     }
   }
 
+  async function handleConfirmSuggestion(id: string) {
+    const prevSuggestions = suggestions;
+    setSuggestions((items) => items.filter((item) => item.id !== id));
+    setError(null);
+
+    try {
+      const created = await confirmGoalSuggestion(id);
+      if (filter === "active" || filter === "all") {
+        setGoals((prev) => [created, ...prev]);
+      }
+    } catch (e) {
+      setSuggestions(prevSuggestions);
+      setError(String(e));
+    }
+  }
+
+  async function handleDismissSuggestion(id: string) {
+    const prevSuggestions = suggestions;
+    setSuggestions((items) => items.filter((item) => item.id !== id));
+    setError(null);
+
+    try {
+      await dismissGoalSuggestion(id);
+    } catch (e) {
+      setSuggestions(prevSuggestions);
+      setError(String(e));
+    }
+  }
+
   return (
     <AppPageShell
       eyebrow="Aliyya Goals"
@@ -146,6 +186,78 @@ export default function GoalsPage() {
           ))}
         </div>
       </AppToolbar>
+
+      {suggestions.length > 0 && (
+        <AppPanel>
+          <div className="border-b border-slate-200/70 px-5 py-4 dark:border-white/10">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-300">
+              Suggested by Aliyya
+            </p>
+            <p className="mt-1 text-sm text-slate-600 dark:text-zinc-400">
+              These came from your conversations. Confirm only the ones you want Aliyya to track.
+            </p>
+          </div>
+
+          <div className="divide-y divide-slate-200/70 dark:divide-white/10">
+            {suggestions.map((suggestion) => (
+              <article key={suggestion.id} className="p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-950 dark:text-white">
+                      {suggestion.title}
+                    </p>
+
+                    {suggestion.description && (
+                      <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+                        {suggestion.description}
+                      </p>
+                    )}
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
+                      <span className="rounded-full border border-cyan-500/20 bg-cyan-50 px-2 py-1 text-[10px] font-medium text-cyan-800 dark:border-cyan-300/20 dark:bg-cyan-300/10 dark:text-cyan-100">
+                        {HORIZON_LABELS[suggestion.horizon]}
+                      </span>
+                      <span>weight {suggestion.emotional_weight}/10</span>
+                      {typeof suggestion.confidence === "number" && (
+                        <span>confidence {Math.round(suggestion.confidence * 100)}%</span>
+                      )}
+                    </div>
+
+                    {suggestion.suggested_milestones && suggestion.suggested_milestones.length > 0 && (
+                      <ul className="mt-3 list-disc space-y-1 pl-5 text-xs leading-5 text-slate-600 dark:text-zinc-400">
+                        {suggestion.suggested_milestones.slice(0, 3).map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {suggestion.assistant_reason && (
+                      <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-zinc-500">
+                        Why Aliyya suggested this: {suggestion.assistant_reason}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      onClick={() => handleDismissSuggestion(suggestion.id)}
+                      className="rounded-full border border-slate-200/70 px-3 py-2 text-xs text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
+                    >
+                      Dismiss
+                    </button>
+                    <button
+                      onClick={() => handleConfirmSuggestion(suggestion.id)}
+                      className="rounded-full bg-cyan-400 px-3 py-2 text-xs font-medium text-slate-950 shadow-lg shadow-cyan-500/20 hover:bg-cyan-300"
+                    >
+                      Track goal
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </AppPanel>
+      )}
 
       {showForm && (
         <form onSubmit={handleCreate} className="rounded-[1.5rem] border border-slate-200/70 bg-white/75 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04]">

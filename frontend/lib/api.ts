@@ -294,6 +294,21 @@ export type GoalInput = {
   target_date?: string | null;
 };
 
+export type GoalSuggestion = {
+  id: string;
+  title: string;
+  description?: string | null;
+  horizon: Goal["horizon"];
+  emotional_weight: number;
+  target_date?: string | null;
+  suggested_milestones?: string[];
+  assistant_reason?: string | null;
+  source_message?: string | null;
+  confidence?: number;
+  status: "pending" | "confirmed" | "dismissed";
+  created_at: string;
+};
+
 export async function listGoals(status: Goal["status"] | "all" = "active"): Promise<Goal[]> {
   const headers = await getAuthHeader();
   const url =
@@ -312,6 +327,34 @@ export async function createGoal(input: GoalInput): Promise<Goal> {
   });
   if (!r.ok) throw new Error(`createGoal failed: ${r.status}`);
   return r.json();
+}
+
+export async function listGoalSuggestions(
+  status: GoalSuggestion["status"] = "pending",
+): Promise<GoalSuggestion[]> {
+  const headers = await getAuthHeader();
+  const r = await fetch(`${API_URL}/goal-suggestions?status=${status}`, { headers });
+  if (!r.ok) throw new Error(`listGoalSuggestions failed: ${r.status}`);
+  return r.json();
+}
+
+export async function confirmGoalSuggestion(id: string): Promise<Goal> {
+  const headers = await getAuthHeader();
+  const r = await fetch(`${API_URL}/goal-suggestions/${id}/confirm`, {
+    method: "POST",
+    headers,
+  });
+  if (!r.ok) throw new Error(`confirmGoalSuggestion failed: ${r.status}`);
+  return r.json();
+}
+
+export async function dismissGoalSuggestion(id: string): Promise<void> {
+  const headers = await getAuthHeader();
+  const r = await fetch(`${API_URL}/goal-suggestions/${id}/dismiss`, {
+    method: "POST",
+    headers,
+  });
+  if (!r.ok) throw new Error(`dismissGoalSuggestion failed: ${r.status}`);
 }
 
 export async function updateGoalStatus(id: string, status: Goal["status"]): Promise<void> {

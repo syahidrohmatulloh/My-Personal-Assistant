@@ -93,6 +93,9 @@ class GoalIn(BaseModel):
 class GoalStatusIn(BaseModel):
     status: GoalStatus
 
+class GoalSuggestionStatusIn(BaseModel):
+    status: Literal["pending", "confirmed", "dismissed"] = "pending"
+
 
 @router.get("/goals")
 async def list_goals(
@@ -100,6 +103,40 @@ async def list_goals(
     user_id: str = Depends(get_current_user_id),
 ):
     return await life_model.list_goals(user_id, status=status)
+
+
+@router.get("/goal-suggestions")
+async def list_goal_suggestions(
+    status: Literal["pending", "confirmed", "dismissed"] = "pending",
+    user_id: str = Depends(get_current_user_id),
+):
+    return await life_model.list_goal_suggestions(user_id, status=status)
+
+
+@router.post("/goal-suggestions/{suggestion_id}/confirm", status_code=status.HTTP_201_CREATED)
+async def confirm_goal_suggestion(
+    suggestion_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    try:
+        return await life_model.confirm_goal_suggestion(
+            user_id=user_id,
+            suggestion_id=suggestion_id,
+        )
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Goal suggestion not found")
+
+
+@router.post("/goal-suggestions/{suggestion_id}/dismiss")
+async def dismiss_goal_suggestion(
+    suggestion_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    await life_model.dismiss_goal_suggestion(
+        user_id=user_id,
+        suggestion_id=suggestion_id,
+    )
+    return {"ok": True}
 
 
 @router.post("/goals", status_code=status.HTTP_201_CREATED)

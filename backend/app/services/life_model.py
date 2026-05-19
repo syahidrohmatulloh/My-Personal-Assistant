@@ -330,6 +330,71 @@ async def add_goal_check_in(
     return result.data[0]
 
 
+async def list_goal_suggestions(user_id: str, status: str = "pending") -> list[dict]:
+    supabase = get_supabase()
+    q = supabase.table("goal_suggestions").select("*").eq("user_id", user_id)
+    if status:
+        q = q.eq("status", status)
+    result = q.order("created_at", desc=True).execute()
+    return result.data or []
+
+
+async def confirm_goal_suggestion(*, user_id: str, suggestion_id: str) -> dict:
+    supabase = get_supabase()
+
+    result = (
+        supabase.table("goal_suggestions")
+        .select("*")
+        .eq("id", suggestion_id)
+        .eq("user_id", user_id)
+        .eq("status", "pending")
+        .maybe_single()
+        .execute()
+    )
+
+    if not result.data:
+        raise ValueError("Goal suggestion not found")
+
+    suggestion = result.data
+
+    created = await create_goal(
+        user_id=user_id,
+        title=suggestion["title"],
+        description=suggestion.get("description"),
+        horizon=suggestion.get("horizon") or "quarter",
+        emotional_weight=int(suggestion.get("emotional_weight") or 5),
+        target_date=date.fromisoformat(suggestion["target_date"])
+        if suggestion.get("target_date")
+        else None,
+    )
+
+    supabase.table("goal_suggestions").update(
+        {
+            "status": "confirmed",
+            "confirmed_goal_id": created["id"],
+            "updated_at": "now()",
+        }
+    ).eq("id", suggestion_id).eq("user_id", user_id).execute()
+
+    if suggestion.get("assistant_reason"):
+        await add_goal_check_in(
+            user_id=user_id,
+            goal_id=created["id"],
+            momentum=None,
+            note=f"Created from Aliyya suggestion: {suggestion['assistant_reason']}",
+            source="chat",
+            created_by="assistant",
+        )
+
+    return created
+
+
+async def dismiss_goal_suggestion(*, user_id: str, suggestion_id: str) -> None:
+    get_supabase().table("goal_suggestions").update(
+        {"status": "dismissed", "updated_at": "now()"}
+    ).eq("id", suggestion_id).eq("user_id", user_id).execute()
+
+
 # ----------------------------------------------------------------------------
 # The single-query context fetch
 # ----------------------------------------------------------------------------
