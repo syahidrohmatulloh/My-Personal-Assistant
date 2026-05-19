@@ -126,30 +126,24 @@ export default function ChatIndexPage() {
     ]);
   }, [briefing?.content, goals, identity?.profile?.birthday, journaledToday]);
 
-  const [titleIndex, setTitleIndex] = useState(0);
-
   const titleSignature = titleOptions.join("|");
+  const [title, setTitle] = useState("Where do you want to continue");
 
   useEffect(() => {
-    setTitleIndex(0);
-  }, [titleSignature]);
-
-  useEffect(() => {
-    if (!initialTitleReady || titleOptions.length <= 1) {
+    if (!initialTitleReady || titleOptions.length === 0) {
+      setTitle("Where do you want to continue");
       return;
     }
 
+    let nextIndex = 0;
+
     const timer = window.setInterval(() => {
-      setTitleIndex((current) => (current + 1) % titleOptions.length);
+      setTitle(titleOptions[nextIndex] || "Where do you want to continue");
+      nextIndex = (nextIndex + 1) % titleOptions.length;
     }, 5000);
 
     return () => window.clearInterval(timer);
   }, [initialTitleReady, titleOptions.length, titleSignature]);
-
-  const title = initialTitleReady
-    ? titleOptions[titleIndex % Math.max(titleOptions.length, 1)] ||
-      "Where do you want to continue"
-    : "Where do you want to continue";
 
   const createMut = useMutation({
     mutationFn: (message?: string) => createConversation("New chat"),
