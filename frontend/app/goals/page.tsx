@@ -19,7 +19,7 @@ import {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { AppHeaderAction, AppPageShell, AppPanel, AppToolbar } from "@/components/ui/app-page-shell";
-import { useAssistantDisplayName } from "@/hooks/use-identity-owned-label";
+import { useAssistantDisplayName, useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
 import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 
 const HORIZONS: Goal["horizon"][] = ["week", "month", "quarter", "year", "multi_year", "life"];
@@ -200,21 +200,7 @@ export default function GoalsPage() {
     return cleaned;
   }
 
-  const rawUserName =
-    pickProfileName(profile.preferred_name) ||
-    pickProfileName(profile.nickname) ||
-    pickProfileName(profile.user_name) ||
-    pickProfileName(profile.userName) ||
-    pickProfileName(profile.first_name) ||
-    pickProfileName(profile.firstName) ||
-    pickProfileName(profile.full_name) ||
-    pickProfileName(profile.fullName) ||
-    pickProfileName(profile.display_name) ||
-    pickProfileName(profile.displayName) ||
-    pickProfileName(profile.name);
-
-  const userDisplayName = rawUserName ? rawUserName.split(/\s+/)[0] : null;
-  const goalsEyebrow = userDisplayName ? `${userDisplayName} Goals` : "Your Goals";
+  const goalsEyebrow = useUserOwnedLabel("Goals");
 
   return (
     <AppPageShell
