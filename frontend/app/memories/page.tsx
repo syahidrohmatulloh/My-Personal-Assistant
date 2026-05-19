@@ -1,4 +1,6 @@
-"use client"
+"use client";
+
+import { useAssistantOwnedLabel } from "@/hooks/use-identity-owned-label";
 
 import { useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
@@ -186,6 +188,7 @@ const GROUP_ORDER = [
 ]
 
 export default function MemoriesPage() {
+  const memoriesEyebrow = useAssistantOwnedLabel("Memories");
   const [data, setData] = useState<MemoryReviewPayload | null>(null)
   const [quality, setQuality] = useState<MemoryQualityPayload | null>(null)
   const [memoryHealthStatus, setMemoryHealthStatus] = useState<MemoryHealthSchedulerStatus | null>(null)
@@ -582,7 +585,7 @@ export default function MemoriesPage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.28em] text-cyan-700 dark:text-cyan-300/80">
-                Aliyya Memories
+                {memoriesEyebrow}
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 dark:text-white sm:text-4xl">
                 Memories

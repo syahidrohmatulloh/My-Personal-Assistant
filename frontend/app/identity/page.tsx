@@ -1,4 +1,6 @@
-"use client"
+"use client";
+
+import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
 
 import { type FormEvent, type ReactNode, useEffect, useState } from "react"
 import { Save, UserRound } from "lucide-react"
@@ -90,6 +92,7 @@ function formToProfile(f: FormState): {
 }
 
 export default function IdentityPage() {
+  const identityEyebrow = useUserOwnedLabel("Identity");
   const [form, setForm] = useState<FormState>(EMPTY)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -146,7 +149,7 @@ export default function IdentityPage() {
 
   return (
     <AppPageShell
-      eyebrow="Aliyya Identity"
+      eyebrow={identityEyebrow}
       title="Who you are"
       description="The grounding Aliyya uses to understand you. Everything is optional, editable, and meant to make conversations more consistent."
       maxWidthClassName="max-w-5xl"

@@ -1,4 +1,6 @@
-"use client"
+"use client";
+
+import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
 
 import { type FormEvent, useEffect, useState } from "react"
 import { Heart, Plus, Trash2, Users, X } from "lucide-react"
@@ -21,6 +23,7 @@ const inputCls =
   "mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
 
 export default function PeoplePage() {
+  const peopleEyebrow = useUserOwnedLabel("People");
   const [people, setPeople] = useState<Person[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -99,7 +102,7 @@ export default function PeoplePage() {
 
   return (
     <AppPageShell
-      eyebrow="Aliyya People"
+      eyebrow={peopleEyebrow}
       title="People"
       description="Add people Aliyya should remember, like family, friends, colleagues, or important contacts."
       maxWidthClassName="max-w-5xl"

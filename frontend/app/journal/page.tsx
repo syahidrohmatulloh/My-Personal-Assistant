@@ -1,5 +1,7 @@
 "use client";
 
+import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Check, Save } from "lucide-react";
@@ -16,6 +18,7 @@ import { AppHeaderAction, AppPageShell, AppPanel } from "@/components/ui/app-pag
 type Scale = { value: number | null; set: (n: number | null) => void };
 
 export default function JournalPage() {
+  const journalEyebrow = useUserOwnedLabel("Journal");
   const [todayEntry, setTodayEntry] = useState<JournalEntry | null>(null);
   const [history, setHistory] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,7 +82,7 @@ export default function JournalPage() {
 
   return (
     <AppPageShell
-      eyebrow="Aliyya Journal"
+      eyebrow={journalEyebrow}
       title="How are you today?"
       description={
         todayEntry
