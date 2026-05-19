@@ -1,16 +1,68 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUp, CalendarDays, Plus, Sparkles } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createConversation,
+  getIdentity,
   getTodayBriefing,
   getTodaysJournal,
+  listGoals,
   startBriefingConversation,
   type Conversation,
 } from "@/lib/api";
+
+
+function formatShortDate(value: unknown): string | null {
+  if (!value || typeof value !== "string") return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function daysUntilNextAnnualDate(value: unknown): number | null {
+  if (!value || typeof value !== "string") return null;
+
+  const source = new Date(value);
+  if (Number.isNaN(source.getTime())) return null;
+
+  const today = new Date();
+  const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const thisYear = new Date(today.getFullYear(), source.getMonth(), source.getDate());
+  const next =
+    thisYear >= todayDate
+      ? thisYear
+      : new Date(today.getFullYear() + 1, source.getMonth(), source.getDate());
+
+  return Math.round((next.getTime() - todayDate.getTime()) / 86400000);
+}
+
+function uniqueShortTitles(items: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const item of items) {
+    const text = String(item || "").trim();
+    if (!text) continue;
+    if (text.length > 72) continue;
+
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    result.push(text);
+  }
+
+  return result.slice(0, 6);
+}
+
 
 export default function ChatIndexPage() {
   const router = useRouter();
@@ -31,17 +83,65 @@ export default function ChatIndexPage() {
     retry: false,
   });
 
+  const { data: goals = [] } = useQuery({
+    queryKey: ["goals", "chat-home-title"],
+    queryFn: () => listGoals("active"),
+    staleTime: 60 * 1000,
+    retry: false,
+  });
+
+  const { data: identity } = useQuery({
+    queryKey: ["identity", "chat-home-title"],
+    queryFn: getIdentity,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+
   const journaledToday = Boolean(today?.entry);
 
-  const title = useMemo(() => {
+  const titleOptions = useMemo(() => {
     const hour = new Date().getHours();
+    const activeGoals = Array.isArray(goals)
+      ? goals.filter((goal) => goal?.status === "active" || !goal?.status)
+      : [];
+    const firstGoal = activeGoals[0];
+    const birthdayDays = daysUntilNextAnnualDate(identity?.profile?.birthday);
+    const birthdayDate = formatShortDate(identity?.profile?.birthday);
 
-    if (briefing?.content) return "There’s a thread we can pick up.";
-    if (!journaledToday && hour >= 18) return "Want to close the day together?";
-    if (hour < 11) return "What should we start with today?";
-    if (hour < 17) return "What should we work through first?";
-    return "Where do you want to continue?";
-  }, [briefing?.content, journaledToday]);
+    return uniqueShortTitles([
+      briefing?.content ? "There’s a thread we can pick up." : null,
+      firstGoal?.title ? `A goal is waiting: ${firstGoal.title}` : null,
+      activeGoals.length > 1 ? `${activeGoals.length} active goals in motion.` : null,
+      birthdayDays === 0 ? "There’s something special today." : null,
+      birthdayDays === 1 ? "A special date is tomorrow." : null,
+      birthdayDays !== null && birthdayDays > 1 && birthdayDays <= 14 && birthdayDate
+        ? `A special date is coming on ${birthdayDate}.`
+        : null,
+      !journaledToday && hour >= 18 ? "Want to close the day together?" : null,
+      hour < 11 ? "What should we start with today?" : null,
+      hour >= 11 && hour < 17 ? "What should we work through first?" : null,
+      "Where do you want to continue?",
+    ]);
+  }, [briefing?.content, goals, identity?.profile?.birthday, journaledToday]);
+
+  const [titleIndex, setTitleIndex] = useState(0);
+
+  useEffect(() => {
+    if (titleOptions.length <= 1) {
+      setTitleIndex(0);
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setTitleIndex((current) => (current + 1) % titleOptions.length);
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [titleOptions.length]);
+
+  const title =
+    titleOptions[titleIndex % Math.max(titleOptions.length, 1)] ||
+    "Where do you want to continue?";
 
   const createMut = useMutation({
     mutationFn: (message?: string) => createConversation("New chat"),
