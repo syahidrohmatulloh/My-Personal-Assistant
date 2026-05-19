@@ -2,13 +2,14 @@
 
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUp, CalendarDays, Plus, Sparkles } from "lucide-react";
+import { ArrowUp, CalendarDays, MessageSquare, Plus, Sparkles } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createConversation,
   getIdentity,
   getTodayBriefing,
   getTodaysJournal,
+  listConversations,
   listGoals,
   startBriefingConversation,
   type Conversation,
@@ -87,6 +88,13 @@ export function ChatHomePageClient({ initialAssistantName = "" }: { initialAssis
     queryKey: ["goals", "chat-home-title"],
     queryFn: () => listGoals("active"),
     staleTime: 60 * 1000,
+    retry: false,
+  });
+
+  const { data: conversations = [], isLoading: conversationsLoading } = useQuery({
+    queryKey: ["conversations"],
+    queryFn: listConversations,
+    staleTime: 5 * 60 * 1000,
     retry: false,
   });
 
@@ -176,6 +184,18 @@ export function ChatHomePageClient({ initialAssistantName = "" }: { initialAssis
 
     return () => window.clearInterval(timer);
   }, [initialTitleReady, titleOptions.length, titleSignature]);
+
+  const latestConversation = useMemo(() => {
+    if (!Array.isArray(conversations)) return null;
+
+    return (
+      conversations.find((conversation) => {
+        if (!conversation?.id) return false;
+        const title = typeof conversation.title === "string" ? conversation.title.trim() : "";
+        return title.length > 0 && title.toLowerCase() !== "new chat";
+      }) ?? conversations[0] ?? null
+    );
+  }, [conversations]);
 
   const createMut = useMutation({
     mutationFn: (message?: string) => createConversation("New chat"),
@@ -320,6 +340,31 @@ export function ChatHomePageClient({ initialAssistantName = "" }: { initialAssis
             )}
           </div>
         </div>
+
+        {!conversationsLoading && latestConversation ? (
+          <div className="mx-auto mb-3 max-w-2xl rounded-[1.35rem] border border-border bg-fg/[0.025] p-3 text-left shadow-sm transition hover:bg-fg/[0.04]">
+            <div className="flex items-center gap-3">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-fg/[0.045] text-fg-muted">
+                <MessageSquare className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-fg-subtle">
+                  Continue where you left off
+                </p>
+                <p className="mt-0.5 truncate text-sm font-medium text-fg">
+                  {latestConversation.title || "Recent conversation"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => router.push(`/chat/${latestConversation.id}`)}
+                className="shrink-0 rounded-full border border-border bg-fg/[0.025] px-3 py-1.5 text-xs font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <form onSubmit={handleSubmit} className="mx-auto w-full max-w-2xl">
           <div className="rounded-[1.65rem] border border-slate-300/75 bg-white/92 px-3.5 py-3 shadow-[0_8px_28px_rgba(15,23,42,0.07)] backdrop-blur dark:border-white/10 dark:bg-[#111827]/88 dark:shadow-[0_10px_30px_rgba(0,0,0,0.32)]">
