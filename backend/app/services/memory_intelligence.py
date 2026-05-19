@@ -207,6 +207,89 @@ Output:
 # ---------------------------------------------------------------------------
 
 
+_ASSISTANT_NAME_VALUES = {"aliyya", "assistant", "ai assistant", "my assistant"}
+
+
+def _clean_person_name(value: str | None) -> str | None:
+    cleaned = " ".join(str(value or "").strip().split())
+    if not cleaned:
+        return None
+
+    cleaned = re.sub(r"[.!?,;:]+$", "", cleaned).strip()
+    lowered = cleaned.lower()
+
+    if lowered in _ASSISTANT_NAME_VALUES:
+        return None
+
+    if len(cleaned) > 60:
+        return None
+
+    return cleaned
+
+
+def _deterministic_identity_candidates(transcript: str) -> list[CandidateMemory]:
+    """Extract very explicit identity names without waiting for Haiku.
+
+    This is intentionally narrow and only handles direct first-person user
+    identity and direct assistant naming statements.
+    """
+    candidates: list[CandidateMemory] = []
+    user_lines = [
+        line.split(":", 1)[1].strip()
+        for line in transcript.splitlines()
+        if line.upper().startswith("USER:") and ":" in line
+    ]
+
+    for line in user_lines[-4:]:
+        text = " ".join(line.strip().split())
+
+        assistant_match = re.search(
+            r"\b(?:nama\s+(?:assistant|asisten|ai)\s+(?:kamu|mu)|your\s+name|assistant\s+name)\s+(?:adalah|is|=|itu)?\s*([A-Za-zÀ-ÖØ-öø-ÿ' -]{2,60})",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if assistant_match:
+            assistant_name = _clean_person_name(assistant_match.group(1))
+            if assistant_name:
+                candidates.append(
+                    CandidateMemory(
+                        content=f"User wants the assistant to be named {assistant_name}",
+                        category="preferences",
+                        source_priority="explicit_user_statement",
+                        confidence=0.96,
+                        evidence=[text[:180]],
+                        structured_field="assistant_name",
+                        structured_value=assistant_name,
+                        is_correction=False,
+                    )
+                )
+
+        user_match = re.search(
+            r"\b(?:nama\s+saya|nama\s+aku|my\s+name\s+is|i\s+am|i'm)\s+([A-Za-zÀ-ÖØ-öø-ÿ' -]{2,60})",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if user_match:
+            user_name = _clean_person_name(user_match.group(1))
+            if user_name:
+                candidates.append(
+                    CandidateMemory(
+                        content=f"User's name is {user_name}",
+                        category="identity",
+                        source_priority="explicit_user_statement",
+                        confidence=0.97,
+                        evidence=[text[:180]],
+                        structured_field="name",
+                        structured_value=user_name,
+                        is_correction=False,
+                    )
+                )
+
+    return candidates
+
+
+
+
 async def extract_and_persist(
     *,
     user_id: str,
@@ -229,9 +312,11 @@ async def extract_and_persist(
     window = recent_messages[-CONTEXT_WINDOW_MESSAGES:]
     transcript = _format_transcript(window)
 
+    deterministic_candidates = _deterministic_identity_candidates(transcript)
+
     # === Call Haiku ===
     try:
-        candidates = await _ask_haiku(transcript)
+        candidates = [*deterministic_candidates, *await _ask_haiku(transcript)]
     except Exception as exc:  # noqa: BLE001
         log.warning("memory_intelligence: Haiku call failed: %s", exc)
         return audit
@@ -389,7 +474,32 @@ def _normalize_structured_candidate(
     existing_profile: dict | None = None,
 ) -> CandidateMemory:
     """Normalize structured values before profile write / supersede."""
-    if cand.structured_field != "birthday" or not cand.structured_value:
+    if not cand.structured_field or not cand.structured_value:
+        return cand
+
+    if cand.structured_field == "name":
+        cleaned = _clean_person_name(cand.structured_value)
+        if not cleaned:
+            return cand.model_copy(update={"structured_field": None, "structured_value": None})
+        return cand.model_copy(
+            update={
+                "content": f"User's name is {cleaned}",
+                "structured_value": cleaned,
+            }
+        )
+
+    if cand.structured_field == "assistant_name":
+        cleaned = " ".join(str(cand.structured_value or "").strip().split())
+        if not cleaned:
+            return cand.model_copy(update={"structured_field": None, "structured_value": None})
+        return cand.model_copy(
+            update={
+                "content": f"User wants the assistant to be named {cleaned}",
+                "structured_value": cleaned,
+            }
+        )
+
+    if cand.structured_field != "birthday":
         return cand
 
     existing_birthday = None
@@ -797,6 +907,13 @@ async def _upsert_identity_field(
 
     current_profile: dict = (existing.data or {}).get("profile") or {} if existing else {}
     narrative = (existing.data or {}).get("narrative") if existing else None
+
+    if field == "name" and _clean_person_name(value) is None:
+        log.info(
+            "memory_intelligence: skipped unsafe user name write value=%r",
+            value,
+        )
+        return
 
     if current_profile.get(field) == value:
         return  # already set
