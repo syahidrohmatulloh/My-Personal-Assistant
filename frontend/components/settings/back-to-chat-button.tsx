@@ -1,35 +1,11 @@
 "use client";
 
-import { ArrowLeft } from "lucide-react";
-import { useRouter } from "next/navigation";
-
-const LAST_CHAT_PATH_KEY = "assistant.lastChatPath";
+import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 
 export function BackToChatButton() {
-  const router = useRouter();
-
-  function handleBack() {
-    const lastChatPath =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem(LAST_CHAT_PATH_KEY)
-        : null;
-
-    if (lastChatPath && lastChatPath.startsWith("/chat")) {
-      router.push(lastChatPath);
-      return;
-    }
-
-    router.push("/chat");
-  }
-
   return (
-    <button
-      type="button"
-      onClick={handleBack}
-      className="inline-flex items-center gap-2 text-sm text-fg-muted hover:text-fg transition-colors"
-    >
-      <ArrowLeft className="h-4 w-4" />
+    <BackToLastChat className="inline-flex h-10 items-center justify-center rounded-full border border-border bg-fg/[0.035] px-4 text-sm font-medium text-fg-muted shadow-sm transition hover:bg-fg/5 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 active:scale-[0.98]">
       Back to chat
-    </button>
+    </BackToLastChat>
   );
 }
