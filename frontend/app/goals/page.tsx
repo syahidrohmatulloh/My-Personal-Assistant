@@ -7,10 +7,12 @@ import {
   type Goal,
   type GoalInput,
   type GoalSuggestion,
+  type Identity,
   confirmGoalSuggestion,
   createGoal,
   deleteGoal,
   dismissGoalSuggestion,
+  getIdentity,
   listGoalSuggestions,
   listGoals,
   updateGoalStatus,
@@ -40,6 +42,7 @@ const STATUS_LABELS: Record<Goal["status"] | "all", string> = {
 export default function GoalsPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [suggestions, setSuggestions] = useState<GoalSuggestion[]>([]);
+  const [identity, setIdentity] = useState<Identity | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Goal["status"] | "all">("active");
   const [showForm, setShowForm] = useState(false);
@@ -55,14 +58,32 @@ export default function GoalsPage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(null);
 
-    Promise.all([listGoals(filter), listGoalSuggestions()])
-      .then(([goalData, suggestionData]) => {
+    Promise.allSettled([listGoals(filter), listGoalSuggestions(), getIdentity()])
+      .then(([goalsResult, suggestionsResult, identityResult]) => {
         if (cancelled) return;
-        setGoals(goalData);
-        setSuggestions(suggestionData);
+
+        if (goalsResult.status === "fulfilled") {
+          setGoals(goalsResult.value);
+        } else {
+          setGoals([]);
+          setError(String(goalsResult.reason));
+        }
+
+        if (suggestionsResult.status === "fulfilled") {
+          setSuggestions(suggestionsResult.value);
+        } else {
+          // Goal suggestions are an enhancement. If the backend/table is not ready,
+          // existing manual goals should still load normally.
+          setSuggestions([]);
+          console.warn("Goal suggestions failed to load", suggestionsResult.reason);
+        }
+
+        if (identityResult.status === "fulfilled") {
+          setIdentity(identityResult.value);
+        }
       })
-      .catch((e) => !cancelled && setError(String(e)))
       .finally(() => !cancelled && setLoading(false));
 
     return () => {
@@ -149,9 +170,23 @@ export default function GoalsPage() {
     }
   }
 
+  const profile = identity?.profile ?? {};
+  const userDisplayName =
+    typeof profile.preferred_name === "string" && profile.preferred_name.trim()
+      ? profile.preferred_name.trim()
+      : typeof profile.name === "string" && profile.name.trim()
+        ? profile.name.trim()
+        : typeof profile.full_name === "string" && profile.full_name.trim()
+          ? profile.full_name.trim()
+          : typeof profile.first_name === "string" && profile.first_name.trim()
+            ? profile.first_name.trim()
+            : null;
+
+  const goalsEyebrow = userDisplayName ? `${userDisplayName} Goals` : "Your Goals";
+
   return (
     <AppPageShell
-      eyebrow="Aliyya Goals"
+      eyebrow={goalsEyebrow}
       title="Goals"
       description="Tell Aliyya what you are working toward, so she can help you make better plans and decisions."
       maxWidthClassName="max-w-5xl"
