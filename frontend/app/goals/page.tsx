@@ -229,7 +229,7 @@ export default function GoalsPage() {
       }
     >
       <AppToolbar>
-        <div className="flex w-full gap-1 overflow-x-auto rounded-full border border-slate-200/70 bg-white/65 p-1 dark:border-white/10 dark:bg-black/20 md:w-auto">
+        <div className="flex w-full gap-1 overflow-x-auto rounded-full border border-slate-200/70 dark:border-white/10 bg-white/65 p-1 dark:border-white/10 dark:bg-black/20 md:w-auto">
           {(["active", "paused", "achieved", "abandoned", "all"] as const).map((s) => (
             <button
               key={s}
@@ -238,7 +238,7 @@ export default function GoalsPage() {
                 "whitespace-nowrap rounded-full px-3 py-2 text-xs font-medium transition-colors",
                 filter === s
                   ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950"
-                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white",
+                  : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:bg-white/10 hover:text-slate-950 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white",
               )}
             >
               {STATUS_LABELS[s]}
@@ -249,11 +249,11 @@ export default function GoalsPage() {
 
       {suggestions.length > 0 && (
         <AppPanel>
-          <div className="border-b border-slate-200/70 px-5 py-4 dark:border-white/10">
+          <div className="border-b border-slate-200/70 dark:border-white/10 px-5 py-4 dark:border-white/10">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-300">
               Suggested by Aliyya
             </p>
-            <p className="mt-1 text-sm text-slate-600 dark:text-zinc-400">
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 dark:text-zinc-400">
               These came from your conversations. Confirm only the ones you want Aliyya to track.
             </p>
           </div>
@@ -268,12 +268,12 @@ export default function GoalsPage() {
                     </p>
 
                     {suggestion.description && (
-                      <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+                      <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300 dark:text-zinc-400">
                         {suggestion.description}
                       </p>
                     )}
 
-                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 dark:text-zinc-400">
                       <span className="rounded-full border border-cyan-500/20 bg-cyan-50 px-2 py-1 text-[10px] font-medium text-cyan-800 dark:border-cyan-300/20 dark:bg-cyan-300/10 dark:text-cyan-100">
                         {HORIZON_LABELS[suggestion.horizon]}
                       </span>
@@ -284,7 +284,7 @@ export default function GoalsPage() {
                     </div>
 
                     {suggestion.suggested_milestones && suggestion.suggested_milestones.length > 0 && (
-                      <ul className="mt-3 list-disc space-y-1 pl-5 text-xs leading-5 text-slate-600 dark:text-zinc-400">
+                      <ul className="mt-3 list-disc space-y-1 pl-5 text-xs leading-5 text-slate-600 dark:text-slate-300 dark:text-zinc-400">
                         {suggestion.suggested_milestones.slice(0, 3).map((item) => (
                           <li key={item}>{item}</li>
                         ))}
@@ -292,7 +292,7 @@ export default function GoalsPage() {
                     )}
 
                     {suggestion.assistant_reason && (
-                      <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-zinc-500">
+                      <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400 dark:text-zinc-500">
                         Why Aliyya suggested this: {suggestion.assistant_reason}
                       </p>
                     )}
@@ -301,7 +301,7 @@ export default function GoalsPage() {
                   <div className="flex shrink-0 gap-2">
                     <button
                       onClick={() => handleDismissSuggestion(suggestion.id)}
-                      className="rounded-full border border-slate-200/70 px-3 py-2 text-xs text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
+                      className="rounded-full border border-slate-200/70 dark:border-white/10 px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:bg-white/10 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
                     >
                       Dismiss
                     </button>
@@ -320,7 +320,7 @@ export default function GoalsPage() {
       )}
 
       {showForm && (
-        <form onSubmit={handleCreate} className="rounded-[1.5rem] border border-slate-200/70 bg-white/75 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04]">
+        <form onSubmit={handleCreate} className="rounded-[1.5rem] border border-slate-200/70 dark:border-white/10 bg-white/75 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04]">
           <label className="mb-4 block">
             <span className="text-sm font-medium text-slate-900 dark:text-white">Goal</span>
             <input
@@ -375,11 +375,11 @@ export default function GoalsPage() {
             </label>
           </div>
 
-          <div className="flex flex-col gap-2 border-t border-slate-200/70 pt-4 dark:border-white/10 sm:flex-row sm:justify-end">
+          <div className="flex flex-col gap-2 border-t border-slate-200/70 dark:border-white/10 pt-4 dark:border-white/10 sm:flex-row sm:justify-end">
             <button
               type="button"
               onClick={() => setShowForm(false)}
-              className="min-h-10 rounded-full border border-slate-200/70 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
+              className="min-h-10 rounded-full border border-slate-200/70 dark:border-white/10 px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:bg-white/10 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
             >
               Cancel
             </button>
@@ -402,13 +402,13 @@ export default function GoalsPage() {
 
       {loading ? (
         <AppPanel>
-          <div className="p-6 text-sm text-slate-600 dark:text-zinc-300">Loading…</div>
+          <div className="p-6 text-sm text-slate-600 dark:text-slate-300 dark:text-zinc-300">Loading…</div>
         </AppPanel>
       ) : goals.length === 0 ? (
         <AppPanel>
           <div className="py-12 text-center">
             <Target className="mx-auto mb-2 h-6 w-6 text-slate-400 opacity-70 dark:text-zinc-500" />
-            <p className="text-sm text-slate-500 dark:text-zinc-400">
+            <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-zinc-400">
               No {filter !== "all" ? filter : ""} goals.
             </p>
           </div>
@@ -416,14 +416,14 @@ export default function GoalsPage() {
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
           {goals.map((g) => (
-            <article key={g.id} className="group rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-lg shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-black/20">
+            <article key={g.id} className="group rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-slate-950/70 p-4 shadow-lg shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-black/20">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="break-words text-sm font-semibold text-slate-950 dark:text-white">{g.title}</p>
                   {g.description && (
-                    <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-zinc-400">{g.description}</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300 dark:text-zinc-400">{g.description}</p>
                   )}
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 dark:text-zinc-400">
                     <span className="rounded-full border border-cyan-500/20 bg-cyan-50 px-2 py-1 text-[10px] font-medium text-cyan-800 dark:border-cyan-300/20 dark:bg-cyan-300/10 dark:text-cyan-100">
                       {HORIZON_LABELS[g.horizon]}
                     </span>
@@ -438,14 +438,14 @@ export default function GoalsPage() {
                       <button
                         onClick={() => handleStatus(g.id, "achieved")}
                         aria-label="Mark done"
-                        className="rounded-full border border-slate-200/70 p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:border-white/10 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
+                        className="rounded-full border border-slate-200/70 dark:border-white/10 p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:bg-white/10 hover:text-slate-950 dark:border-white/10 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
                       >
                         <Check className="h-3.5 w-3.5" />
                       </button>
                       <button
                         onClick={() => handleStatus(g.id, "paused")}
                         aria-label="Pause"
-                        className="rounded-full border border-slate-200/70 p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:border-white/10 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
+                        className="rounded-full border border-slate-200/70 dark:border-white/10 p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:bg-white/10 hover:text-slate-950 dark:border-white/10 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
                       >
                         <Pause className="h-3.5 w-3.5" />
                       </button>
@@ -454,7 +454,7 @@ export default function GoalsPage() {
                   {g.status === "paused" && (
                     <button
                       onClick={() => handleStatus(g.id, "active")}
-                      className="rounded-full border border-slate-200/70 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
+                      className="rounded-full border border-slate-200/70 dark:border-white/10 px-3 py-1.5 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:bg-white/10 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
                     >
                       Resume
                     </button>

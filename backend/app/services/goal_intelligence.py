@@ -185,6 +185,116 @@ def _valid_date_or_none(value: str | None) -> str | None:
         return None
 
 
+def _looks_like_explicit_goal_request(text: str) -> bool:
+    lowered = (text or "").lower()
+    goal_words = (
+        "goal",
+        "tujuan",
+        "target",
+    )
+    track_words = (
+        "track",
+        "lacak",
+        "catat",
+        "simpan",
+        "masukin",
+        "masukkan",
+        "tambahkan",
+    )
+    intent_words = (
+        "pengen",
+        "ingin",
+        "mau",
+        "konsisten",
+        "rutin",
+        "habit",
+        "kebiasaan",
+        "progress",
+    )
+
+    return (
+        any(word in lowered for word in goal_words)
+        and (
+            any(word in lowered for word in track_words)
+            or any(word in lowered for word in intent_words)
+        )
+    )
+
+
+def _extract_goal_title_from_message(text: str) -> str:
+    raw = " ".join((text or "").strip().split())
+
+    # Remove explicit instruction fragments so title focuses on the user's goal.
+    raw = re.sub(
+        r"\b(tolong|please)?\s*(bantu\s+)?(track|lacak|catat|simpan|masukin|masukkan|tambahkan)\b.*$",
+        "",
+        raw,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    # Prefer the part after common first-person desire phrases.
+    match = re.search(
+        r"\b(?:aku|saya)\s+(?:pengen|ingin|mau)\s+(.+)$",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        raw = match.group(1).strip()
+
+    # Cut trailing status/update clauses.
+    raw = re.split(
+        r"\b(?:sekarang|saat ini|udah|sudah|dan sekarang)\b",
+        raw,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0].strip(" ,.-")
+
+    raw = re.sub(r"\s+", " ", raw).strip(" ,.-")
+    if not raw:
+        return "Goal from chat"
+
+    # Keep readable title length.
+    words = raw.split()
+    if len(words) > 10:
+        raw = " ".join(words[:10])
+
+    return raw[:120]
+
+
+def _deterministic_goal_candidate_from_user_message(user_message: str) -> GoalCandidate:
+    """Fallback for explicit requests such as 'tolong track ini sebagai goal'.
+
+    This does not hardcode any goal category or personal data. It only respects
+    the user's explicit intent to track something as a goal.
+    """
+    if not _looks_like_explicit_goal_request(user_message):
+        return GoalCandidate()
+
+    lowered = user_message.lower()
+    if "tahun" in lowered or "year" in lowered:
+        horizon: Horizon = "year"
+    elif "bulan" in lowered or "month" in lowered:
+        horizon = "month"
+    elif "minggu" in lowered or "week" in lowered:
+        horizon = "week"
+    else:
+        horizon = "quarter"
+
+    title = _extract_goal_title_from_message(user_message)
+
+    return GoalCandidate(
+        is_goal_candidate=True,
+        confidence=0.86,
+        title=title,
+        description=user_message[:800],
+        horizon=horizon,
+        emotional_weight=6,
+        target_date=None,
+        suggested_milestones=[],
+        assistant_reason="User explicitly asked to track this as a goal.",
+    )
+
+
 def _coerce_horizon(value: Any) -> Horizon:
     raw = str(value or "").lower().strip().replace("-", "_").replace(" ", "_")
     mapping: dict[str, Horizon] = {
@@ -487,6 +597,15 @@ async def extract_and_persist(
         result.goal_suggestion.title,
         len(result.goal_progress or []),
     )
+
+    if not result.goal_suggestion.is_goal_candidate:
+        fallback_candidate = _deterministic_goal_candidate_from_user_message(user_message)
+        if fallback_candidate.is_goal_candidate:
+            log.info(
+                "goal intelligence: using deterministic explicit-goal fallback title=%r",
+                fallback_candidate.title,
+            )
+            result = result.model_copy(update={"goal_suggestion": fallback_candidate})
 
     suggestion = await _insert_goal_suggestion(
         user_id=user_id,

@@ -725,13 +725,20 @@ async def chat(
 
     # === Build prompt with cached base + volatile context ===
     volatile_context = render_context(context)
+    volatile_context += (
+        "\\n\\nGoal feature capability state — authoritative:"
+        "\\n- The app has a background Goal Intelligence system that can prepare pending goal suggestions from chat."
+        "\\n- If the user explicitly asks to track/save something as a goal, say you will prepare it as a trackable goal candidate in Goals."
+        "\\n- Do not say you have no access to Goals."
+        "\\n- Do not claim the goal is already active/saved unless a direct create-goal action has explicitly succeeded in the current request."
+        "\\n- Preferred wording: Aku bantu siapkan ini sebagai kandidat goal di Goals."
+    )
     temporal_grounding_block = temporal_grounding.render_temporal_grounding_block(
         user_message=body.message,
         client_context=getattr(body, "client_context", None),
     )
     if temporal_grounding_block:
         volatile_context += "\n\n" + temporal_grounding_block
-    volatile_context += "\n\nGoal write capability state — authoritative:\n- goal_write_confirmed=false\n- If goal_write_confirmed=false, do not claim a goal has been saved, activated, or created. You may say it can be prepared as a trackable goal candidate for confirmation in Goals."
     identity = context.get("identity") or {}
     profile = identity.get("profile") or {}
     raw_client_context = None

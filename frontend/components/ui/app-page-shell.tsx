@@ -40,7 +40,7 @@ export function AppPageShell({
   return (
     <main className="min-h-screen px-4 py-5 text-slate-950 dark:text-zinc-100 sm:px-6 sm:py-6 lg:px-8">
       <div className={`mx-auto flex ${maxWidthClassName} flex-col gap-5 sm:gap-6`}>
-        <section className="rounded-[1.75rem] border border-slate-200/70 bg-white/80 p-5 shadow-2xl shadow-slate-900/10 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04] dark:shadow-black/30 sm:rounded-[2rem] sm:p-6">
+        <section className="rounded-[1.75rem] border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-slate-950/70 p-5 shadow-2xl shadow-slate-900/10 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04] dark:shadow-black/30 sm:rounded-[2rem] sm:p-6">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-[0.28em] text-cyan-700 dark:text-cyan-300/80 sm:text-sm">
@@ -50,7 +50,7 @@ export function AppPageShell({
                 {title}
               </h1>
               {description ? (
-                <div className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 dark:text-zinc-300">
+                <div className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300 dark:text-zinc-300">
                   {description}
                 </div>
               ) : null}
@@ -88,7 +88,7 @@ export function AppHeaderAction({
       ? "bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20 hover:bg-cyan-300"
       : variant === "danger"
         ? "border border-red-400/40 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/20"
-        : "border border-slate-200/70 bg-white/65 text-slate-700 shadow-sm shadow-slate-900/5 hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10",
+        : "border border-slate-200/70 dark:border-white/10 bg-white/65 text-slate-700 dark:text-slate-200 shadow-sm shadow-slate-900/5 hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10",
   ].join(" ")
 
   if (href) {
@@ -114,9 +114,9 @@ export function AppStatGrid({ children }: { children: ReactNode }) {
 
 export function AppStatCard({ label, value, icon: Icon }: AppStatCardProps) {
   return (
-    <div className="rounded-2xl border border-slate-200/70 bg-white/75 p-4 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-black/20">
+    <div className="rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/75 p-4 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-black/20">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-zinc-500">
+        <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400 dark:text-zinc-500">
           {label}
         </p>
         {Icon ? <Icon className="h-4 w-4 text-cyan-600 dark:text-cyan-300" /> : null}
@@ -130,7 +130,7 @@ export function AppStatCard({ label, value, icon: Icon }: AppStatCardProps) {
 
 export function AppToolbar({ children }: { children: ReactNode }) {
   return (
-    <section className="flex flex-col gap-3 rounded-[1.5rem] border border-slate-200/70 bg-white/70 p-4 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035] md:flex-row md:items-center md:justify-between">
+    <section className="flex flex-col gap-3 rounded-[1.5rem] border border-slate-200/70 dark:border-white/10 bg-white/70 dark:bg-slate-950/60 p-4 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035] md:flex-row md:items-center md:justify-between">
       {children}
     </section>
   )
@@ -138,7 +138,7 @@ export function AppToolbar({ children }: { children: ReactNode }) {
 
 export function AppPanel({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <section className={`overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white/70 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035] ${className}`}>
+    <section className={`overflow-hidden rounded-[1.5rem] border border-slate-200/70 dark:border-white/10 bg-white/70 dark:bg-slate-950/60 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035] ${className}`}>
       {children}
     </section>
   )
