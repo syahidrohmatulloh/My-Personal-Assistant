@@ -420,6 +420,20 @@ export async function openBriefing(
   return r.json();
 }
 
+
+export async function startBriefingConversation(
+  briefingId: string,
+): Promise<{ conversation_id: string; reused?: boolean }> {
+  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  const r = await fetch(`${API_URL}/briefing/${briefingId}/conversation`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({}),
+  });
+  if (!r.ok) throw new Error(`start briefing conversation failed: ${r.status}`);
+  return r.json();
+}
+
 // ---------------------------------------------------------------------------
 // Conversation rename (Phase 4.8)
 // ---------------------------------------------------------------------------

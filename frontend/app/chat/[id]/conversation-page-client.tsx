@@ -264,9 +264,7 @@ const handleSend = useCallback(
       // backend always has at least one text block in the user content array.
       const messageText = text || (attachmentIds.length > 0 ? "(shared an attachment)" : "");
 
-      if (!overrideText) {
-        setInput("");
-      }
+      setInput("");
       setSending(true);
       setStreamMeta(null);
       stickToBottomRef.current = true;

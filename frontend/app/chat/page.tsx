@@ -8,6 +8,7 @@ import {
   createConversation,
   getTodayBriefing,
   getTodaysJournal,
+  startBriefingConversation,
   type Conversation,
 } from "@/lib/api";
 
@@ -60,6 +61,13 @@ export default function ChatIndexPage() {
     },
   });
 
+  const startBriefingMut = useMutation({
+    mutationFn: (briefingId: string) => startBriefingConversation(briefingId),
+    onSuccess: (result) => {
+      router.push(`/chat/${result.conversation_id}`);
+    },
+  });
+
   function startChat(message?: string) {
     if (createMut.isPending) return;
     const text = (message ?? draft).trim();
@@ -78,13 +86,6 @@ export default function ChatIndexPage() {
       handleSubmit();
     }
   }
-
-  const briefingPrompt = [
-    "Let's discuss today's briefing.",
-    "",
-    "Please start by explaining the most important point from the briefing in a personal way.",
-    "Then give me a few practical ideas or suggestions that fit my current context, mood, and recent conversations.",
-  ].join("\n");
 
   const suggestions = [
     {
@@ -120,13 +121,13 @@ export default function ChatIndexPage() {
         {briefing?.content ? (
           <button
             type="button"
-            onClick={() => startChat(briefingPrompt)}
-            disabled={createMut.isPending}
+            onClick={() => briefing?.id && startBriefingMut.mutate(briefing.id)}
+            disabled={createMut.isPending || startBriefingMut.isPending}
             className="mx-auto mb-3 flex max-w-2xl items-center gap-2 rounded-2xl border border-border bg-fg/[0.035] px-3.5 py-2.5 text-left text-xs text-fg-muted transition hover:bg-fg/5 hover:text-fg disabled:opacity-60"
           >
             <CalendarDays className="h-4 w-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">
-              Today’s briefing is ready — discuss it with Aliyya
+              {briefing.opened_at || briefing.conversation_id ? "Want to revisit today’s briefing?" : "Today’s briefing is ready — discuss it with Aliyya"}
             </span>
           </button>
         ) : null}

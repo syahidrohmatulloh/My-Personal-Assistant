@@ -50,8 +50,95 @@ async def get_today_briefing(
     return {"briefing": row}
 
 
+
+def _briefing_follow_up_message() -> str:
+    return (
+        "I can help you turn this into something useful now: a practical plan, "
+        "a short reflection, or a few next steps. Which one feels most helpful?"
+    )
+
+
 class OpenBriefingIn(BaseModel):
     title: str | None = None
+
+
+
+@router.post("/{briefing_id}/conversation", status_code=status.HTTP_201_CREATED)
+async def create_briefing_conversation(
+    briefing_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Create or reopen a dedicated conversation for a briefing.
+
+    Unlike /open, this route is intended for the new-chat landing page:
+    it seeds the conversation with assistant messages so the user does not
+    see a long hidden prompt as their own message.
+    """
+    res = safe_execute(
+        lambda sb: sb.table("daily_briefings")
+        .select("id, content, conversation_id, opened_at")
+        .eq("id", briefing_id)
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+    )
+    if not res or not res.data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Briefing not found")
+
+    row = res.data
+    existing_conversation_id = row.get("conversation_id")
+
+    if existing_conversation_id:
+        existing = safe_execute(
+            lambda sb: sb.table("conversations")
+            .select("id")
+            .eq("id", existing_conversation_id)
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        if existing and existing.data:
+            return {"conversation_id": existing_conversation_id, "reused": True}
+
+    convo_res = safe_execute(
+        lambda sb: sb.table("conversations")
+        .insert({"user_id": user_id, "title": "Today’s briefing"})
+        .execute()
+    )
+    if not convo_res or not convo_res.data:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Failed to create briefing conversation",
+        )
+
+    conversation_id = convo_res.data[0]["id"]
+
+    safe_execute(
+        lambda sb: sb.table("messages")
+        .insert(
+            [
+                {
+                    "conversation_id": conversation_id,
+                    "role": "assistant",
+                    "content": row["content"],
+                },
+                {
+                    "conversation_id": conversation_id,
+                    "role": "assistant",
+                    "content": _briefing_follow_up_message(),
+                },
+            ]
+        )
+        .execute()
+    )
+
+    await briefing.mark_briefing_opened(
+        user_id=user_id,
+        briefing_id=briefing_id,
+        conversation_id=conversation_id,
+    )
+
+    return {"conversation_id": conversation_id, "reused": False}
 
 
 @router.post("/{briefing_id}/open")
