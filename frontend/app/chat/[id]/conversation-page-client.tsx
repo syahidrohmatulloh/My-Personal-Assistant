@@ -65,6 +65,7 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [historySettled, setHistorySettled] = useState(false);
   const [showJumpBtn, setShowJumpBtn] = useState(false);
   const [streamMeta, setStreamMeta] = useState<ChatStreamMeta | null>(null);
 
@@ -166,6 +167,7 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
     let cancelled = false;
 
     setLoading(true);
+    setHistorySettled(false);
     stickToBottomRef.current = true;
 
     listMessages(conversationId)
@@ -173,16 +175,22 @@ export function ConversationPageClient({ conversationId }: { conversationId: str
         if (cancelled) return;
 
         setMessages(msgs);
+        setLoading(false);
 
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
+            if (cancelled) return;
             scrollContainerToBottom(scrollRef.current);
+            setHistorySettled(true);
           });
         });
       })
-      .catch(console.error)
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+      .catch((err) => {
+        console.error(err);
+        if (!cancelled) {
+          setLoading(false);
+          setHistorySettled(true);
+        }
       });
 
     return () => {
@@ -355,7 +363,12 @@ const handleSend = useCallback(
         ref={scrollRef}
         className="flex-1 min-h-0 overflow-y-auto scroll-smooth-mobile overscroll-contain"
       >
-        <div className="max-w-3xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-3 sm:space-y-4">
+        <div
+          className={[
+            "max-w-3xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-3 sm:space-y-4",
+            !loading && messages.length > 0 && !historySettled ? "opacity-0" : "opacity-100",
+          ].join(" ")}
+        >
           {loading ? (
             <>
               <Skeleton className="h-12 w-3/4 ml-auto rounded-2xl" />
