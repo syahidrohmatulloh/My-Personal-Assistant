@@ -64,6 +64,9 @@ Rules:
 - Do NOT invent goals.
 - Do NOT treat every desire as a goal.
 - A goal candidate should feel trackable over days/weeks/months, not a one-off task.
+- If the user says they want to become more consistent, improve a habit, sustain a routine, or continue something they have already started, treat that as a strong goal-candidate signal.
+- If the user mentions an ongoing routine, coach, trainer, class, study plan, project, or repeated activity AND asks how to keep going / be consistent / improve, it can be a goal candidate even if they do not use the word "goal".
+- If the user is already doing something and reports early progress, but there is no matching active goal, suggest creating a goal candidate instead of only treating it as progress.
 - If unsure, keep is_goal_candidate=false.
 - For goal_progress, only reference active goals from the provided list.
 - No hardcoded categories. Infer title, horizon, milestones, and reason from the conversation.
@@ -151,7 +154,7 @@ async def _insert_goal_suggestion(
     if not candidate.is_goal_candidate:
         return None
 
-    if candidate.confidence < 0.72:
+    if candidate.confidence < 0.68:
         return None
 
     title = (candidate.title or "").strip()
@@ -179,7 +182,15 @@ async def _insert_goal_suggestion(
     }
 
     result = get_supabase().table("goal_suggestions").insert(payload).execute()
-    return (result.data or [None])[0]
+    saved = (result.data or [None])[0]
+    if saved:
+        log.info(
+            "goal intelligence: saved suggestion user=%s title=%s confidence=%.2f",
+            user_id,
+            title[:80],
+            float(candidate.confidence),
+        )
+    return saved
 
 
 def _match_active_goal(active_goals: list[dict], fragment: str) -> dict | None:
@@ -301,6 +312,15 @@ async def extract_and_persist(
     except Exception as exc:  # noqa: BLE001
         log.warning("goal intelligence: extraction failed: %s", exc)
         return counts
+
+    log.info(
+        "goal intelligence: decision user=%s is_candidate=%s confidence=%.2f title=%r progress_count=%d",
+        user_id,
+        result.goal_suggestion.is_goal_candidate,
+        float(result.goal_suggestion.confidence or 0),
+        result.goal_suggestion.title,
+        len(result.goal_progress or []),
+    )
 
     suggestion = await _insert_goal_suggestion(
         user_id=user_id,
