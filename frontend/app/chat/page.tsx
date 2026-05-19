@@ -113,7 +113,7 @@ export default function ChatIndexPage() {
             <Sparkles className="h-5 w-5 text-slate-900 dark:text-white" strokeWidth={2.2} />
           </div>
 
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-4xl dark:text-white">
+          <h1 className="text-2xl font-semibold tracking-tight text-fg sm:text-4xl">
             {title}
           </h1>
         </div>
