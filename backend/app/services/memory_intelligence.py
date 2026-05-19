@@ -41,6 +41,7 @@ from pydantic import BaseModel, Field, ValidationError
 from app.services.claude import get_claude
 from app.services.embeddings import embed_document
 from app.services.supabase_client import get_supabase, safe_execute
+from app.services import name_normalization
 
 log = logging.getLogger(__name__)
 
@@ -477,8 +478,32 @@ def _normalize_structured_candidate(
     if not cand.structured_field or not cand.structured_value:
         return cand
 
+    current_assistant_name = None
+    if isinstance(existing_profile, dict):
+        current_assistant_name = existing_profile.get("assistant_name")
+
+    # If Haiku mislabeled an assistant-name statement as user name, redirect it.
+    if cand.structured_field == "name" and name_normalization.evidence_refers_to_assistant_name(
+        cand.evidence,
+        cand.content,
+    ):
+        cleaned = name_normalization.normalize_assistant_name(cand.structured_value)
+        if not cleaned:
+            return cand.model_copy(update={"structured_field": None, "structured_value": None})
+        return cand.model_copy(
+            update={
+                "content": f"User wants the assistant to be named {cleaned}",
+                "category": "preferences",
+                "structured_field": "assistant_name",
+                "structured_value": cleaned,
+            }
+        )
+
     if cand.structured_field == "name":
-        cleaned = _clean_person_name(cand.structured_value)
+        cleaned = name_normalization.normalize_user_name(
+            cand.structured_value,
+            current_assistant_name=str(current_assistant_name) if current_assistant_name else None,
+        )
         if not cleaned:
             return cand.model_copy(update={"structured_field": None, "structured_value": None})
         return cand.model_copy(
@@ -489,7 +514,7 @@ def _normalize_structured_candidate(
         )
 
     if cand.structured_field == "assistant_name":
-        cleaned = " ".join(str(cand.structured_value or "").strip().split())
+        cleaned = name_normalization.normalize_assistant_name(cand.structured_value)
         if not cleaned:
             return cand.model_copy(update={"structured_field": None, "structured_value": None})
         return cand.model_copy(
@@ -523,7 +548,6 @@ def _normalize_structured_candidate(
             "structured_value": normalized,
         }
     )
-
 
 def _normalize_birthday_value(
     value: str,
@@ -914,6 +938,23 @@ async def _upsert_identity_field(
             value,
         )
         return
+
+    if field == "name":
+        safe_value = name_normalization.normalize_user_name(
+            value,
+            current_assistant_name=str(current_profile.get("assistant_name") or ""),
+        )
+        if not safe_value:
+            log.info("memory_intelligence: skipped unsafe user name write value=%r", value)
+            return
+        value = safe_value
+
+    if field == "assistant_name":
+        safe_value = name_normalization.normalize_assistant_name(value)
+        if not safe_value:
+            log.info("memory_intelligence: skipped unsafe assistant name write value=%r", value)
+            return
+        value = safe_value
 
     if current_profile.get(field) == value:
         return  # already set

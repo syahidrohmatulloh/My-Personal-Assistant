@@ -46,6 +46,8 @@ from app.services import (
     life_model,
     memory,
     memory_intelligence,
+    name_normalization,
+    temporal_grounding,
     background_extraction_gate,
     goal_intelligence,
     mood_memory_feedback,
@@ -235,46 +237,13 @@ def _build_mood_block(
 
 
 def _clean_assistant_name(name: str | None) -> str | None:
-    if not name:
-        return None
-    cleaned = re.sub(r"[^\w\s.'-]", "", name, flags=re.UNICODE).strip()
-    cleaned = re.sub(r"\s+", " ", cleaned)
-    if not cleaned:
-        return None
-    if len(cleaned) > 32:
-        cleaned = cleaned[:32].strip()
-    blocked = {"assistant", "asisten", "ai", "bot", "kamu", "you"}
-    if cleaned.lower() in blocked:
-        return None
-    return cleaned
+    return name_normalization.normalize_assistant_name(name)
+
 
 
 def _extract_assistant_name(user_message: str) -> str | None:
-    """Detect explicit requests to rename the assistant.
-
-    Examples:
-    - "nama kamu Aliyya"
-    - "aku panggil kamu Aliyya"
-    - "ganti nama kamu jadi Alya"
-    - "from now on your name is Aliyya"
-    """
-    text = (user_message or "").strip()
-    if not text:
-        return None
-
-    patterns = [
-        r"(?:mulai sekarang\s+)?(?:nama\s+kamu|namamu|nama\s+ai\s+ini|nama\s+assistant(?:\s+ini)?)\s+(?:adalah|jadi|itu|=|:)?\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s.'-]{1,31})",
-        r"(?:aku|saya)\s+(?:akan\s+)?(?:panggil|manggil|manggilmu|memanggil\s+kamu)\s+(?:kamu\s+)?(?:dengan\s+nama\s+)?([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s.'-]{1,31})",
-        r"(?:ganti|ubah)\s+nama\s+(?:kamu|assistant|asisten)\s+(?:jadi|ke|menjadi)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s.'-]{1,31})",
-        r"(?:from now on\s+)?your name is\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s.'-]{1,31})",
-        r"(?:call you|i will call you|i'll call you)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s.'-]{1,31})",
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, text, flags=re.IGNORECASE)
-        if match:
-            return _clean_assistant_name(match.group(1))
-    return None
+    names = name_normalization.extract_explicit_names(user_message)
+    return names.assistant_name
 
 
 def _mode_to_pacing(mode: str | None) -> str:
@@ -756,6 +725,13 @@ async def chat(
 
     # === Build prompt with cached base + volatile context ===
     volatile_context = render_context(context)
+    temporal_grounding_block = temporal_grounding.render_temporal_grounding_block(
+        user_message=user_message,
+        client_context=getattr(body, "client_context", None),
+    )
+    if temporal_grounding_block:
+        volatile_context += "\n\n" + temporal_grounding_block
+    volatile_context += "\n\nGoal write capability state — authoritative:\n- goal_write_confirmed=false\n- If goal_write_confirmed=false, do not claim a goal has been saved, activated, or created. You may say it can be prepared as a trackable goal candidate for confirmation in Goals."
     identity = context.get("identity") or {}
     profile = identity.get("profile") or {}
     raw_client_context = None
