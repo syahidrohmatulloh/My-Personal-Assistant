@@ -579,6 +579,17 @@ async def chat(
     client_time_block = render_client_time_context(raw_client_context, profile)
     if client_time_block:
         volatile_context += "\n\n" + client_time_block
+        volatile_context += (
+            "\n\n## Time-sensitive reasoning rule — high priority\n"
+            "- The browser-provided client local time above is the source of truth for the user's current local time.\n"
+            "- Use it whenever the user mentions a time, schedule, meeting, deadline, appointment, today, tonight, morning, afternoon, evening, later, soon, or asks how long remains.\n"
+            "- Before saying something like 'masih beberapa jam', 'sebentar lagi', 'nanti', 'pagi ini', or 'sore nanti', calculate against the browser local time first.\n"
+            "- Do not estimate the current time from chat history, server time, model runtime, or memory.\n"
+            "- The user's remembered timezone, such as GMT+7 or Asia/Jakarta, is only a fallback if browser local time is missing.\n"
+            "- If browser local time exists and the user says they have a meeting at 13:00, compare 13:00 to the browser local time before responding.\n"
+            "- If you are unsure whether the meeting time is local time, assume it is the user's local time unless they specify another timezone.\n"
+            "- If the user corrects your timing, acknowledge briefly and recalculate using browser local time."
+        )
     volatile_context += (
         f"\n\n## Assistant identity\n"
         f"- Your display name in this app is: {assistant_name}.\n"
