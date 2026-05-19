@@ -5,6 +5,7 @@ import "@/components/ambient/ambient-background.css";
 import Providers from "./providers";
 import { AmbientBackground } from "@/components/ambient/ambient-background";
 import { CursorReactiveGlow } from "@/components/ambient/cursor-reactive-glow";
+import { LastChatTracker } from "@/components/navigation/last-chat-tracker";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -39,6 +40,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={inter.variable}>
       <body className="font-sans antialiased">
+        <LastChatTracker />
         <AmbientBackground />
           <CursorReactiveGlow />
         <div className="relative z-[1]">

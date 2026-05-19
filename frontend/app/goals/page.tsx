@@ -20,6 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 import { AppHeaderAction, AppPageShell, AppPanel, AppToolbar } from "@/components/ui/app-page-shell";
+import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 
 const HORIZONS: Goal["horizon"][] = ["week", "month", "quarter", "year", "multi_year", "life"];
 const HORIZON_LABELS: Record<Goal["horizon"], string> = {
@@ -217,7 +218,7 @@ export default function GoalsPage() {
       maxWidthClassName="max-w-5xl"
       actions={
         <>
-          <AppHeaderAction href="/chat">Back to chat</AppHeaderAction>
+          <BackToLastChat >Back to chat</BackToLastChat>
           <AppHeaderAction
             onClick={() => setShowForm((v) => !v)}
             variant="primary"
