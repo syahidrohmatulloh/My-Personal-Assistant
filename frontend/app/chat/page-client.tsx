@@ -98,6 +98,7 @@ export function ChatHomePageClient({ initialAssistantName = "" }: { initialAssis
   });
 
   const journaledToday = Boolean(today?.entry);
+  const [briefingCtaVisible, setBriefingCtaVisible] = useState(false);
   const assistantName =
     typeof identity?.profile?.assistant_name === "string" &&
     identity.profile.assistant_name.trim().length > 0
@@ -112,6 +113,21 @@ export function ChatHomePageClient({ initialAssistantName = "" }: { initialAssis
     )}; path=/; max-age=31536000; SameSite=Lax`;
     window.localStorage.setItem("app:assistant-name", assistantName.trim());
   }, [assistantName]);
+
+  useEffect(() => {
+    if (briefingLoading || !briefing?.content) {
+      setBriefingCtaVisible(false);
+      return;
+    }
+
+    setBriefingCtaVisible(false);
+
+    const frame = window.requestAnimationFrame(() => {
+      setBriefingCtaVisible(true);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [briefingLoading, briefing?.content]);
 
   const initialTitleReady =
     !briefingLoading && !journalLoading && !goalsLoading && !identityLoading;
@@ -235,22 +251,16 @@ export function ChatHomePageClient({ initialAssistantName = "" }: { initialAssis
           </h1>
         </div>
 
-        {briefingLoading ? (
-          <button
-            type="button"
-            disabled
-            aria-live="polite"
-            className="mx-auto mb-3 flex max-w-2xl items-center gap-2 rounded-2xl border border-border bg-fg/[0.025] px-3.5 py-2.5 text-left text-xs text-fg-muted opacity-70"
-          >
-            <CalendarDays className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">Checking today’s briefing</span>
-          </button>
-        ) : briefing?.content ? (
+        {briefing?.content ? (
           <button
             type="button"
             onClick={() => briefing?.id && startBriefingMut.mutate(briefing.id)}
             disabled={createMut.isPending || startBriefingMut.isPending}
-            className="mx-auto mb-3 flex max-w-2xl items-center gap-2 rounded-2xl border border-border bg-fg/[0.035] px-3.5 py-2.5 text-left text-xs text-fg-muted transition hover:bg-fg/5 hover:text-fg disabled:opacity-60"
+            className={`mx-auto mb-3 flex max-w-2xl items-center gap-2 rounded-2xl border border-border bg-fg/[0.035] px-3.5 py-2.5 text-left text-xs text-fg-muted transition-all duration-300 ease-out hover:bg-fg/5 hover:text-fg disabled:opacity-60 ${
+              briefingCtaVisible
+                ? "translate-y-0 opacity-100"
+                : "-translate-y-1 opacity-0 pointer-events-none"
+            }`}
           >
             <CalendarDays className="h-4 w-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">
