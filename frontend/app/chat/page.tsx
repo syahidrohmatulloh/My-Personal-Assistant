@@ -122,7 +122,7 @@ export default function ChatIndexPage() {
       !journaledToday && hour >= 18 ? "Want to close the day together?" : null,
       hour < 11 ? "What should we start with today?" : null,
       hour >= 11 && hour < 17 ? "What should we work through first?" : null,
-      "Where do you want to continue?",
+      "Where do you want to continue",
     ]);
   }, [briefing?.content, goals, identity?.profile?.birthday, journaledToday]);
 
@@ -148,8 +148,8 @@ export default function ChatIndexPage() {
 
   const title = initialTitleReady
     ? titleOptions[titleIndex % Math.max(titleOptions.length, 1)] ||
-      "Where do you want to continue?"
-    : "";
+      "Where do you want to continue"
+    : "Where do you want to continue";
 
   const createMut = useMutation({
     mutationFn: (message?: string) => createConversation("New chat"),
