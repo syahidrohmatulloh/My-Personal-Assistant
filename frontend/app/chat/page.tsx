@@ -69,28 +69,28 @@ export default function ChatIndexPage() {
   const qc = useQueryClient();
   const [draft, setDraft] = useState("");
 
-  const { data: briefing } = useQuery({
+  const { data: briefing, isLoading: briefingLoading } = useQuery({
     queryKey: ["briefing", "today"],
     queryFn: getTodayBriefing,
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
 
-  const { data: today } = useQuery({
+  const { data: today, isLoading: journalLoading } = useQuery({
     queryKey: ["journal", "today"],
     queryFn: getTodaysJournal,
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
 
-  const { data: goals = [] } = useQuery({
+  const { data: goals = [], isLoading: goalsLoading } = useQuery({
     queryKey: ["goals", "chat-home-title"],
     queryFn: () => listGoals("active"),
     staleTime: 60 * 1000,
     retry: false,
   });
 
-  const { data: identity } = useQuery({
+  const { data: identity, isLoading: identityLoading } = useQuery({
     queryKey: ["identity", "chat-home-title"],
     queryFn: getIdentity,
     staleTime: 5 * 60 * 1000,
@@ -98,6 +98,8 @@ export default function ChatIndexPage() {
   });
 
   const journaledToday = Boolean(today?.entry);
+  const initialTitleReady =
+    !briefingLoading && !journalLoading && !goalsLoading && !identityLoading;
 
   const titleOptions = useMemo(() => {
     const hour = new Date().getHours();
@@ -109,13 +111,13 @@ export default function ChatIndexPage() {
     const birthdayDate = formatShortDate(identity?.profile?.birthday);
 
     return uniqueShortTitles([
-      briefing?.content ? "There’s a thread we can pick up." : null,
+      briefing?.content ? "There’s a thread we can pick up" : null,
       firstGoal?.title ? `A goal is waiting: ${firstGoal.title}` : null,
-      activeGoals.length > 1 ? `${activeGoals.length} active goals in motion.` : null,
-      birthdayDays === 0 ? "There’s something special today." : null,
-      birthdayDays === 1 ? "A special date is tomorrow." : null,
+      activeGoals.length > 1 ? `${activeGoals.length} active goals in motion` : null,
+      birthdayDays === 0 ? "There’s something special today" : null,
+      birthdayDays === 1 ? "A special date is tomorrow" : null,
       birthdayDays !== null && birthdayDays > 1 && birthdayDays <= 14 && birthdayDate
-        ? `A special date is coming on ${birthdayDate}.`
+        ? `A special date is coming on ${birthdayDate}`
         : null,
       !journaledToday && hour >= 18 ? "Want to close the day together?" : null,
       hour < 11 ? "What should we start with today?" : null,
@@ -126,9 +128,14 @@ export default function ChatIndexPage() {
 
   const [titleIndex, setTitleIndex] = useState(0);
 
+  const titleSignature = titleOptions.join("|");
+
   useEffect(() => {
-    if (titleOptions.length <= 1) {
-      setTitleIndex(0);
+    setTitleIndex(0);
+  }, [titleSignature]);
+
+  useEffect(() => {
+    if (!initialTitleReady || titleOptions.length <= 1) {
       return;
     }
 
@@ -137,11 +144,12 @@ export default function ChatIndexPage() {
     }, 5000);
 
     return () => window.clearInterval(timer);
-  }, [titleOptions.length]);
+  }, [initialTitleReady, titleOptions.length, titleSignature]);
 
-  const title =
-    titleOptions[titleIndex % Math.max(titleOptions.length, 1)] ||
-    "Where do you want to continue?";
+  const title = initialTitleReady
+    ? titleOptions[titleIndex % Math.max(titleOptions.length, 1)] ||
+      "Where do you want to continue?"
+    : "";
 
   const createMut = useMutation({
     mutationFn: (message?: string) => createConversation("New chat"),
