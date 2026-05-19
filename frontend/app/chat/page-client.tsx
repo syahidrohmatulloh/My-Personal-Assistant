@@ -220,23 +220,47 @@ export function ChatHomePageClient({ initialAssistantName = "" }: { initialAssis
     }
   }
 
-  const suggestions = [
-    {
-      label: "Plan my day",
-      prompt:
-        "Help me plan my day based on what you know about my priorities, recent context, and current energy. Make it practical and not too long.",
-    },
-    {
-      label: "Reflect on today",
-      prompt:
-        "Help me reflect on today. Ask me a few thoughtful questions first if you need more context, then help me turn it into a useful journal-style reflection.",
-    },
-    {
-      label: "Continue from memory",
-      prompt:
-        "Continue from what matters most in my recent memory and conversations. Pick the most useful thread to continue, explain why, then suggest the next step.",
-    },
-  ];
+  const suggestions = useMemo(() => {
+    const activeGoals = Array.isArray(goals)
+      ? goals.filter((goal) => goal?.status === "active" || !goal?.status)
+      : [];
+
+    const primaryGoal = activeGoals[0];
+    const assistantLabel = assistantName || "the assistant";
+    const hasBriefingThread = Boolean(
+      briefing?.content || briefing?.opened_at || briefing?.conversation_id,
+    );
+
+    return [
+      {
+        label: primaryGoal?.title
+          ? `Plan around ${primaryGoal.title}`
+          : "Plan my day",
+        prompt: primaryGoal?.title
+          ? `Help me plan today around my active goal: ${primaryGoal.title}. Prioritize the most realistic next step, suggest a focused schedule, and include one small action I can complete today.`
+          : "Help me plan my day. Use my goals, memories, journal context, and today’s priorities. Give me a realistic schedule and the top 3 things to focus on.",
+      },
+      {
+        label: journaledToday ? "Continue today’s reflection" : "Reflect on today",
+        prompt: journaledToday
+          ? "Continue from today’s journal/reflection. Help me identify the main theme, what I should learn from it, and one next action."
+          : "Help me reflect on today. Ask me briefly about my mood, energy, what happened, and what I want to remember from today.",
+      },
+      {
+        label: hasBriefingThread ? "Continue briefing thread" : "Continue from memory",
+        prompt: hasBriefingThread
+          ? `Continue from today’s briefing with ${assistantLabel}. Summarize the thread, explain what matters most, and suggest the next useful step.`
+          : "Continue from what matters most in my recent memory and conversations. Pick the most useful thread to continue, explain why, then suggest the next step.",
+      },
+    ];
+  }, [
+    assistantName,
+    briefing?.content,
+    briefing?.conversation_id,
+    briefing?.opened_at,
+    goals,
+    journaledToday,
+  ]);
 
   return (
     <main className="flex min-h-[calc(100vh-64px)] flex-1 items-center justify-center px-4 sm:px-6">
