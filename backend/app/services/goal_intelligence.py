@@ -113,6 +113,57 @@ def _json_from_text(text: str) -> dict[str, Any]:
     return json.loads(text)
 
 
+def _coerce_goal_intelligence_result(parsed: dict[str, Any]) -> GoalIntelligenceResult:
+    """Parse model output defensively.
+
+    Haiku sometimes returns partially valid JSON, e.g. a good goal_suggestion
+    but one malformed goal_progress item. We should not discard a valid goal
+    suggestion because unrelated progress parsing failed.
+    """
+    if not isinstance(parsed, dict):
+        return GoalIntelligenceResult()
+
+    raw_suggestion = parsed.get("goal_suggestion") or {}
+    if not isinstance(raw_suggestion, dict):
+        raw_suggestion = {}
+
+    try:
+        goal_suggestion = GoalCandidate.model_validate(raw_suggestion)
+    except ValidationError as exc:
+        log.warning("goal intelligence: invalid goal_suggestion skipped: %s", exc)
+        goal_suggestion = GoalCandidate()
+
+    progress_items: list[GoalProgressSignal] = []
+    raw_progress = parsed.get("goal_progress") or []
+    if not isinstance(raw_progress, list):
+        raw_progress = []
+
+    for item in raw_progress[:5]:
+        if not isinstance(item, dict):
+            continue
+
+        # Model sometimes uses alternative keys. Normalize gently.
+        normalized = dict(item)
+        if "goal_title_fragment" not in normalized:
+            normalized["goal_title_fragment"] = (
+                normalized.get("goal")
+                or normalized.get("goal_title")
+                or normalized.get("title")
+                or normalized.get("goal_name")
+            )
+
+        try:
+            progress_items.append(GoalProgressSignal.model_validate(normalized))
+        except ValidationError as exc:
+            log.warning("goal intelligence: invalid progress item skipped: %s", exc)
+            continue
+
+    return GoalIntelligenceResult(
+        goal_suggestion=goal_suggestion,
+        goal_progress=progress_items,
+    )
+
+
 def _normalize_title(value: str | None) -> str:
     value = (value or "").lower().strip()
     value = re.sub(r"[^a-z0-9\u00c0-\u024f\u1e00-\u1eff\s]", " ", value)
@@ -278,7 +329,7 @@ async def _call_goal_intelligence_model(
 
     text = response.content[0].text if response.content else "{}"
     parsed = _json_from_text(text)
-    return GoalIntelligenceResult.model_validate(parsed)
+    return _coerce_goal_intelligence_result(parsed)
 
 
 async def extract_and_persist(
@@ -306,8 +357,8 @@ async def extract_and_persist(
             assistant_response=assistant_response,
             active_goals=active_goals,
         )
-    except (ValidationError, json.JSONDecodeError) as exc:
-        log.warning("goal intelligence: invalid model output: %s", exc)
+    except json.JSONDecodeError as exc:
+        log.warning("goal intelligence: invalid model JSON: %s", exc)
         return counts
     except Exception as exc:  # noqa: BLE001
         log.warning("goal intelligence: extraction failed: %s", exc)
