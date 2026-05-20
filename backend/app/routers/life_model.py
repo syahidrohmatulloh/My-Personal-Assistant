@@ -158,6 +158,40 @@ async def dismiss_goal_suggestion(
     return {"ok": True}
 
 
+@router.get("/goal-action-proposals")
+async def list_goal_action_proposals(
+    status: Literal["pending", "confirmed", "dismissed"] = "pending",
+    user_id: str = Depends(get_current_user_id),
+):
+    return await life_model.list_goal_action_proposals(user_id, status=status)
+
+
+@router.post("/goal-action-proposals/{proposal_id}/confirm")
+async def confirm_goal_action_proposal(
+    proposal_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    try:
+        return await life_model.confirm_goal_action_proposal(
+            user_id=user_id,
+            proposal_id=proposal_id,
+        )
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Goal action proposal not found")
+
+
+@router.post("/goal-action-proposals/{proposal_id}/dismiss")
+async def dismiss_goal_action_proposal(
+    proposal_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    await life_model.dismiss_goal_action_proposal(
+        user_id=user_id,
+        proposal_id=proposal_id,
+    )
+    return {"ok": True}
+
+
 @router.post("/goals", status_code=status.HTTP_201_CREATED)
 async def create_goal(body: GoalIn, user_id: str = Depends(get_current_user_id)):
     return await life_model.create_goal(

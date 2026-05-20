@@ -450,6 +450,143 @@ async def dismiss_goal_suggestion(*, user_id: str, suggestion_id: str) -> None:
     ).eq("id", suggestion_id).eq("user_id", user_id).execute()
 
 
+async def list_goal_action_proposals(user_id: str, status: str = "pending") -> list[dict]:
+    supabase = get_supabase()
+    q = supabase.table("goal_action_proposals").select("*").eq("user_id", user_id)
+    if status:
+        q = q.eq("status", status)
+    result = q.order("created_at", desc=True).execute()
+    return result.data or []
+
+
+async def create_goal_action_proposal(
+    *,
+    user_id: str,
+    goal_id: str,
+    action_type: Literal[
+        "mark_achieved",
+        "pause",
+        "resume",
+        "abandon",
+        "delete",
+        "update",
+    ],
+    proposed_patch: dict | None = None,
+    assistant_reason: str | None = None,
+    confidence: float = 0.7,
+) -> dict:
+    supabase = get_supabase()
+    payload = {
+        "user_id": user_id,
+        "goal_id": goal_id,
+        "action_type": action_type,
+        "proposed_patch": proposed_patch or {},
+        "assistant_reason": assistant_reason,
+        "confidence": confidence,
+    }
+    result = supabase.table("goal_action_proposals").insert(payload).execute()
+    if not result.data:
+        raise RuntimeError("failed to create goal action proposal")
+    return result.data[0]
+
+
+def _coerce_goal_patch(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {}
+
+    allowed = {
+        "title",
+        "description",
+        "horizon",
+        "emotional_weight",
+        "target_date",
+        "clear_target_date",
+    }
+    return {key: value for key, value in raw.items() if key in allowed}
+
+
+async def confirm_goal_action_proposal(*, user_id: str, proposal_id: str) -> dict:
+    supabase = get_supabase()
+
+    result = (
+        supabase.table("goal_action_proposals")
+        .select("*")
+        .eq("id", proposal_id)
+        .eq("user_id", user_id)
+        .eq("status", "pending")
+        .maybe_single()
+        .execute()
+    )
+
+    if not result.data:
+        raise ValueError("Goal action proposal not found")
+
+    proposal = result.data
+    goal_id = proposal["goal_id"]
+    action_type = proposal["action_type"]
+
+    if action_type == "mark_achieved":
+        await update_goal_status(user_id=user_id, goal_id=goal_id, status="achieved")
+    elif action_type == "pause":
+        await update_goal_status(user_id=user_id, goal_id=goal_id, status="paused")
+    elif action_type == "resume":
+        await update_goal_status(user_id=user_id, goal_id=goal_id, status="active")
+    elif action_type == "abandon":
+        await update_goal_status(user_id=user_id, goal_id=goal_id, status="abandoned")
+    elif action_type == "update":
+        patch = _coerce_goal_patch(proposal.get("proposed_patch"))
+        target_date_value = patch.get("target_date")
+        target_date = None
+
+        if isinstance(target_date_value, str) and target_date_value.strip():
+            target_date = date.fromisoformat(target_date_value[:10])
+
+        await update_goal(
+            user_id=user_id,
+            goal_id=goal_id,
+            title=patch.get("title"),
+            description=patch.get("description"),
+            horizon=patch.get("horizon"),
+            emotional_weight=patch.get("emotional_weight"),
+            target_date=target_date,
+            clear_target_date=bool(patch.get("clear_target_date")),
+        )
+    elif action_type == "delete":
+        # Mark confirmed first. The proposal may be removed by FK cascade after delete.
+        supabase.table("goal_action_proposals").update(
+            {
+                "status": "confirmed",
+                "confirmed_at": "now()",
+                "updated_at": "now()",
+            }
+        ).eq("id", proposal_id).eq("user_id", user_id).execute()
+
+        await delete_goal(user_id=user_id, goal_id=goal_id)
+        return {"ok": True, "action_type": action_type, "goal_id": goal_id}
+    else:
+        raise ValueError("Unsupported goal action proposal type")
+
+    supabase.table("goal_action_proposals").update(
+        {
+            "status": "confirmed",
+            "confirmed_at": "now()",
+            "updated_at": "now()",
+        }
+    ).eq("id", proposal_id).eq("user_id", user_id).execute()
+
+    return {"ok": True, "action_type": action_type, "goal_id": goal_id}
+
+
+async def dismiss_goal_action_proposal(*, user_id: str, proposal_id: str) -> None:
+    get_supabase().table("goal_action_proposals").update(
+        {
+            "status": "dismissed",
+            "dismissed_at": "now()",
+            "updated_at": "now()",
+        }
+    ).eq("id", proposal_id).eq("user_id", user_id).execute()
+
+
 # ----------------------------------------------------------------------------
 # The single-query context fetch
 # ----------------------------------------------------------------------------
