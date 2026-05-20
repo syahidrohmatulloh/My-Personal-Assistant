@@ -452,7 +452,11 @@ async def dismiss_goal_suggestion(*, user_id: str, suggestion_id: str) -> None:
 
 async def list_goal_action_proposals(user_id: str, status: str = "pending") -> list[dict]:
     supabase = get_supabase()
-    q = supabase.table("goal_action_proposals").select("*").eq("user_id", user_id)
+    q = (
+        supabase.table("goal_action_proposals")
+        .select("*, goals(title, status)")
+        .eq("user_id", user_id)
+    )
     if status:
         q = q.eq("status", status)
     result = q.order("created_at", desc=True).execute()

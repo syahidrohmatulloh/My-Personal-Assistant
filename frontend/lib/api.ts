@@ -318,6 +318,26 @@ export type GoalSuggestion = {
   created_at: string;
 };
 
+export type GoalActionProposal = {
+  id: string;
+  user_id?: string;
+  goal_id: string;
+  action_type: "mark_achieved" | "pause" | "resume" | "abandon" | "delete" | "update";
+  proposed_patch?: GoalPatch | null;
+  assistant_reason?: string | null;
+  confidence?: number | null;
+  status: "pending" | "confirmed" | "dismissed";
+  confirmed_at?: string | null;
+  dismissed_at?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  goals?: {
+    title?: string | null;
+    status?: Goal["status"] | null;
+  } | null;
+};
+
+
 export async function listGoals(status: Goal["status"] | "all" = "active"): Promise<Goal[]> {
   const headers = await getAuthHeader();
   const url = `${API_URL}/goals?status=${status}`;
@@ -374,6 +394,34 @@ export async function dismissGoalSuggestion(id: string): Promise<void> {
     headers,
   });
   if (!r.ok) throw new Error(`dismissGoalSuggestion failed: ${r.status}`);
+}
+
+export async function listGoalActionProposals(
+  status: GoalActionProposal["status"] = "pending",
+): Promise<GoalActionProposal[]> {
+  const headers = await getAuthHeader();
+  const r = await fetch(`${API_URL}/goal-action-proposals?status=${status}`, { headers });
+  if (!r.ok) throw new Error(`listGoalActionProposals failed: ${r.status}`);
+  return r.json();
+}
+
+export async function confirmGoalActionProposal(id: string): Promise<{ ok: boolean; action_type: GoalActionProposal["action_type"]; goal_id: string }> {
+  const headers = await getAuthHeader();
+  const r = await fetch(`${API_URL}/goal-action-proposals/${id}/confirm`, {
+    method: "POST",
+    headers,
+  });
+  if (!r.ok) throw new Error(`confirmGoalActionProposal failed: ${r.status}`);
+  return r.json();
+}
+
+export async function dismissGoalActionProposal(id: string): Promise<void> {
+  const headers = await getAuthHeader();
+  const r = await fetch(`${API_URL}/goal-action-proposals/${id}/dismiss`, {
+    method: "POST",
+    headers,
+  });
+  if (!r.ok) throw new Error(`dismissGoalActionProposal failed: ${r.status}`);
 }
 
 export async function updateGoalStatus(id: string, status: Goal["status"]): Promise<void> {

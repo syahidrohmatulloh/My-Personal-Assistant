@@ -1,28 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { ArrowLeft, Check, Pause, Plus, Target, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Check, Pause, Plus, Target, Trash2, X } from "lucide-react";
 import {
   type Goal,
+  type GoalActionProposal,
   type GoalInput,
   type GoalSuggestion,
-  type Identity,
+  confirmGoalActionProposal,
   confirmGoalSuggestion,
   createGoal,
   deleteGoal,
+  dismissGoalActionProposal,
   dismissGoalSuggestion,
-  getIdentity,
+  listGoalActionProposals,
   listGoalSuggestions,
   listGoals,
   updateGoalStatus,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { AppHeaderAction, AppPageShell, AppPanel, AppToolbar } from "@/components/ui/app-page-shell";
+import { AppPageShell, AppPanel, AppToolbar } from "@/components/ui/app-page-shell";
 import { useAssistantDisplayName, useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
 import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 
 const HORIZONS: Goal["horizon"][] = ["week", "month", "quarter", "year", "multi_year", "life"];
+
 const HORIZON_LABELS: Record<Goal["horizon"], string> = {
   week: "This week",
   month: "This month",
@@ -40,214 +42,400 @@ const STATUS_LABELS: Record<Goal["status"] | "all", string> = {
   all: "All",
 };
 
+function goalActionLabel(proposal: GoalActionProposal): string {
+  const goalTitle = proposal.goals?.title || "this goal";
+
+  switch (proposal.action_type) {
+    case "mark_achieved":
+      return `Mark “${goalTitle}” as done`;
+    case "pause":
+      return `Pause “${goalTitle}”`;
+    case "resume":
+      return `Resume “${goalTitle}”`;
+    case "abandon":
+      return `Mark “${goalTitle}” as dropped`;
+    case "delete":
+      return `Delete “${goalTitle}”`;
+    case "update":
+      return `Update “${goalTitle}”`;
+    default:
+      return `Review update for “${goalTitle}”`;
+  }
+}
+
+function goalActionTone(proposal: GoalActionProposal): string {
+  if (proposal.action_type === "delete") return "Destructive action — confirmation required";
+  if (proposal.action_type === "update") return "Goal update — confirmation required";
+  return "Status change — confirmation required";
+}
+
 export default function GoalsPage() {
   const assistantName = useAssistantDisplayName();
+  const goalsEyebrow = useUserOwnedLabel("Goals");
+
   const [goals, setGoals] = useState<Goal[]>([]);
   const [suggestions, setSuggestions] = useState<GoalSuggestion[]>([]);
-  const [identity, setIdentity] = useState<Identity | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [actionProposals, setActionProposals] = useState<GoalActionProposal[]>([]);
+
   const [filter, setFilter] = useState<Goal["status"] | "all">("active");
-  const [showForm, setShowForm] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // form state
-  const [title, setGoal] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [horizon, setTimeline] = useState<Goal["horizon"]>("quarter");
+  const [horizon, setHorizon] = useState<Goal["horizon"]>("quarter");
   const [weight, setWeight] = useState(5);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+  const [actionProposalBusyId, setActionProposalBusyId] = useState<string | null>(null);
+  const [actionProposalError, setActionProposalError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
 
-    Promise.allSettled([listGoals(filter), listGoalSuggestions(), getIdentity()])
-      .then(([goalsResult, suggestionsResult, identityResult]) => {
-        if (cancelled) return;
+    const [goalsResult, suggestionsResult, actionsResult] = await Promise.allSettled([
+      listGoals(filter),
+      listGoalSuggestions("pending"),
+      listGoalActionProposals("pending"),
+    ]);
 
-        if (goalsResult.status === "fulfilled") {
-          setGoals(goalsResult.value);
-        } else {
-          setGoals([]);
-          setError(String(goalsResult.reason));
-        }
+    if (goalsResult.status === "fulfilled") {
+      setGoals(goalsResult.value);
+    } else {
+      setGoals([]);
+      setError(String(goalsResult.reason));
+    }
 
-        if (suggestionsResult.status === "fulfilled") {
-          setSuggestions(suggestionsResult.value);
-        } else {
-          // Goal suggestions are an enhancement. If the backend/table is not ready,
-          // existing manual goals should still load normally.
-          setSuggestions([]);
-          console.warn("Goal suggestions failed to load", suggestionsResult.reason);
-        }
+    if (suggestionsResult.status === "fulfilled") {
+      setSuggestions(suggestionsResult.value);
+    } else {
+      setSuggestions([]);
+      console.warn("Goal suggestions failed to load", suggestionsResult.reason);
+    }
 
-        if (identityResult.status === "fulfilled") {
-          setIdentity(identityResult.value);
-        }
-      })
-      .finally(() => !cancelled && setLoading(false));
+    if (actionsResult.status === "fulfilled") {
+      setActionProposals(actionsResult.value);
+      setActionProposalError(null);
+    } else {
+      setActionProposals([]);
+      setActionProposalError("Failed to load suggested goal updates.");
+      console.warn("Goal action proposals failed to load", actionsResult.reason);
+    }
 
-    return () => {
-      cancelled = true;
-    };
+    setLoading(false);
   }, [filter]);
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (!title.trim()) return;
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function handleCreate(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const cleanedTitle = title.trim();
+    if (!cleanedTitle) return;
+
     setSaving(true);
     setError(null);
+
+    const input: GoalInput = {
+      title: cleanedTitle,
+      description: description.trim() || null,
+      horizon,
+      emotional_weight: weight,
+      target_date: null,
+    };
+
     try {
-      const input: GoalInput = {
-        title: title.trim(),
-        description: description.trim() || null,
-        horizon,
-        emotional_weight: weight,
-      };
       const created = await createGoal(input);
-      setGoals((prev) => [created, ...prev]);
-      setGoal("");
+      setGoals((current) => (filter === "all" || filter === created.status ? [created, ...current] : current));
+      setTitle("");
       setDescription("");
+      setHorizon("quarter");
+      setWeight(5);
       setShowForm(false);
-    } catch (e) {
-      setError(String(e));
+    } catch (err) {
+      console.error(err);
+      setError("Failed to create goal.");
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleStatus(id: string, status: Goal["status"]) {
-    const prev = goals;
-    setGoals((g) => g.map((x) => (x.id === id ? { ...x, status } : x)));
+  async function handleStatus(id: string, nextStatus: Goal["status"]) {
+    const previous = goals;
+    setGoals((current) =>
+      current
+        .map((goal) => (goal.id === id ? { ...goal, status: nextStatus } : goal))
+        .filter((goal) => filter === "all" || goal.status === filter),
+    );
+
     try {
-      await updateGoalStatus(id, status);
-      if (filter !== "all" && status !== filter) {
-        setGoals((g) => g.filter((x) => x.id !== id));
-      }
-    } catch (e) {
-      setGoals(prev);
-      setError(String(e));
+      await updateGoalStatus(id, nextStatus);
+    } catch (err) {
+      console.error(err);
+      setGoals(previous);
+      setError("Failed to update goal status.");
     }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this goal? This cannot be undone.")) return;
-    const prev = goals;
-    setGoals((g) => g.filter((x) => x.id !== id));
+    const confirmed = window.confirm("Delete this goal? This cannot be undone.");
+    if (!confirmed) return;
+
+    const previous = goals;
+    setGoals((current) => current.filter((goal) => goal.id !== id));
+
     try {
       await deleteGoal(id);
-    } catch (e) {
-      setGoals(prev);
-      setError(String(e));
+    } catch (err) {
+      console.error(err);
+      setGoals(previous);
+      setError("Failed to delete goal.");
     }
   }
 
   async function handleConfirmSuggestion(id: string) {
-    const prevSuggestions = suggestions;
-    setSuggestions((items) => items.filter((item) => item.id !== id));
-    setError(null);
+    const previousSuggestions = suggestions;
+    setSuggestions((current) => current.filter((item) => item.id !== id));
 
     try {
       const created = await confirmGoalSuggestion(id);
-      if (filter === "active" || filter === "all") {
-        setGoals((prev) => [created, ...prev]);
+      if (filter === "all" || filter === created.status) {
+        setGoals((current) => [created, ...current]);
       }
-    } catch (e) {
-      setSuggestions(prevSuggestions);
-      setError(String(e));
+    } catch (err) {
+      console.error(err);
+      setSuggestions(previousSuggestions);
+      setError("Failed to confirm goal suggestion.");
     }
   }
 
   async function handleDismissSuggestion(id: string) {
-    const prevSuggestions = suggestions;
-    setSuggestions((items) => items.filter((item) => item.id !== id));
-    setError(null);
+    const previousSuggestions = suggestions;
+    setSuggestions((current) => current.filter((item) => item.id !== id));
 
     try {
       await dismissGoalSuggestion(id);
-    } catch (e) {
-      setSuggestions(prevSuggestions);
-      setError(String(e));
+    } catch (err) {
+      console.error(err);
+      setSuggestions(previousSuggestions);
+      setError("Failed to dismiss goal suggestion.");
     }
   }
 
-  const profile = identity?.profile ?? {};
-
-  function pickProfileName(value: unknown): string | null {
-    if (typeof value !== "string") return null;
-
-    const cleaned = value.trim();
-    if (!cleaned) return null;
-
-    // Guard against assistant/companion name leaking into user identity.
-    // User Goals should never become the assistant name.
-    const lowered = cleaned.toLowerCase();
-    const assistantNameLowered =
-      typeof profile.assistant_name === "string"
-        ? profile.assistant_name.trim().toLowerCase()
-        : "";
-
-    if (
-      (assistantNameLowered.length > 0 && lowered === assistantNameLowered) ||
-      lowered === "assistant" ||
-      lowered === "my assistant" ||
-      lowered === "ai assistant"
-    ) {
-      return null;
+  async function handleConfirmGoalActionProposal(id: string) {
+    try {
+      setActionProposalBusyId(id);
+      setActionProposalError(null);
+      await confirmGoalActionProposal(id);
+      setActionProposals((current) => current.filter((item) => item.id !== id));
+      await load();
+    } catch (err) {
+      console.error(err);
+      setActionProposalError("Failed to confirm goal update.");
+    } finally {
+      setActionProposalBusyId(null);
     }
-
-    return cleaned;
   }
 
-  const goalsEyebrow = useUserOwnedLabel("Goals");
+  async function handleDismissGoalActionProposal(id: string) {
+    try {
+      setActionProposalBusyId(id);
+      setActionProposalError(null);
+      await dismissGoalActionProposal(id);
+      setActionProposals((current) => current.filter((item) => item.id !== id));
+    } catch (err) {
+      console.error(err);
+      setActionProposalError("Failed to dismiss goal update.");
+    } finally {
+      setActionProposalBusyId(null);
+    }
+  }
 
   return (
     <AppPageShell
       eyebrow={goalsEyebrow}
       title="Goals"
-      description={`Tell ${assistantName} what you are working toward, so she can help you make better plans and decisions.`}
+      description={`Tell ${assistantName || "your assistant"} what you are working toward, so she can help you make better plans and decisions.`}
       maxWidthClassName="max-w-5xl"
       actions={
-        <>
-          <BackToLastChat >Back to chat</BackToLastChat>
-          <AppHeaderAction
-            onClick={() => setShowForm((v) => !v)}
-            variant="primary"
-            icon={showForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-          >
-            {showForm ? "Close" : "Add goal"}
-          </AppHeaderAction>
-        </>
+        <BackToLastChat className="inline-flex h-10 items-center justify-center rounded-full border border-border bg-fg/[0.035] px-4 text-sm font-medium text-fg-muted shadow-sm transition hover:bg-fg/5 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 active:scale-[0.98]">
+          Back to chat
+        </BackToLastChat>
       }
     >
-      <AppToolbar>
-        <div className="flex w-full gap-1 overflow-x-auto rounded-full border border-slate-200/70 dark:border-white/10 bg-white/65 p-1 dark:border-white/10 dark:bg-black/20 md:w-auto">
-          {(["active", "paused", "achieved", "abandoned", "all"] as const).map((s) => (
+      <div className="mb-4">
+        <AppToolbar>
+        <button
+          type="button"
+          onClick={() => setShowForm((value) => !value)}
+          className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-zinc-200"
+        >
+          <Plus className="h-4 w-4" />
+          New goal
+        </button>
+
+        <div className="flex w-full gap-1 overflow-x-auto rounded-full border border-slate-200/70 bg-white/65 p-1 dark:border-white/10 dark:bg-black/20 md:w-auto">
+          {(["active", "paused", "achieved", "abandoned", "all"] as const).map((status) => (
             <button
-              key={s}
-              onClick={() => setFilter(s)}
+              key={status}
+              type="button"
+              onClick={() => setFilter(status)}
               className={cn(
                 "whitespace-nowrap rounded-full px-3 py-2 text-xs font-medium transition-colors",
-                filter === s
+                filter === status
                   ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950"
-                  : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:bg-white/10 hover:text-slate-950 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white",
+                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white",
               )}
             >
-              {STATUS_LABELS[s]}
+              {STATUS_LABELS[status]}
             </button>
           ))}
         </div>
-      </AppToolbar>
+        </AppToolbar>
+      </div>
 
-      {suggestions.length > 0 && (
-        <AppPanel>
-          <div className="border-b border-slate-200/70 dark:border-white/10 px-5 py-4 dark:border-white/10">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-300">
-              Suggested by {assistantName}
+      {showForm ? (
+        <form
+          onSubmit={handleCreate}
+          className="mb-4 rounded-[1.5rem] border border-slate-200/70 bg-white/75 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04]"
+        >
+          <label className="mb-4 block">
+            <span className="text-sm font-medium text-slate-900 dark:text-white">Goal</span>
+            <input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="What do you want to work toward?"
+              className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white"
+            />
+          </label>
+
+          <label className="mb-4 block">
+            <span className="text-sm font-medium text-slate-900 dark:text-white">Description</span>
+            <textarea
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="Add context, target, or motivation"
+              rows={3}
+              className="mt-2 w-full resize-none rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white"
+            />
+          </label>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block">
+              <span className="text-sm font-medium text-slate-900 dark:text-white">Horizon</span>
+              <select
+                value={horizon}
+                onChange={(event) => setHorizon(event.target.value as Goal["horizon"])}
+                className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none dark:border-white/10 dark:bg-black/25 dark:text-white"
+              >
+                {HORIZONS.map((item) => (
+                  <option key={item} value={item}>
+                    {HORIZON_LABELS[item]}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="text-sm font-medium text-slate-900 dark:text-white">
+                Emotional weight: {weight}
+              </span>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                value={weight}
+                onChange={(event) => setWeight(Number(event.target.value))}
+                className="mt-4 w-full"
+              />
+            </label>
+          </div>
+
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="rounded-full border border-border px-4 py-2 text-sm text-fg-muted transition hover:bg-fg/5 hover:text-fg"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !title.trim()}
+              className="rounded-full bg-fg px-4 py-2 text-sm font-medium text-bg transition hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save goal"}
+            </button>
+          </div>
+        </form>
+      ) : null}
+
+      {actionProposals.length > 0 || actionProposalError ? (
+        <AppPanel className="mb-4">
+          <div className="mb-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-fg-subtle">
+              Suggested goal updates
             </p>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 dark:text-zinc-400">
-              These came from your conversations. Confirm only the ones you want {assistantName} to track.
+            <h2 className="mt-1 text-base font-semibold text-fg">
+              Review changes before applying them
+            </h2>
+          </div>
+
+          {actionProposalError ? (
+            <p className="mb-3 rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300">
+              {actionProposalError}
+            </p>
+          ) : null}
+
+          <div className="space-y-2">
+            {actionProposals.map((proposal) => (
+              <div
+                key={proposal.id}
+                className="flex flex-col gap-3 rounded-2xl border border-border bg-fg/[0.025] p-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-fg">{goalActionLabel(proposal)}</p>
+                  <p className="mt-1 text-xs text-fg-muted">
+                    {proposal.assistant_reason || goalActionTone(proposal)}
+                  </p>
+                </div>
+
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    disabled={actionProposalBusyId === proposal.id}
+                    onClick={() => handleDismissGoalActionProposal(proposal.id)}
+                    className="rounded-full border border-border bg-transparent px-3 py-1.5 text-xs font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg disabled:opacity-50"
+                  >
+                    Dismiss
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionProposalBusyId === proposal.id}
+                    onClick={() => handleConfirmGoalActionProposal(proposal.id)}
+                    className="rounded-full bg-fg px-3 py-1.5 text-xs font-medium text-bg transition hover:opacity-90 disabled:opacity-50"
+                  >
+                    Confirm
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </AppPanel>
+      ) : null}
+
+      {suggestions.length > 0 ? (
+        <AppPanel className="mb-4">
+          <div className="border-b border-slate-200/70 px-5 py-4 dark:border-white/10">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-300">
+              Suggested by {assistantName || "your assistant"}
+            </p>
+            <p className="mt-1 text-sm text-slate-600 dark:text-zinc-400">
+              These came from your conversations. Confirm only the ones you want {assistantName || "your assistant"} to track.
             </p>
           </div>
 
@@ -259,50 +447,34 @@ export default function GoalsPage() {
                     <p className="text-sm font-semibold text-slate-950 dark:text-white">
                       {suggestion.title}
                     </p>
-
-                    {suggestion.description && (
-                      <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300 dark:text-zinc-400">
+                    {suggestion.description ? (
+                      <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-300">
                         {suggestion.description}
                       </p>
-                    )}
-
-                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 dark:text-zinc-400">
-                      <span className="rounded-full border border-cyan-500/20 bg-cyan-50 px-2 py-1 text-[10px] font-medium text-cyan-800 dark:border-cyan-300/20 dark:bg-cyan-300/10 dark:text-cyan-100">
-                        {HORIZON_LABELS[suggestion.horizon]}
-                      </span>
-                      <span>weight {suggestion.emotional_weight}/10</span>
-                      {typeof suggestion.confidence === "number" && (
-                        <span>confidence {Math.round(suggestion.confidence * 100)}%</span>
-                      )}
-                    </div>
-
-                    {suggestion.suggested_milestones && suggestion.suggested_milestones.length > 0 && (
-                      <ul className="mt-3 list-disc space-y-1 pl-5 text-xs leading-5 text-slate-600 dark:text-slate-300 dark:text-zinc-400">
-                        {suggestion.suggested_milestones.slice(0, 3).map((item) => (
-                          <li key={item}>{item}</li>
-                        ))}
-                      </ul>
-                    )}
-
-                    {suggestion.assistant_reason && (
-                      <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400 dark:text-zinc-500">
-                        Why {assistantName} suggested this: {suggestion.assistant_reason}
+                    ) : null}
+                    {suggestion.assistant_reason ? (
+                      <p className="mt-2 text-xs text-slate-500 dark:text-zinc-500">
+                        {suggestion.assistant_reason}
                       </p>
-                    )}
+                    ) : null}
                   </div>
 
                   <div className="flex shrink-0 gap-2">
                     <button
+                      type="button"
                       onClick={() => handleDismissSuggestion(suggestion.id)}
-                      className="rounded-full border border-slate-200/70 dark:border-white/10 px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:bg-white/10 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-200/70 px-3 py-1.5 text-xs text-slate-500 transition hover:bg-slate-50 hover:text-slate-950 dark:border-white/10 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
                     >
+                      <X className="h-3.5 w-3.5" />
                       Dismiss
                     </button>
                     <button
+                      type="button"
                       onClick={() => handleConfirmSuggestion(suggestion.id)}
-                      className="rounded-full bg-cyan-400 px-3 py-2 text-xs font-medium text-slate-950 shadow-lg shadow-cyan-500/20 hover:bg-cyan-300"
+                      className="inline-flex items-center gap-1 rounded-full bg-slate-950 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950"
                     >
-                      Track goal
+                      <Check className="h-3.5 w-3.5" />
+                      Confirm
                     </button>
                   </div>
                 </div>
@@ -310,191 +482,108 @@ export default function GoalsPage() {
             ))}
           </div>
         </AppPanel>
-      )}
+      ) : null}
 
-      {showForm && (
-        <form onSubmit={handleCreate} className="rounded-[1.5rem] border border-slate-200/70 dark:border-white/10 bg-white/75 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04]">
-          <label className="mb-4 block">
-            <span className="text-sm font-medium text-slate-900 dark:text-white">Goal</span>
-            <input
-              type="text"
-              required
-              value={title}
-              onChange={(e) => setGoal(e.target.value)}
-              placeholder="Get back in shape"
-              className={inputCls}
-            />
-          </label>
-
-          <label className="mb-4 block">
-            <span className="text-sm font-medium text-slate-900 dark:text-white">Why this matters</span>
-            <textarea
-              rows={2}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Energy for the long haul, not aesthetics"
-              className={cn(inputCls, "resize-none")}
-            />
-          </label>
-
-          <div className="mb-4 grid gap-4 sm:grid-cols-2">
-            <label className="block">
-              <span className="text-sm font-medium text-slate-900 dark:text-white">Timeline</span>
-              <select
-                value={horizon}
-                onChange={(e) => setTimeline(e.target.value as Goal["horizon"])}
-                className={inputCls}
-              >
-                {HORIZONS.map((h) => (
-                  <option key={h} value={h}>
-                    {HORIZON_LABELS[h]}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="text-sm font-medium text-slate-900 dark:text-white">
-                How important is this? ({weight})
-              </span>
-              <input
-                type="range"
-                min={1}
-                max={10}
-                value={weight}
-                onChange={(e) => setWeight(Number(e.target.value))}
-                className="mt-3 w-full accent-cyan-400"
-              />
-            </label>
-          </div>
-
-          <div className="flex flex-col gap-2 border-t border-slate-200/70 dark:border-white/10 pt-4 dark:border-white/10 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              onClick={() => setShowForm(false)}
-              className="min-h-10 rounded-full border border-slate-200/70 dark:border-white/10 px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:bg-white/10 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving || !title.trim()}
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-300 disabled:opacity-50"
-            >
-              {saving ? "Saving…" : "Save goal"}
-            </button>
-          </div>
-        </form>
-      )}
-
-      {error && (
-        <div className="rounded-2xl border border-red-400/40 bg-red-50 p-4 text-sm text-red-700 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-100">
-          {error}
-        </div>
-      )}
-
-      {loading ? (
-        <AppPanel>
-          <div className="p-6 text-sm text-slate-600 dark:text-slate-300 dark:text-zinc-300">Loading…</div>
-        </AppPanel>
-      ) : goals.length === 0 ? (
-        <AppPanel>
-          <div className="py-12 text-center">
-            <Target className="mx-auto mb-2 h-6 w-6 text-slate-400 opacity-70 dark:text-zinc-500" />
-            <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-zinc-400">
-              No {filter !== "all" ? filter : ""} goals.
+      <AppPanel>
+        {loading ? (
+          <div className="p-8 text-center text-sm text-fg-muted">Loading goals...</div>
+        ) : error ? (
+          <div className="p-8 text-center text-sm text-red-600 dark:text-red-300">{error}</div>
+        ) : goals.length === 0 ? (
+          <div className="p-10 text-center">
+            <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-fg/[0.04] text-fg-muted">
+              <Target className="h-5 w-5" />
+            </div>
+            <h2 className="mt-4 text-lg font-semibold text-fg">No goals here yet</h2>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-fg-muted">
+              Add a goal or confirm one of {assistantName || "your assistant"}’s suggestions when you are ready.
             </p>
           </div>
-        </AppPanel>
-      ) : (
-        <div className="grid gap-3 lg:grid-cols-2">
-          {goals.map((g) => (
-            <article key={g.id} className="group rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-slate-950/70 p-4 shadow-lg shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-black/20">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="break-words text-sm font-semibold text-slate-950 dark:text-white">{g.title}</p>
-                  {g.description && (
-                    <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300 dark:text-zinc-400">{g.description}</p>
-                  )}
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 dark:text-zinc-400">
-                    <span className="rounded-full border border-cyan-500/20 bg-cyan-50 px-2 py-1 text-[10px] font-medium text-cyan-800 dark:border-cyan-300/20 dark:bg-cyan-300/10 dark:text-cyan-100">
-                      {HORIZON_LABELS[g.horizon]}
-                    </span>
-                    <span>weight {g.emotional_weight}/10</span>
-                    {g.status !== "active" && <span>· {STATUS_LABELS[g.status]}</span>}
-                  </div>
-                </div>
+        ) : (
+          <div className="divide-y divide-slate-200/70 dark:divide-white/10">
+            {goals.map((goal) => (
+              <article key={goal.id} className="p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-slate-950 dark:text-white">{goal.title}</p>
+                      <span className="rounded-full bg-fg/[0.06] px-2 py-1 text-[11px] text-fg-muted">
+                        {STATUS_LABELS[goal.status]}
+                      </span>
+                      <span className="rounded-full bg-fg/[0.06] px-2 py-1 text-[11px] text-fg-muted">
+                        {HORIZON_LABELS[goal.horizon]}
+                      </span>
+                    </div>
 
-                <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
-                  {g.status === "active" && (
-                    <>
+                    {goal.description ? (
+                      <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-300">
+                        {goal.description}
+                      </p>
+                    ) : null}
+
+                    <p className="mt-3 text-xs text-slate-500 dark:text-zinc-500">
+                      Emotional weight: {goal.emotional_weight ?? 5}/10
+                    </p>
+                  </div>
+
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    {goal.status !== "achieved" ? (
                       <button
-                        onClick={() => handleStatus(g.id, "achieved")}
-                        aria-label="Mark done"
-                        className="rounded-full border border-slate-200/70 dark:border-white/10 p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:bg-white/10 hover:text-slate-950 dark:border-white/10 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
+                        type="button"
+                        onClick={() => handleStatus(goal.id, "achieved")}
+                        className="inline-flex items-center gap-1 rounded-full border border-slate-200/70 px-3 py-1.5 text-xs text-slate-500 transition hover:bg-slate-50 hover:text-slate-950 dark:border-white/10 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
                       >
                         <Check className="h-3.5 w-3.5" />
+                        Done
                       </button>
+                    ) : null}
+
+                    {goal.status === "paused" ? (
                       <button
-                        onClick={() => handleStatus(g.id, "paused")}
-                        aria-label="Pause"
-                        className="rounded-full border border-slate-200/70 dark:border-white/10 p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:bg-white/10 hover:text-slate-950 dark:border-white/10 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
+                        type="button"
+                        onClick={() => handleStatus(goal.id, "active")}
+                        className="inline-flex items-center gap-1 rounded-full border border-slate-200/70 px-3 py-1.5 text-xs text-slate-500 transition hover:bg-slate-50 hover:text-slate-950 dark:border-white/10 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
+                      >
+                        <Target className="h-3.5 w-3.5" />
+                        Resume
+                      </button>
+                    ) : goal.status === "active" ? (
+                      <button
+                        type="button"
+                        onClick={() => handleStatus(goal.id, "paused")}
+                        className="inline-flex items-center gap-1 rounded-full border border-slate-200/70 px-3 py-1.5 text-xs text-slate-500 transition hover:bg-slate-50 hover:text-slate-950 dark:border-white/10 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
                       >
                         <Pause className="h-3.5 w-3.5" />
+                        Pause
                       </button>
-                    </>
-                  )}
-                  {g.status === "paused" && (
+                    ) : null}
+
+                    {goal.status !== "abandoned" ? (
+                      <button
+                        type="button"
+                        onClick={() => handleStatus(goal.id, "abandoned")}
+                        className="inline-flex items-center gap-1 rounded-full border border-slate-200/70 px-3 py-1.5 text-xs text-slate-500 transition hover:bg-slate-50 hover:text-slate-950 dark:border-white/10 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        Drop
+                      </button>
+                    ) : null}
+
                     <button
-                      onClick={() => handleStatus(g.id, "active")}
-                      className="rounded-full border border-slate-200/70 dark:border-white/10 px-3 py-1.5 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:bg-white/10 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
+                      type="button"
+                      onClick={() => handleDelete(goal.id)}
+                      className="inline-flex items-center gap-1 rounded-full border border-red-500/20 px-3 py-1.5 text-xs text-red-600 transition hover:bg-red-500/10 dark:text-red-300"
                     >
-                      Resume
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete
                     </button>
-                  )}
-                  <button
-                    onClick={() => handleDelete(g.id)}
-                    aria-label="Delete"
-                    className="rounded-full border border-red-400/40 p-2 text-red-700 hover:bg-red-50 dark:border-red-400/30 dark:text-red-200 dark:hover:bg-red-500/10"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  </div>
                 </div>
-              </div>
-            </article>
-          ))}
-        </div>
-      )}
+              </article>
+            ))}
+          </div>
+        )}
+      </AppPanel>
     </AppPageShell>
-  );
-}
-
-const inputCls =
-  "mt-1.5 w-full rounded-xl border border-border-strong bg-bg/40 backdrop-blur-sm px-3 py-2 text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-all";
-
-function IconBtn({
-  onClick,
-  icon,
-  label,
-  danger,
-}: {
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-  danger?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      aria-label={label}
-      className={cn(
-        "h-7 w-7 grid place-items-center rounded-md transition-colors",
-        danger
-          ? "text-fg-subtle hover:text-danger hover:bg-danger-soft"
-          : "text-fg-muted hover:text-fg hover:bg-fg/5",
-      )}
-    >
-      {icon}
-    </button>
   );
 }
