@@ -768,6 +768,9 @@ async def chat(
             "- Do not estimate the current time from chat history, server time, model runtime, or memory.\n"
             "- The user's remembered timezone, such as GMT+7 or Asia/Jakarta, is only a fallback if browser local time is missing.\n"
             "- If browser local time exists and the user says they have a meeting at 13:00, compare 13:00 to the browser local time before responding.\n"
+            "- If the user asks 'berapa jam lagi', 'how long until', 'sisa berapa lama', 'berapa lama lagi', or similar, the starting point is ALWAYS browser local time now, not a previously mentioned event time.\n"
+            "- Treat previously mentioned times like 'aku sampai kantor jam 08.30 tadi' as event timestamps, not as current time, unless the user explicitly says 'sekarang jam 08.30'.\n"
+            "- Example: if browser local time is 09:07 and the target is jam 1 / 13:00, answer 3 jam 53 menit lagi, even if the user earlier mentioned arriving at 08:30.\n"
             "- If you are unsure whether the meeting time is local time, assume it is the user's local time unless they specify another timezone.\n"
             "- If the user corrects your timing, acknowledge briefly and recalculate using browser local time."
         )
