@@ -51,6 +51,66 @@ class GoalIntelligenceResult(BaseModel):
     goal_progress: list[GoalProgressSignal] = Field(default_factory=list)
 
 
+
+GoalActionType = Literal["mark_achieved", "pause", "resume", "abandon", "delete", "update"]
+
+
+class GoalActionProposalIntent(BaseModel):
+    is_action_request: bool = False
+    is_capability_only: bool = False
+    goal_id: str | None = None
+    action_type: GoalActionType | None = None
+    proposed_patch: dict[str, Any] | None = None
+    assistant_reason: str | None = Field(default=None, max_length=800)
+    confidence: float = Field(default=0, ge=0, le=1)
+
+
+GOAL_ACTION_PROPOSAL_PROMPT = """You analyze whether the user's latest chat message is asking to modify an EXISTING goal.
+
+Safety principles:
+- Do not create, update, delete, or mark a goal directly.
+- Only identify whether a pending action proposal should be prepared.
+- If the user asks a capability question, do not create a proposal.
+- If the goal reference is ambiguous, do not create a proposal.
+- If no listed goal clearly matches, do not create a proposal.
+- Choose goal_id only from the provided goals list.
+- Do not invent goal IDs.
+- Do not infer private personal data.
+- Do not use hardcoded names, dates, goals, or personal details.
+
+Action mapping:
+- User wants goal completed/done/success/achieved -> mark_achieved
+- User wants goal paused/on hold/stop for now -> pause
+- User wants goal resumed/continued/reactivated -> resume
+- User wants goal abandoned/given up/no longer relevant -> abandon
+- User wants goal removed/deleted -> delete
+- User wants safe editable fields changed -> update
+
+Capability-only examples:
+- "Bisa ga kamu pause goal?"
+- "Kalau aku minta hapus goal, bisa?"
+- "Can you update goals from chat?"
+These must return is_action_request=false and is_capability_only=true.
+
+For update proposals:
+- proposed_patch may include ONLY these keys:
+  title, description, horizon, emotional_weight, target_date, suggested_milestones
+- Do not include id, user_id, status, created_at, updated_at, embedding, source fields, or arbitrary fields.
+- For status-like changes, use action_type instead of proposed_patch.
+- If the requested update is unclear or unsafe, do not create a proposal.
+
+Output strict JSON only:
+{
+  "is_action_request": boolean,
+  "is_capability_only": boolean,
+  "goal_id": string|null,
+  "action_type": "mark_achieved|pause|resume|abandon|delete|update"|null,
+  "proposed_patch": object|null,
+  "assistant_reason": string|null,
+  "confidence": number
+}
+"""
+
 GOAL_INTELLIGENCE_PROMPT = """You analyze a user-assistant chat turn for goal intelligence.
 
 You may detect:
@@ -617,6 +677,346 @@ async def _call_goal_intelligence_model(
     return _coerce_goal_intelligence_result(parsed)
 
 
+
+def _coerce_goal_action_intent(parsed: dict[str, Any]) -> GoalActionProposalIntent:
+    if not isinstance(parsed, dict):
+        return GoalActionProposalIntent()
+
+    normalized = dict(parsed)
+    action = normalized.get("action_type")
+    if action is not None:
+        action = str(action).strip().lower()
+        action_aliases = {
+            "achieved": "mark_achieved",
+            "complete": "mark_achieved",
+            "completed": "mark_achieved",
+            "done": "mark_achieved",
+            "finish": "mark_achieved",
+            "finished": "mark_achieved",
+            "hold": "pause",
+            "on_hold": "pause",
+            "paused": "pause",
+            "continue": "resume",
+            "reactivate": "resume",
+            "restart": "resume",
+            "drop": "abandon",
+            "give_up": "abandon",
+            "remove": "delete",
+            "deleted": "delete",
+            "edit": "update",
+            "modify": "update",
+            "change": "update",
+        }
+        normalized["action_type"] = action_aliases.get(action, action)
+
+    normalized["is_action_request"] = _coerce_bool(
+        normalized.get("is_action_request", normalized.get("action_request", False))
+    )
+    normalized["is_capability_only"] = _coerce_bool(
+        normalized.get("is_capability_only", normalized.get("capability_only", False))
+    )
+    normalized["confidence"] = _coerce_float_range(
+        normalized.get("confidence"), default=0.0, low=0.0, high=1.0
+    )
+
+    if not isinstance(normalized.get("proposed_patch"), dict):
+        normalized["proposed_patch"] = None
+
+    try:
+        return GoalActionProposalIntent.model_validate(normalized)
+    except ValidationError as exc:
+        log.warning("goal action proposal: invalid model output skipped: %s raw=%r", exc, parsed)
+        return GoalActionProposalIntent()
+
+
+def _safe_goal_action_patch(raw_patch: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(raw_patch, dict):
+        return {}
+
+    allowed = {
+        "title",
+        "description",
+        "horizon",
+        "emotional_weight",
+        "target_date",
+        "suggested_milestones",
+    }
+    patch: dict[str, Any] = {}
+
+    for key, value in raw_patch.items():
+        if key not in allowed:
+            continue
+
+        if key == "title":
+            title = str(value or "").strip()
+            if 3 <= len(title) <= 200:
+                patch[key] = title
+
+        elif key == "description":
+            description = str(value or "").strip()
+            patch[key] = description[:1200] if description else None
+
+        elif key == "horizon":
+            patch[key] = _coerce_horizon(value)
+
+        elif key == "emotional_weight":
+            patch[key] = _coerce_int_range(value, default=5, low=1, high=10)
+
+        elif key == "target_date":
+            patch[key] = _valid_date_or_none(str(value)) if value else None
+
+        elif key == "suggested_milestones":
+            milestones = value
+            if isinstance(milestones, str):
+                milestones = [milestones]
+            if isinstance(milestones, list):
+                cleaned = [str(item).strip() for item in milestones if str(item).strip()]
+                patch[key] = cleaned[:8]
+
+    return patch
+
+
+def _goal_action_patch_signature(patch: dict[str, Any] | None) -> str:
+    return json.dumps(patch or {}, sort_keys=True, ensure_ascii=False, default=str)
+
+
+def _is_goal_action_capability_question(text: str) -> bool:
+    lowered = (text or "").lower().strip()
+    if not lowered:
+        return False
+
+    action_markers = (
+        "pause",
+        "paused",
+        "resume",
+        "continue",
+        "lanjut",
+        "lanjutkan",
+        "jeda",
+        "tunda",
+        "hold",
+        "achieved",
+        "selesai",
+        "done",
+        "complete",
+        "completed",
+        "hapus",
+        "delete",
+        "remove",
+        "abandon",
+        "tinggalkan",
+        "ubah",
+        "update",
+        "edit",
+        "ganti",
+    )
+    goal_markers = ("goal", "goals", "tujuan", "target")
+
+    if not any(marker in lowered for marker in action_markers):
+        return False
+    if not any(marker in lowered for marker in goal_markers):
+        return False
+
+    capability_markers = (
+        "bisa",
+        "can you",
+        "could you",
+        "apakah kamu bisa",
+        "kalau aku bilang",
+        "kalau saya bilang",
+        "kalau aku minta",
+        "kalau saya minta",
+    )
+    if not any(marker in lowered for marker in capability_markers):
+        return False
+
+    execute_now_markers = (
+        "tolong",
+        "please",
+        "sekarang",
+        "langsung",
+        "ya ",
+        "yes",
+        "go ahead",
+    )
+    if any(marker in lowered for marker in execute_now_markers):
+        return False
+
+    return "?" in lowered or lowered.startswith(("bisa", "can ", "could ", "apakah"))
+
+
+async def _call_goal_action_proposal_model(
+    *,
+    user_message: str,
+    assistant_response: str,
+    goals: list[dict],
+) -> GoalActionProposalIntent:
+    goals_block = (
+        "\n".join(
+            f"- id={g.get('id')} title={g.get('title')} status={g.get('status')} horizon={g.get('horizon')}"
+            for g in goals[:20]
+            if g.get("id") and g.get("title")
+        )
+        if goals
+        else "(none)"
+    )
+
+    user_content = (
+        f"## Existing goals\n{goals_block}\n\n"
+        f"## User message\n{user_message}\n\n"
+        f"## Assistant reply\n{assistant_response}\n"
+    )
+
+    claude = get_claude()
+    response = await claude.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=700,
+        temperature=0,
+        system=GOAL_ACTION_PROPOSAL_PROMPT,
+        messages=[{"role": "user", "content": user_content}],
+    )
+    text = response.content[0].text if response.content else "{}"
+    parsed = _json_from_text(text)
+    return _coerce_goal_action_intent(parsed)
+
+
+async def _load_pending_goal_action_proposals(user_id: str) -> list[dict]:
+    result = (
+        get_supabase()
+        .table("goal_action_proposals")
+        .select("id, goal_id, action_type, proposed_patch, status")
+        .eq("user_id", user_id)
+        .eq("status", "pending")
+        .order("created_at", desc=True)
+        .limit(50)
+        .execute()
+    )
+    return result.data or []
+
+
+async def _insert_goal_action_proposal(
+    *,
+    user_id: str,
+    goal_id: str,
+    action_type: GoalActionType,
+    proposed_patch: dict[str, Any],
+    assistant_reason: str | None,
+    confidence: float,
+) -> dict | None:
+    patch_signature = _goal_action_patch_signature(proposed_patch)
+
+    for existing in await _load_pending_goal_action_proposals(user_id):
+        if existing.get("goal_id") != goal_id:
+            continue
+        if existing.get("action_type") != action_type:
+            continue
+        if _goal_action_patch_signature(existing.get("proposed_patch")) == patch_signature:
+            return existing
+
+    payload = {
+        "user_id": user_id,
+        "goal_id": goal_id,
+        "action_type": action_type,
+        "proposed_patch": proposed_patch,
+        "assistant_reason": assistant_reason,
+        "confidence": round(float(confidence), 3),
+        "status": "pending",
+    }
+
+    result = get_supabase().table("goal_action_proposals").insert(payload).execute()
+    saved = (result.data or [None])[0]
+    if saved:
+        log.info(
+            "goal action proposal: saved user=%s goal_id=%s action=%s confidence=%.2f",
+            user_id,
+            goal_id,
+            action_type,
+            float(confidence),
+        )
+    return saved
+
+
+async def extract_goal_action_proposal_and_persist(
+    *,
+    user_id: str,
+    user_message: str,
+    assistant_response: str,
+) -> int:
+    """Create pending goal action proposals from chat.
+
+    This never mutates goals directly. It only prepares a proposal for the Goals UI.
+    """
+    if not user_message.strip():
+        return 0
+
+    if _is_goal_action_capability_question(user_message) or _is_goal_capability_question(user_message):
+        log.info("goal action proposal: skipped capability-only question user=%s", user_id)
+        return 0
+
+    try:
+        goals = await life_model.list_goals(user_id, status="all")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("goal action proposal: failed to load goals: %s", exc)
+        return 0
+
+    if not goals:
+        return 0
+
+    try:
+        intent = await _call_goal_action_proposal_model(
+            user_message=user_message,
+            assistant_response=assistant_response,
+            goals=goals,
+        )
+    except json.JSONDecodeError as exc:
+        log.warning("goal action proposal: invalid model JSON: %s", exc)
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        log.warning("goal action proposal: extraction failed: %s", exc)
+        return 0
+
+    log.info(
+        "goal action proposal: decision user=%s is_action=%s capability_only=%s action=%r goal_id=%r confidence=%.2f",
+        user_id,
+        intent.is_action_request,
+        intent.is_capability_only,
+        intent.action_type,
+        intent.goal_id,
+        float(intent.confidence or 0),
+    )
+
+    if intent.is_capability_only:
+        return 0
+    if not intent.is_action_request:
+        return 0
+    if not intent.goal_id or not intent.action_type:
+        return 0
+    if intent.confidence < 0.72:
+        return 0
+
+    goals_by_id = {str(goal.get("id")): goal for goal in goals if goal.get("id")}
+    if intent.goal_id not in goals_by_id:
+        log.info("goal action proposal: model returned unknown goal_id=%s", intent.goal_id)
+        return 0
+
+    proposed_patch = _safe_goal_action_patch(intent.proposed_patch)
+    if intent.action_type != "update":
+        proposed_patch = {}
+    elif not proposed_patch:
+        log.info("goal action proposal: skipped empty update patch goal_id=%s", intent.goal_id)
+        return 0
+
+    saved = await _insert_goal_action_proposal(
+        user_id=user_id,
+        goal_id=intent.goal_id,
+        action_type=intent.action_type,
+        proposed_patch=proposed_patch,
+        assistant_reason=intent.assistant_reason,
+        confidence=float(intent.confidence),
+    )
+    return 1 if saved else 0
+
+
 async def extract_and_persist(
     *,
     user_id: str,
@@ -625,10 +1025,19 @@ async def extract_and_persist(
     assistant_response: str,
 ) -> dict[str, int]:
     """Background task used by chat.py."""
-    counts = {"suggestions": 0, "check_ins": 0}
+    counts = {"suggestions": 0, "check_ins": 0, "action_proposals": 0}
 
     if not user_message.strip():
         return counts
+
+    try:
+        counts["action_proposals"] = await extract_goal_action_proposal_and_persist(
+            user_id=user_id,
+            user_message=user_message,
+            assistant_response=assistant_response,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("goal action proposal: background persistence failed: %s", exc)
 
     if _is_goal_capability_question(user_message):
         log.info(
