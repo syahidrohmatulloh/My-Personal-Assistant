@@ -296,6 +296,61 @@ async def create_goal(
     return result.data[0]
 
 
+async def update_goal(
+    *,
+    user_id: str,
+    goal_id: str,
+    title: str | None = None,
+    description: str | None = None,
+    horizon: Horizon | None = None,
+    emotional_weight: int | None = None,
+    target_date: date | None = None,
+    clear_target_date: bool = False,
+) -> dict:
+    supabase = get_supabase()
+
+    payload: dict[str, Any] = {"updated_at": "now()"}
+
+    if title is not None:
+        payload["title"] = title
+    if description is not None:
+        payload["description"] = description
+    if horizon is not None:
+        payload["horizon"] = horizon
+    if emotional_weight is not None:
+        payload["emotional_weight"] = emotional_weight
+    if clear_target_date:
+        payload["target_date"] = None
+    elif target_date is not None:
+        payload["target_date"] = target_date.isoformat()
+
+    if len(payload) == 1:
+        result = (
+            supabase.table("goals")
+            .select("*")
+            .eq("id", goal_id)
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        if not result.data:
+            raise ValueError("Goal not found")
+        return result.data
+
+    result = (
+        supabase.table("goals")
+        .update(payload)
+        .eq("id", goal_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    if not result.data:
+        raise ValueError("Goal not found")
+
+    return result.data[0]
+
+
 async def update_goal_status(
     *,
     user_id: str,

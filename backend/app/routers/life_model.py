@@ -93,6 +93,16 @@ class GoalIn(BaseModel):
 class GoalStatusIn(BaseModel):
     status: GoalStatus
 
+
+class GoalPatchIn(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = None
+    horizon: Horizon | None = None
+    emotional_weight: int | None = Field(default=None, ge=1, le=10)
+    target_date: date | None = None
+    clear_target_date: bool = False
+
+
 class GoalSuggestionStatusIn(BaseModel):
     status: Literal["pending", "confirmed", "dismissed"] = "pending"
 
@@ -151,6 +161,27 @@ async def create_goal(body: GoalIn, user_id: str = Depends(get_current_user_id))
     )
 
 
+@router.patch("/goals/{goal_id}")
+async def update_goal(
+    goal_id: str,
+    body: GoalPatchIn,
+    user_id: str = Depends(get_current_user_id),
+):
+    try:
+        return await life_model.update_goal(
+            user_id=user_id,
+            goal_id=goal_id,
+            title=body.title,
+            description=body.description,
+            horizon=body.horizon,
+            emotional_weight=body.emotional_weight,
+            target_date=body.target_date,
+            clear_target_date=body.clear_target_date,
+        )
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Goal not found")
+
+
 @router.patch("/goals/{goal_id}/status")
 async def update_goal_status(
     goal_id: str, body: GoalStatusIn, user_id: str = Depends(get_current_user_id)
@@ -159,6 +190,7 @@ async def update_goal_status(
         user_id=user_id, goal_id=goal_id, status=body.status
     )
     return {"ok": True}
+
 
 
 # ----------------------------------------------------------------------------
