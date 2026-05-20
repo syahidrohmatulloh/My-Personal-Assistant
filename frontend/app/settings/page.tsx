@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, ChevronRight, MessageSquare, Heart } from "lucide-react";
+import {ArrowLeft, ChevronRight, MessageSquare, Heart, Image} from "lucide-react";
 import { BackgroundStyleSettings } from "@/components/ambient/background-style-settings";
 import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 
@@ -35,6 +35,13 @@ export default function SettingsPage() {
               title="Conversation Style Profiles"
               subtitle="Teach the assistant to adapt its communication style"
             />
+
+<SettingsRow
+  href="/settings/avatar-mode"
+  icon={<Image className="h-4 w-4" />}
+  title="AI Avatar Mode"
+  subtitle="Set the assistant avatar image and animation style"
+/>
           </div>
         </section>
 

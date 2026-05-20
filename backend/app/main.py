@@ -17,6 +17,7 @@ from app.routers import (
     memory_review,
     reflections,
     style_profiles,
+    avatar_mode,
 )
 from app.services import memory_health_scheduler
 
@@ -48,6 +49,7 @@ app.include_router(briefing.router)
 app.include_router(attachments.router)
 app.include_router(reflections.router)
 app.include_router(style_profiles.router)
+app.include_router(avatar_mode.router)
 
 
 
