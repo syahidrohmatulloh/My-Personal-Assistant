@@ -37,6 +37,23 @@ _LAST_WEEKDAY_RE = re.compile(
 )
 
 
+def _time_of_day_context(hour: int) -> tuple[str, str]:
+    """Return Indonesian time-of-day and meal wording from local hour.
+
+    This is dynamic from browser local time, not hardcoded to a specific user,
+    date, assistant name, or example conversation.
+    """
+    if 5 <= hour < 11:
+        return "pagi", "sarapan"
+    if 11 <= hour < 15:
+        return "siang", "makan siang"
+    if 15 <= hour < 18:
+        return "sore", "makan sore / makan menjelang malam"
+    if 18 <= hour < 23:
+        return "malam", "makan malam"
+    return "larut malam", "makan ringan kalau perlu"
+
+
 def _get_context_value(client_context: Any, key: str) -> str | None:
     if client_context is None:
         return None
@@ -88,10 +105,14 @@ def render_temporal_grounding_block(
     text = str(user_message or "")
     timezone, now = _parse_local_datetime(client_context)
 
+    time_period, meal_wording = _time_of_day_context(now.hour)
+
     lines = [
         "Temporal grounding — authoritative:",
         f"- User local timezone: {timezone}",
         f"- User local datetime: {now.isoformat()}",
+        f"- Current local time-of-day period: {time_period}",
+        f"- Current local meal wording: {meal_wording}",
     ]
 
     match = _LAST_WEEKDAY_RE.search(text)

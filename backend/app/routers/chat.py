@@ -771,6 +771,9 @@ async def chat(
             "- If the user asks 'berapa jam lagi', 'how long until', 'sisa berapa lama', 'berapa lama lagi', or similar, the starting point is ALWAYS browser local time now, not a previously mentioned event time.\n"
             "- Treat previously mentioned times like 'aku sampai kantor jam 08.30 tadi' as event timestamps, not as current time, unless the user explicitly says 'sekarang jam 08.30'.\n"
             "- Example: if browser local time is 09:07 and the target is jam 1 / 13:00, answer 3 jam 53 menit lagi, even if the user earlier mentioned arriving at 08:30.\n"
+            "- Match time-of-day wording to the browser local time and the temporal grounding period.\n"
+            "- For meal wording, use the computed current local meal wording from temporal grounding; do not reuse an earlier meal phrase if it conflicts with current local time.\n"
+            "- If current local time is already afternoon/evening/night, avoid saying 'siang ini' or 'makan siang' unless the user explicitly refers to lunch earlier.\n"
             "- If you are unsure whether the meeting time is local time, assume it is the user's local time unless they specify another timezone.\n"
             "- If the user corrects your timing, acknowledge briefly and recalculate using browser local time."
         )
