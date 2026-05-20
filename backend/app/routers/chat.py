@@ -39,6 +39,7 @@ from app.config import settings
 from app.core.auth import get_current_user_id
 from app.schemas import ChatIn
 from app.services import (
+    capability_registry,
     attachments,
     companion,
     companion_mode,
@@ -725,6 +726,7 @@ async def chat(
 
     # === Build prompt with cached base + volatile context ===
     volatile_context = render_context(context)
+    volatile_context += "\n\n" + capability_registry.render_capability_registry()
     volatile_context += (
         "\\n\\nGoal feature capability state — authoritative:"
         "\\n- The app has a background Goal Intelligence system that can prepare pending goal suggestions from chat."
