@@ -294,6 +294,15 @@ export type GoalInput = {
   target_date?: string | null;
 };
 
+export type GoalPatch = {
+  title?: string;
+  description?: string | null;
+  horizon?: Goal["horizon"];
+  emotional_weight?: number;
+  target_date?: string | null;
+  clear_target_date?: boolean;
+};
+
 export type GoalSuggestion = {
   id: string;
   title: string;
@@ -326,6 +335,17 @@ export async function createGoal(input: GoalInput): Promise<Goal> {
     body: JSON.stringify(input),
   });
   if (!r.ok) throw new Error(`createGoal failed: ${r.status}`);
+  return r.json();
+}
+
+export async function updateGoal(id: string, patch: GoalPatch): Promise<Goal> {
+  const headers = await getAuthHeader();
+  const r = await fetch(`${API_URL}/goals/${id}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) throw new Error(`updateGoal failed: ${r.status}`);
   return r.json();
 }
 
