@@ -1,6 +1,9 @@
 "use client";
 
 import { memo } from "react";
+import { AssistantAvatar } from "@/components/avatar/AssistantAvatar";
+import { useAssistantDisplayName } from "@/hooks/use-assistant-display-name";
+import { useAvatarProfile } from "@/hooks/use-avatar-mode";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -14,9 +17,20 @@ type Props = {
 
 function MessageBubbleBase({ role, content, pending }: Props) {
   const isUser = role === "user";
+  const assistantName = useAssistantDisplayName();
+  const { data: avatarProfile } = useAvatarProfile();
 
   return (
-    <div className={cn("flex w-full fade-up", isUser ? "justify-end" : "justify-start")}>
+    <div className={cn("flex w-full fade-up items-start gap-2", isUser ? "justify-end" : "justify-start")}>
+      {!isUser ? (
+        <AssistantAvatar
+          profile={avatarProfile}
+          assistantName={assistantName}
+          state={pending ? "typing" : "idle"}
+          size="sm"
+          className="mt-1"
+        />
+      ) : null}
       <div
         className={cn(
           // Bubbles take more width on mobile (less wasted space), tighter on desktop.
