@@ -342,27 +342,21 @@ export function ChatHomePageClient({ initialAssistantName = "" }: { initialAssis
         </div>
 
         {!conversationsLoading && latestConversation ? (
-          <div className="mx-auto mb-3 max-w-2xl rounded-[1.35rem] border border-border bg-fg/[0.025] p-3 text-left shadow-sm transition hover:bg-fg/[0.04]">
-            <div className="flex items-center gap-3">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-fg/[0.045] text-fg-muted">
-                <MessageSquare className="h-4 w-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-fg-subtle">
-                  Continue where you left off
-                </p>
-                <p className="mt-0.5 truncate text-sm font-medium text-fg">
-                  {latestConversation.title || "Recent conversation"}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => router.push(`/chat/${latestConversation.id}`)}
-                className="shrink-0 rounded-full border border-border bg-fg/[0.025] px-3 py-1.5 text-xs font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg"
-              >
-                Continue
-              </button>
-            </div>
+          <div className="mx-auto mb-3 flex max-w-2xl justify-center">
+            <button
+              type="button"
+              onClick={() => router.push(`/chat/${latestConversation.id}`)}
+              className="group inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-fg/[0.025] px-3 py-2 text-xs text-fg-muted shadow-sm transition hover:bg-fg/5 hover:text-fg"
+              aria-label={`Continue ${latestConversation.title || "recent conversation"}`}
+            >
+              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-fg/[0.05] text-fg-muted transition group-hover:text-fg">
+                <MessageSquare className="h-3.5 w-3.5" />
+              </span>
+              <span className="hidden text-fg-subtle sm:inline">Continue</span>
+              <span className="max-w-[14rem] truncate font-medium text-fg sm:max-w-[20rem]">
+                {latestConversation.title || "Recent conversation"}
+              </span>
+            </button>
           </div>
         ) : null}
 
@@ -400,27 +394,46 @@ export function ChatHomePageClient({ initialAssistantName = "" }: { initialAssis
           </div>
         </form>
 
-        <div className="mx-auto mt-3 min-h-[34px] max-w-2xl">
+        <div className="mx-auto mt-3 min-h-[42px] max-w-2xl">
           {suggestionsReady ? (
             <div
               className={`flex flex-wrap justify-center gap-2 transition-opacity duration-1000 ease-out ${
                 suggestionsVisible ? "opacity-100" : "opacity-0"
               }`}
             >
-              {suggestions.map((suggestion) => (
-                <button
-                  key={suggestion.label}
-                  type="button"
-                  disabled={createMut.isPending || startBriefingMut.isPending}
-                  onClick={() => startChat(suggestion.prompt)}
-                  className="rounded-full border border-border bg-fg/[0.025] px-3 py-1.5 text-xs text-fg-muted transition hover:bg-fg/5 hover:text-fg disabled:opacity-60"
-                >
-                  {suggestion.label}
-                </button>
-              ))}
+              {suggestions.map((suggestion) => {
+                const isPlan = suggestion.label.toLowerCase().includes("plan");
+                const isReflect = suggestion.label.toLowerCase().includes("reflect");
+                const isContinue = suggestion.label.toLowerCase().includes("continue");
+
+                return (
+                  <button
+                    key={suggestion.label}
+                    type="button"
+                    disabled={createMut.isPending || startBriefingMut.isPending}
+                    onClick={() => startChat(suggestion.prompt)}
+                    title={suggestion.label}
+                    aria-label={suggestion.label}
+                    className="group inline-flex h-10 w-10 items-center justify-center gap-2 rounded-full border border-border bg-fg/[0.025] text-xs text-fg-muted shadow-sm transition hover:bg-fg/5 hover:text-fg disabled:opacity-60 sm:w-auto sm:px-3"
+                  >
+                    {isPlan ? (
+                      <CalendarDays className="h-4 w-4 shrink-0" />
+                    ) : isReflect ? (
+                      <Sparkles className="h-4 w-4 shrink-0" />
+                    ) : isContinue ? (
+                      <MessageSquare className="h-4 w-4 shrink-0" />
+                    ) : (
+                      <Sparkles className="h-4 w-4 shrink-0" />
+                    )}
+                    <span className="hidden max-w-[12rem] truncate sm:inline">
+                      {suggestion.label}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           ) : (
-            <div aria-hidden="true" className="min-h-[34px] opacity-0" />
+            <div aria-hidden="true" className="min-h-[42px] opacity-0" />
           )}
         </div>
       </div>
