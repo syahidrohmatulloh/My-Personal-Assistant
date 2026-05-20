@@ -67,6 +67,8 @@ Rules:
 - If the user says they want to become more consistent, improve a habit, sustain a routine, or continue something they have already started, treat that as a strong goal-candidate signal.
 - If the user mentions an ongoing routine, coach, trainer, class, study plan, project, or repeated activity AND asks how to keep going / be consistent / improve, it can be a goal candidate even if they do not use the word "goal".
 - If the user is already doing something and reports early progress, but there is no matching active goal, suggest creating a goal candidate instead of only treating it as progress.
+- If the candidate would merely be a narrower metric, milestone, habit, tactic, or tracking method for an existing active goal, do NOT create a new goal candidate. Treat it as progress or a possible milestone/check-in for the active goal instead.
+- If the user is only asking whether the app can add/track/save something in Goals, and is not instructing you to create/prepare it now, keep is_goal_candidate=false.
 - If unsure, keep is_goal_candidate=false.
 - For goal_progress, only reference active goals from the provided list.
 - No hardcoded categories. Infer title, horizon, milestones, and reason from the conversation.
@@ -219,6 +221,64 @@ def _looks_like_explicit_goal_request(text: str) -> bool:
             or any(word in lowered for word in intent_words)
         )
     )
+
+
+def _is_goal_capability_question(text: str) -> bool:
+    """True when user asks about capability, not actual goal creation."""
+    lowered = (text or "").lower().strip()
+    if not lowered:
+        return False
+
+    has_goal_context = any(
+        token in lowered
+        for token in (
+            "goal",
+            "goals",
+            "tujuan",
+            "target",
+            "track",
+            "lacak",
+            "catat",
+            "simpan",
+            "masukin",
+            "masukkan",
+        )
+    )
+    if not has_goal_context:
+        return False
+
+    capability_markers = (
+        "bisa",
+        "can you",
+        "could you",
+        "apakah kamu bisa",
+        "kalau aku bilang",
+        "kalau saya bilang",
+        "kalau aku minta",
+        "kalau saya minta",
+    )
+    if not any(marker in lowered for marker in capability_markers):
+        return False
+
+    creation_now_markers = (
+        "tolong siapkan",
+        "tolong buat",
+        "buatkan",
+        "siapkan sekarang",
+        "langsung",
+        "sekarang",
+        "ya, track",
+        "ya track",
+        "ya masukin",
+        "please create",
+        "please track",
+        "go ahead",
+    )
+    if any(marker in lowered for marker in creation_now_markers):
+        return False
+
+    return "?" in lowered or lowered.startswith(("bisa", "can ", "could ", "apakah"))
+
 
 
 def _extract_goal_title_from_message(text: str) -> str:
@@ -568,6 +628,13 @@ async def extract_and_persist(
     counts = {"suggestions": 0, "check_ins": 0}
 
     if not user_message.strip():
+        return counts
+
+    if _is_goal_capability_question(user_message):
+        log.info(
+            "goal intelligence: skipped capability-only goal question user=%s",
+            user_id,
+        )
         return counts
 
     try:
