@@ -320,8 +320,7 @@ export type GoalSuggestion = {
 
 export async function listGoals(status: Goal["status"] | "all" = "active"): Promise<Goal[]> {
   const headers = await getAuthHeader();
-  const url =
-    status === "all" ? `${API_URL}/goals?status=` : `${API_URL}/goals?status=${status}`;
+  const url = `${API_URL}/goals?status=${status}`;
   const r = await fetch(url, { headers });
   if (!r.ok) throw new Error(`listGoals failed: ${r.status}`);
   return r.json();

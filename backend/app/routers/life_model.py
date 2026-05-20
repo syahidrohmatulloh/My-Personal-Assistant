@@ -109,10 +109,19 @@ class GoalSuggestionStatusIn(BaseModel):
 
 @router.get("/goals")
 async def list_goals(
-    status: GoalStatus | None = "active",
+    status: str | None = "active",
     user_id: str = Depends(get_current_user_id),
 ):
-    return await life_model.list_goals(user_id, status=status)
+    allowed_statuses = {"active", "paused", "achieved", "abandoned"}
+
+    if status is None or status == "" or status == "all":
+        normalized_status = None
+    elif status in allowed_statuses:
+        normalized_status = status
+    else:
+        raise HTTPException(422, "Invalid goal status")
+
+    return await life_model.list_goals(user_id, status=normalized_status)
 
 
 @router.get("/goal-suggestions")
