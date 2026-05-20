@@ -994,7 +994,12 @@ async def _stream_claude_response(
                 assistant_text += text_chunk
                 yield f"data: {json.dumps({'type': 'delta', 'text': text_chunk})}\n\n"
     except Exception as exc:  # noqa: BLE001
-        yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+        log.exception("chat: streaming failed (user=%s)", user_id[:8])
+        yield (
+            "data: "
+            + json.dumps({"type": "error", "message": "Internal error during streaming"})
+            + "\n\n"
+        )
         return
 
     if assistant_text:

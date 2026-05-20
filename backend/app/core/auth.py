@@ -8,11 +8,15 @@ PyJWKClient caches the keys in memory, so we hit the JWKS endpoint at most
 once per key rotation — not on every request.
 """
 
+import logging
+
 from fastapi import Header, HTTPException, status
 import jwt
 from jwt import PyJWKClient
 
 from app.config import settings
+
+log = logging.getLogger(__name__)
 
 # Supabase publishes its public keys at this stable URL.
 JWKS_URL = f"{settings.SUPABASE_URL}/auth/v1/.well-known/jwks.json"
@@ -37,14 +41,18 @@ async def get_current_user_id(authorization: str | None = Header(default=None)) 
             audience="authenticated",
         )
     except jwt.InvalidTokenError as exc:
-        print(f"🔴 JWT VERIFICATION FAILED: {exc}", flush=True)
+        # Log full exception for debugging, but return a generic message to client.
+        # Including the raw error in the response could leak internals (algorithm
+        # mismatch, expired claims, etc.) to anyone hitting the endpoint.
+        log.warning("JWT verification failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {exc}",
+            detail="Invalid or expired token",
         ) from exc
 
     user_id = payload.get("sub")
     if not user_id:
+        log.warning("JWT verified but missing 'sub' claim")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has no user id",
