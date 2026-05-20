@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2, RotateCcw, Save } from "lucide-react";
+import { ArrowLeft, Loader2, RotateCcw, Save, Upload } from "lucide-react";
 
 import { AssistantAvatar } from "@/components/avatar/AssistantAvatar";
 import { useAssistantDisplayName } from "@/hooks/use-assistant-display-name";
 import { useAvatarProfile, useDeleteAvatarProfile, useUpdateAvatarProfile } from "@/hooks/use-avatar-mode";
 import type { AvatarAnimationStyle } from "@/lib/avatar-mode-api";
+import { uploadAssistantAvatarImage } from "@/lib/avatar-upload";
 
 const CONSENT_COPY =
   "I confirm I have the right or permission to use this image as the assistant avatar.";
@@ -18,11 +19,14 @@ export default function AvatarModeSettingsPage() {
   const updateMutation = useUpdateAvatarProfile();
   const deleteMutation = useDeleteAvatarProfile();
 
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const [imageUrl, setImageUrl] = useState("");
   const [enabled, setEnabled] = useState(false);
   const [consent, setConsent] = useState(false);
   const [animationStyle, setAnimationStyle] = useState<AvatarAnimationStyle>("calm");
   const [message, setMessage] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     if (!profile) return;
@@ -79,7 +83,26 @@ export default function AvatarModeSettingsPage() {
     }
   }
 
-  const busy = updateMutation.isPending || deleteMutation.isPending;
+  async function handleAvatarFile(file: File | undefined) {
+    if (!file) return;
+
+    setMessage(null);
+    setIsUploading(true);
+
+    try {
+      const uploadedUrl = await uploadAssistantAvatarImage(file);
+      setImageUrl(uploadedUrl);
+      setConsent(true);
+      setMessage("Avatar image uploaded. Save Avatar Mode to use it.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to upload avatar image.");
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  const busy = updateMutation.isPending || deleteMutation.isPending || isUploading;
 
   return (
     <main className="min-h-dvh">
@@ -93,8 +116,8 @@ export default function AvatarModeSettingsPage() {
           <div>
             <h1 className="text-3xl font-semibold text-fg tracking-tighter">AI Avatar Mode</h1>
             <p className="text-sm text-fg-muted mt-2 max-w-xl">
-              Give {resolvedAssistantName} a calm visual presence. This version only stores and previews an approved
-              avatar image; it does not clone faces or generate talking videos.
+              Give {resolvedAssistantName} a calm visual presence. This version stores and previews an approved avatar
+              image; it does not clone faces or generate talking videos.
             </p>
           </div>
           <AssistantAvatar
@@ -125,18 +148,40 @@ export default function AvatarModeSettingsPage() {
                 />
               </label>
 
-              <label className="block space-y-2">
-                <span className="text-sm font-medium text-fg">Avatar image URL</span>
-                <input
-                  value={imageUrl}
-                  onChange={(event) => setImageUrl(event.target.value)}
-                  placeholder="https://… or /avatar.png"
-                  className="w-full rounded-xl border border-border bg-bg/70 px-3 py-2 text-sm text-fg outline-none focus:ring-2 focus:ring-accent/30"
-                />
+              <div className="space-y-3">
+                <span className="text-sm font-medium text-fg">Avatar image</span>
+
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={busy}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium text-fg-muted hover:text-fg disabled:opacity-50"
+                  >
+                    {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    Upload image
+                  </button>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(event) => void handleAvatarFile(event.target.files?.[0])}
+                  />
+
+                  <input
+                    value={imageUrl}
+                    onChange={(event) => setImageUrl(event.target.value)}
+                    placeholder="https://… or /avatar.png"
+                    className="min-w-0 flex-1 rounded-xl border border-border bg-bg/70 px-3 py-2 text-sm text-fg outline-none focus:ring-2 focus:ring-accent/30"
+                  />
+                </div>
+
                 <span className="block text-xs text-fg-muted">
-                  Use your own image, an AI-generated character, or an image you have permission to use.
+                  Upload a JPG, PNG, or WebP image up to 5 MB, or paste an image URL you have permission to use.
                 </span>
-              </label>
+              </div>
 
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-fg">Animation style</span>
