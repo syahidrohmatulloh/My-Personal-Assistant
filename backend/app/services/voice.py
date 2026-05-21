@@ -47,6 +47,22 @@ def _required_env(name: str) -> str:
     return value
 
 
+def _float_env(name: str, default: float, *, low: float, high: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise VoiceConfigurationError(f"{name} must be a number") from exc
+
+    if value < low or value > high:
+        raise VoiceConfigurationError(f"{name} must be between {low} and {high}")
+
+    return value
+
+
 def _clean_text(text: str) -> str:
     cleaned = " ".join((text or "").split())
     if not cleaned:
@@ -70,13 +86,19 @@ async def generate_speech(text: str) -> SpeechAudio:
 
     url = f"{base_url}/v1/text-to-speech/{voice_id}"
 
+    speed = _float_env("ELEVENLABS_SPEED", 0.82, low=0.7, high=1.2)
+    stability = _float_env("ELEVENLABS_STABILITY", 0.62, low=0.0, high=1.0)
+    similarity_boost = _float_env("ELEVENLABS_SIMILARITY_BOOST", 0.78, low=0.0, high=1.0)
+    style = _float_env("ELEVENLABS_STYLE", 0.18, low=0.0, high=1.0)
+
     payload = {
         "text": cleaned_text,
         "model_id": model_id,
         "voice_settings": {
-            "stability": 0.45,
-            "similarity_boost": 0.75,
-            "style": 0.2,
+            "stability": stability,
+            "similarity_boost": similarity_boost,
+            "style": style,
+            "speed": speed,
             "use_speaker_boost": True,
         },
     }
