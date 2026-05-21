@@ -1,13 +1,16 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useState } from "react";
 import { AssistantAvatar } from "@/components/avatar/AssistantAvatar";
 import { useAssistantDisplayName } from "@/hooks/use-assistant-display-name";
 import { useAvatarProfile } from "@/hooks/use-avatar-mode";
 import { useAvatarActivity } from "@/hooks/use-avatar-activity";
+import { useAvatarAudioPlayer } from "@/hooks/use-avatar-audio-player";
+import { Loader2, Volume2, VolumeX } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import { speakText } from "@/lib/voice-api";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -21,6 +24,25 @@ function MessageBubbleBase({ role, content, pending }: Props) {
   const assistantName = useAssistantDisplayName();
   const { data: avatarProfile } = useAvatarProfile();
   const avatarActivity = useAvatarActivity();
+  const avatarAudio = useAvatarAudioPlayer();
+  const [speakError, setSpeakError] = useState<string | null>(null);
+
+
+  async function handleSpeak() {
+    if (isUser || avatarAudio.isPlaying) return;
+
+    const textToSpeak = content.trim();
+    if (!textToSpeak) return;
+
+    setSpeakError(null);
+
+    try {
+      const response = await speakText(textToSpeak);
+      await avatarAudio.playResponse(response, "voice");
+    } catch (error) {
+      setSpeakError(error instanceof Error ? error.message : "Speech playback failed.");
+    }
+  }
 
   return (
     <div className={cn("flex w-full fade-up items-start gap-2", isUser ? "justify-end" : "justify-start")}>
@@ -58,6 +80,41 @@ function MessageBubbleBase({ role, content, pending }: Props) {
             ) : pending ? (
               <PendingDots />
             ) : null}
+
+            {content ? (
+              <div className="not-prose mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSpeak}
+                  disabled={avatarAudio.isPlaying}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-fg/[0.03] px-2.5 text-[11px] font-medium text-fg-muted transition hover:bg-fg/[0.06] hover:text-fg disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label={avatarAudio.isPlaying ? "Playing voice" : "Speak message"}
+                  title={avatarAudio.isPlaying ? "Playing voice" : "Speak message"}
+                >
+                  {avatarAudio.isPlaying ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Volume2 className="h-3.5 w-3.5" />
+                  )}
+                  {avatarAudio.isPlaying ? "Playing" : "Speak"}
+                </button>
+
+                {avatarAudio.isPlaying ? (
+                  <button
+                    type="button"
+                    onClick={avatarAudio.stop}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-fg/[0.03] px-2.5 text-[11px] font-medium text-fg-muted transition hover:bg-fg/[0.06] hover:text-fg"
+                    aria-label="Stop voice"
+                    title="Stop voice"
+                  >
+                    <VolumeX className="h-3.5 w-3.5" />
+                    Stop
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
+            {speakError ? <p className="not-prose mt-2 text-[11px] text-red-500">{speakError}</p> : null}
           </div>
         )}
       </div>
