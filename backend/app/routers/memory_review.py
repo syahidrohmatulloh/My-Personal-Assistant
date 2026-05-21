@@ -99,6 +99,14 @@ class MemoryManualIn(BaseModel):
     pin: str = Field(min_length=6, max_length=6)
 
 
+class CalendarDraftUpdateIn(MemoryPinIn):
+    title: str | None = Field(default=None, max_length=160)
+    event_date: str | None = Field(default=None, max_length=10)
+    start_at: str | None = Field(default=None, max_length=80)
+    end_at: str | None = Field(default=None, max_length=80)
+    all_day: bool | None = None
+
+
 class MemoryActionOut(BaseModel):
     ok: bool
     action: str
@@ -398,6 +406,110 @@ async def confirm_calendar_candidate_local_event(
     }
 
 
+@router.post("/calendar-candidates/{memory_id}/update-draft")
+async def update_calendar_candidate_draft(
+    memory_id: str,
+    body: CalendarDraftUpdateIn,
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    """Edit a local calendar draft before syncing to Google Calendar."""
+    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
+
+    candidate = await _load_memory_for_calendar_candidate(memory_id=memory_id, user_id=user_id)
+
+    if candidate.get("google_calendar_event_id") or candidate.get("calendar_event_status") == "synced_google":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This calendar event is already synced to Google Calendar and cannot be edited here.",
+        )
+
+    title = _clean_optional(body.title) or _event_title_from_candidate(candidate)
+    event_date = _clean_optional(body.event_date) or _clean_optional(
+        str(candidate.get("calendar_event_date") or candidate.get("due_date") or "")
+    )
+
+    if not event_date or not _is_iso_date(event_date):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Event date must use YYYY-MM-DD format.",
+        )
+
+    all_day = bool(body.all_day)
+    start_at = _clean_optional(body.start_at)
+    end_at = _clean_optional(body.end_at)
+
+    if all_day:
+        start_at = None
+        end_at = None
+    else:
+        if not start_at or not end_at:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Timed events require both start and end datetime.",
+            )
+        if not _is_iso_datetime(start_at) or not _is_iso_datetime(end_at):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Start and end must be valid ISO datetime values.",
+            )
+        if not _is_end_after_start(start_at, end_at):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="End time must be after start time.",
+            )
+
+    now = _now_iso()
+    structured_value = _calendar_structured_value(
+        title=title,
+        event_date=event_date,
+        start_at=start_at,
+        end_at=end_at,
+    )
+
+    try:
+        await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("memories")
+                .update(
+                    {
+                        "calendar_candidate": False,
+                        "calendar_event_status": "confirmed_local",
+                        "calendar_event_title": title,
+                        "calendar_event_date": event_date,
+                        "calendar_event_start_at": start_at,
+                        "calendar_event_end_at": end_at,
+                        "calendar_event_all_day": all_day,
+                        "calendar_event_created_at": candidate.get("calendar_event_created_at") or now,
+                        "structured_field": "scheduled_event",
+                        "structured_value": structured_value,
+                        "due_date": event_date,
+                        "calendar_sync_error": None,
+                        "updated_at": now,
+                    }
+                )
+                .eq("id", memory_id)
+                .eq("user_id", user_id)
+                .execute()
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update calendar draft: {exc}",
+        ) from exc
+
+    return {
+        "ok": True,
+        "action": "calendar_event_draft_updated",
+        "memory_id": memory_id,
+        "title": title,
+        "date": event_date,
+        "start_at": start_at,
+        "end_at": end_at,
+        "all_day": all_day,
+    }
+
+
 @router.post("/calendar-candidates/{memory_id}/sync-google")
 async def sync_calendar_candidate_to_google(
     memory_id: str,
@@ -612,6 +724,31 @@ def _humanize_google_calendar_sync_error(exc: Exception) -> str:
         return f"Failed to create Google Calendar event: {raw[:300]}"
 
     return "Failed to create Google Calendar event. Please try again."
+
+
+
+def _calendar_structured_value(
+    *,
+    title: str,
+    event_date: str,
+    start_at: str | None = None,
+    end_at: str | None = None,
+) -> str:
+    parts = [title, f"due_date={event_date}"]
+    if start_at:
+        parts.append(f"start_at={start_at}")
+    if end_at:
+        parts.append(f"end_at={end_at}")
+    return " | ".join(parts)
+
+
+def _is_end_after_start(start_at: str, end_at: str) -> bool:
+    try:
+        start = datetime.fromisoformat(start_at.replace("Z", "+00:00"))
+        end = datetime.fromisoformat(end_at.replace("Z", "+00:00"))
+    except Exception:
+        return False
+    return end > start
 
 
 
@@ -996,7 +1133,7 @@ async def _load_memory_for_calendar_candidate(*, memory_id: str, user_id: str) -
                     "id, user_id, content, category, structured_field, structured_value, "
                     "due_date, calendar_candidate, calendar_event_status, calendar_event_title, "
                     "calendar_event_date, calendar_event_start_at, calendar_event_end_at, "
-                    "calendar_event_all_day, google_calendar_event_id, google_calendar_event_link"
+                    "calendar_event_all_day, calendar_event_created_at, google_calendar_event_id, google_calendar_event_link"
                 )
                 .eq("id", memory_id)
                 .eq("user_id", user_id)

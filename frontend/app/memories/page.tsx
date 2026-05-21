@@ -11,6 +11,7 @@ import {
   CalendarDays,
   CheckCircle2,
   ClipboardCheck,
+  Pencil,
   ExternalLink,
   ChevronDown,
   ChevronRight,
@@ -605,8 +606,9 @@ export default function MemoriesPage() {
 
   async function calendarCandidateAction(
     candidate: CalendarCandidateItem,
-    actionName: "dismiss" | "archive" | "confirm-local" | "sync-google",
+    actionName: "dismiss" | "archive" | "confirm-local" | "sync-google" | "update-draft",
     pin: string,
+    payload: Record<string, unknown> = {},
   ) {
     setSavingId(`calendar-${candidate.id}`)
     setError(null)
@@ -615,7 +617,7 @@ export default function MemoriesPage() {
       const res = await fetch(`/api/memory-review/calendar-candidates/${candidate.id}/${actionName}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin }),
+        body: JSON.stringify({ pin, ...payload }),
       })
 
       if (!res.ok) {
@@ -803,6 +805,18 @@ export default function MemoriesPage() {
             candidates={calendarCandidates?.items || []}
             loading={loading}
             savingId={savingId}
+            onEditDraft={(candidate) => {
+              const payload = buildCalendarDraftEditPayload(candidate)
+              if (!payload) return
+
+              requireMemoryPin(
+                "Edit calendar draft",
+                "This updates the local calendar draft before syncing to Google Calendar.",
+                async (pin) => {
+                  await calendarCandidateAction(candidate, "update-draft", pin, payload)
+                },
+              )
+            }}
             onSyncGoogle={(candidate) =>
               requireMemoryPin(
                 "Create Google Calendar event",
@@ -1048,10 +1062,55 @@ function TabButton({
   )
 }
 
+function buildCalendarDraftEditPayload(candidate: CalendarCandidateItem): Record<string, unknown> | null {
+  const currentTitle = candidate.calendar_event_title || candidate.content || ""
+  const title = window.prompt("Event title", currentTitle)
+  if (title === null) return null
+
+  const currentDate = candidate.calendar_event_date || candidate.due_date || ""
+  const eventDate = window.prompt("Event date (YYYY-MM-DD)", currentDate)
+  if (eventDate === null) return null
+
+  const allDayAnswer = window.prompt(
+    "All-day event? Type yes or no",
+    candidate.calendar_event_all_day ? "yes" : "no",
+  )
+  if (allDayAnswer === null) return null
+
+  const allDay = allDayAnswer.trim().toLowerCase().startsWith("y")
+
+  let startAt: string | null = null
+  let endAt: string | null = null
+
+  if (!allDay) {
+    startAt = window.prompt(
+      "Start datetime ISO, example: 2026-05-22T15:00:00+07:00",
+      candidate.calendar_event_start_at || "",
+    )
+    if (startAt === null) return null
+
+    endAt = window.prompt(
+      "End datetime ISO, example: 2026-05-22T16:00:00+07:00",
+      candidate.calendar_event_end_at || "",
+    )
+    if (endAt === null) return null
+  }
+
+  return {
+    title: title.trim(),
+    event_date: eventDate.trim(),
+    all_day: allDay,
+    start_at: startAt?.trim() || null,
+    end_at: endAt?.trim() || null,
+  }
+}
+
+
 function CalendarCandidatePanel({
   candidates,
   loading,
   savingId,
+  onEditDraft,
   onSyncGoogle,
   onConfirmLocal,
   onDismiss,
@@ -1060,6 +1119,7 @@ function CalendarCandidatePanel({
   candidates: CalendarCandidateItem[]
   loading: boolean
   savingId: string | null
+  onEditDraft: (candidate: CalendarCandidateItem) => void
   onSyncGoogle: (candidate: CalendarCandidateItem) => void
   onConfirmLocal: (candidate: CalendarCandidateItem) => void
   onDismiss: (candidate: CalendarCandidateItem) => void
@@ -1182,6 +1242,17 @@ function CalendarCandidatePanel({
                 ) : null}
 
                 <div className="mt-4 flex flex-wrap gap-2">
+                  {candidate.calendar_event_status !== "synced_google" ? (
+                    <button
+                      onClick={() => onEditDraft(candidate)}
+                      disabled={saving}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-white disabled:opacity-60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
+                    >
+                      {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pencil className="h-3.5 w-3.5" />}
+                      Edit draft
+                    </button>
+                  ) : null}
+
                   {candidate.calendar_event_status === "confirmed_local" ? (
                     <button
                       onClick={() => onSyncGoogle(candidate)}
