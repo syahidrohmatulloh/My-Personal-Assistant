@@ -21,6 +21,7 @@ from typing import Literal
 from app.services import memory, storage
 from app.services.claude import get_claude
 from app.services.supabase_client import get_supabase
+from app.services.visual_memory_rules import decide_visual_memory
 
 log = logging.getLogger(__name__)
 
@@ -234,24 +235,40 @@ async def describe_image_background(*, attachment_id: str, user_id: str) -> None
         "id", attachment_id
     ).execute()
 
-    # Embed + insert memory. We mark it as "context" kind — it's a situation
-    # observation, not an objective fact about the user.
-    memory_content = f"User shared an image: {description}"
-    try:
-        from app.services.embeddings import embed_document  # local to avoid circular
+    # Decide whether this image should become durable memory.
+    #
+    # Screenshots/debug/UI images are useful in the current conversation, but
+    # should not pollute long-term memory. Personal/travel/food/place photos can
+    # become structured visual memory candidates.
+    visual_decision = decide_visual_memory(description)
 
-        embedding = await embed_document(memory_content)
-        supabase.table("memories").insert(
-            {
-                "user_id": user_id,
-                "content": memory_content,
-                "kind": "context",
-                "embedding": embedding,
-                "source": "auto",
-            }
-        ).execute()
-    except Exception as exc:
-        log.warning("attachment: memory save failed: %s", exc)
+    if visual_decision and visual_decision.should_store:
+        try:
+            from app.services.embeddings import embed_document  # local to avoid circular
+
+            embedding = await embed_document(visual_decision.content)
+            supabase.table("memories").insert(
+                {
+                    "user_id": user_id,
+                    "content": visual_decision.content,
+                    "kind": visual_decision.kind,
+                    "category": visual_decision.category,
+                    "structured_field": visual_decision.structured_field,
+                    "structured_value": visual_decision.structured_value,
+                    "confidence": visual_decision.confidence,
+                    "embedding": embedding,
+                    "source": "auto",
+                    "source_priority": f"visual_attachment:{visual_decision.reason}",
+                }
+            ).execute()
+        except Exception as exc:
+            log.warning("attachment: memory save failed: %s", exc)
+    else:
+        log.info(
+            "attachment: skipped visual memory for image %s reason=%s",
+            attachment_id[:8],
+            visual_decision.reason if visual_decision else "empty_description",
+        )
 
     log.info(
         "attachment: described image %s for user=%s: %s",
