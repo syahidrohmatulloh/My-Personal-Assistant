@@ -37,6 +37,7 @@ export default function SecuritySettingsPage() {
   const assistantName = useAssistantDisplayName();
   const [status, setStatus] = useState<PinStatus | null>(null)
   const [calendarStatus, setCalendarStatus] = useState<CalendarOAuthStatus | null>(null)
+  const [calendarLoading, setCalendarLoading] = useState(true)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -51,6 +52,8 @@ export default function SecuritySettingsPage() {
 
 
   async function loadCalendarStatus() {
+    setCalendarLoading(true)
+
     try {
       const res = await fetch("/api/calendar/oauth/status", {
         cache: "no-store",
@@ -64,6 +67,8 @@ export default function SecuritySettingsPage() {
       setCalendarStatus(await res.json())
     } catch {
       setCalendarStatus(null)
+    } finally {
+      setCalendarLoading(false)
     }
   }
 
@@ -269,16 +274,25 @@ export default function SecuritySettingsPage() {
                 </div>
 
                 <div className="inline-flex w-fit items-center gap-2 rounded-full border border-slate-200/70 bg-white/80 px-3 py-1.5 text-sm text-slate-700 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-white/[0.06] dark:text-zinc-200">
-                  {calendarStatus?.connected ? (
+                  {calendarLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-slate-500 dark:text-zinc-400" />
+                  ) : calendarStatus?.connected ? (
                     <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />
                   ) : (
                     <CalendarDays className="h-4 w-4 text-amber-600 dark:text-amber-300" />
                   )}
-                  {calendarStatus?.connected ? "Connected" : "Not connected"}
+                  {calendarLoading ? "Checking..." : calendarStatus?.connected ? "Connected" : "Not connected"}
                 </div>
               </div>
 
-              {calendarStatus?.connected ? (
+              {calendarLoading ? (
+                <div className="mt-5 rounded-[1.5rem] border border-slate-200/70 bg-white/80 p-4 text-sm leading-6 text-slate-600 shadow-xl shadow-slate-900/5 dark:border-white/10 dark:bg-black/20 dark:text-zinc-400 dark:shadow-black/20">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Checking Google Calendar connection...
+                  </div>
+                </div>
+              ) : calendarStatus?.connected ? (
                 <div className="mt-5 rounded-[1.5rem] border border-slate-200/70 bg-white/80 p-4 shadow-xl shadow-slate-900/5 dark:border-white/10 dark:bg-black/20 dark:shadow-black/20">
                   <p className="text-sm font-medium text-slate-900 dark:text-zinc-100">
                     Connected account
