@@ -44,6 +44,26 @@ function MessageBubbleBase({ role, content, pending }: Props) {
     }
   }
 
+  const isThinking = !isUser && pending && !content;
+
+  if (isThinking) {
+    return (
+      <div className="flex w-full fade-up items-start gap-3 justify-start">
+        <AssistantAvatar
+          profile={avatarProfile}
+          assistantName={assistantName}
+          state="typing"
+          size="sm"
+          className="mt-1.5"
+        />
+
+        <div className="min-w-[5.75rem] rounded-[1.35rem] px-5 py-4 sm:px-6 sm:py-5">
+          <PendingDots />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={cn("flex w-full fade-up items-start gap-3", isUser ? "justify-end" : "justify-start")}>
       {!isUser ? (
@@ -72,8 +92,6 @@ function MessageBubbleBase({ role, content, pending }: Props) {
           <div className="prose-chat break-words">
             {content ? (
               <ProgressiveMarkdown content={content} />
-            ) : pending ? (
-              <PendingDots />
             ) : null}
 
             {content ? (
@@ -137,6 +155,7 @@ function ProgressiveMarkdown({ content }: { content: string }) {
 
     if (content !== previousContentRef.current) {
       previousContentRef.current = content;
+      setVisibleLength(0);
     }
 
     let cancelled = false;
@@ -149,14 +168,14 @@ function ProgressiveMarkdown({ content }: { content: string }) {
         if (current >= content.length) return current;
 
         const remaining = content.length - current;
-        const step = remaining > 600 ? 18 : remaining > 240 ? 12 : remaining > 80 ? 7 : 4;
+        const step = remaining > 600 ? 12 : remaining > 240 ? 8 : remaining > 80 ? 5 : 3;
         return Math.min(content.length, current + step);
       });
 
-      frameId = window.setTimeout(tick, 22);
+      frameId = window.setTimeout(tick, 34);
     }
 
-    frameId = window.setTimeout(tick, 18);
+    frameId = window.setTimeout(tick, 28);
 
     return () => {
       cancelled = true;
@@ -187,10 +206,10 @@ function ProgressiveMarkdown({ content }: { content: string }) {
 
 function PendingDots() {
   return (
-    <div className="not-prose flex items-end gap-1.5 py-2" aria-label="Assistant is thinking">
-      <span className="h-2 w-2 rounded-full bg-fg-muted/70 animate-bounce [animation-delay:-240ms]" />
-      <span className="h-2 w-2 rounded-full bg-fg-muted/70 animate-bounce [animation-delay:-120ms]" />
-      <span className="h-2 w-2 rounded-full bg-fg-muted/70 animate-bounce" />
+    <div className="not-prose flex items-end gap-2 py-1" aria-label="Assistant is thinking">
+      <span className="h-2.5 w-2.5 rounded-full bg-fg/65 shadow-sm animate-bounce [animation-delay:-260ms]" />
+      <span className="h-2.5 w-2.5 rounded-full bg-fg/55 shadow-sm animate-bounce [animation-delay:-130ms]" />
+      <span className="h-2.5 w-2.5 rounded-full bg-fg/45 shadow-sm animate-bounce" />
     </div>
   );
 }
