@@ -14,7 +14,7 @@ This router does not touch companion mood, user mood, journal, or prompt logic.
 from __future__ import annotations
 import asyncio
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -113,6 +113,10 @@ class CalendarCandidateOut(BaseModel):
     due_date: str | None = None
     expires_at: str | None = None
     calendar_candidate: bool = False
+    calendar_event_status: str | None = None
+    calendar_event_title: str | None = None
+    calendar_event_date: str | None = None
+    calendar_event_all_day: bool = False
     created_at: str | None = None
     source_conversation_id: str | None = None
 
@@ -245,11 +249,13 @@ async def list_calendar_candidates(
                 lambda sb: sb.table("memories")
                 .select(
                     "id, content, category, structured_field, structured_value, "
-                    "due_date, expires_at, calendar_candidate, created_at, "
-                    "source_conversation_id, archived, superseded"
+                    "due_date, expires_at, calendar_candidate, calendar_event_status, "
+                    "calendar_event_title, calendar_event_date, calendar_event_all_day, "
+                    "created_at, source_conversation_id, archived, superseded"
                 )
                 .eq("user_id", user_id)
                 .eq("calendar_candidate", True)
+                .is_("calendar_event_status", "null")
                 .eq("archived", False)
                 .eq("superseded", False)
                 .order("due_date", desc=False)
@@ -305,6 +311,75 @@ async def dismiss_calendar_candidate(
         ) from exc
 
     return {"ok": True, "action": "calendar_candidate_dismissed", "memory_id": memory_id}
+
+
+@router.post("/calendar-candidates/{memory_id}/confirm-local")
+async def confirm_calendar_candidate_local_event(
+    memory_id: str,
+    body: MemoryPinIn,
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    """Confirm a memory-backed calendar candidate as a local event draft.
+
+    This does not call Google Calendar. It only records a local event draft on
+    the memory row so a later Google Calendar sync/approval flow can use it.
+    """
+    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
+
+    candidate = await _assert_memory_owner(memory_id=memory_id, user_id=user_id)
+    if not bool(candidate.get("calendar_candidate")):
+        # _assert_memory_owner currently selects a small field set; fetch full row.
+        candidate = await _load_memory_for_calendar_candidate(memory_id=memory_id, user_id=user_id)
+
+    if not bool(candidate.get("calendar_candidate")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Memory is not a calendar candidate",
+        )
+
+    due_date = _clean_optional(str(candidate.get("due_date") or ""))
+    if not due_date or not _is_iso_date(due_date):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Calendar candidate is missing a valid due date",
+        )
+
+    title = _event_title_from_candidate(candidate)
+    now = _now_iso()
+
+    try:
+        await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("memories")
+                .update(
+                    {
+                        "calendar_candidate": False,
+                        "calendar_event_status": "confirmed_local",
+                        "calendar_event_title": title,
+                        "calendar_event_date": due_date,
+                        "calendar_event_all_day": True,
+                        "calendar_event_created_at": now,
+                        "updated_at": now,
+                    }
+                )
+                .eq("id", memory_id)
+                .eq("user_id", user_id)
+                .execute()
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to confirm calendar event draft: {exc}",
+        ) from exc
+
+    return {
+        "ok": True,
+        "action": "calendar_event_draft_confirmed",
+        "memory_id": memory_id,
+        "title": title,
+        "date": due_date,
+    }
 
 
 @router.post("/calendar-candidates/{memory_id}/archive")
@@ -606,7 +681,8 @@ async def _assert_memory_owner(*, memory_id: str, user_id: str) -> dict[str, Any
             lambda sb: sb.table("memories")
             .select(
                 "id, user_id, content, kind, category, structured_field, "
-                "structured_value, source_conversation_id, superseded"
+                "structured_value, due_date, calendar_candidate, calendar_event_status, "
+                "source_conversation_id, superseded"
             )
             .eq("id", memory_id)
             .eq("user_id", user_id)
@@ -650,6 +726,58 @@ def _build_review_payload(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+async def _load_memory_for_calendar_candidate(*, memory_id: str, user_id: str) -> dict[str, Any]:
+    try:
+        result = await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("memories")
+                .select(
+                    "id, user_id, content, category, structured_field, structured_value, "
+                    "due_date, calendar_candidate, calendar_event_status"
+                )
+                .eq("id", memory_id)
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to read calendar candidate: {exc}",
+        ) from exc
+
+    rows = result.data or []
+    if not rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
+
+    return rows[0]
+
+
+def _event_title_from_candidate(row: dict[str, Any]) -> str:
+    value = str(row.get("structured_value") or "").strip()
+    content = str(row.get("content") or "").strip()
+
+    if value:
+        # structured_value shape: "presentation title | due_date=YYYY-MM-DD | relative=tomorrow"
+        title = value.split("|", 1)[0].strip(" ,.;:-")
+        if title:
+            return title[:180]
+
+    if content:
+        return content[:180]
+
+    return "Calendar event"
+
+
+def _is_iso_date(value: str) -> bool:
+    try:
+        date.fromisoformat(value)
+    except Exception:
+        return False
+    return True
+
+
 def _normalize_calendar_candidate(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row.get("id"),
@@ -660,6 +788,10 @@ def _normalize_calendar_candidate(row: dict[str, Any]) -> dict[str, Any]:
         "due_date": str(row.get("due_date")) if row.get("due_date") else None,
         "expires_at": row.get("expires_at"),
         "calendar_candidate": bool(row.get("calendar_candidate")),
+        "calendar_event_status": row.get("calendar_event_status"),
+        "calendar_event_title": row.get("calendar_event_title"),
+        "calendar_event_date": str(row.get("calendar_event_date")) if row.get("calendar_event_date") else None,
+        "calendar_event_all_day": bool(row.get("calendar_event_all_day")),
         "created_at": row.get("created_at"),
         "source_conversation_id": row.get("source_conversation_id"),
     }

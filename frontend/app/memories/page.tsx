@@ -10,6 +10,7 @@ import {
   Brain,
   CalendarDays,
   CheckCircle2,
+  ClipboardCheck,
   ChevronDown,
   ChevronRight,
   Edit3,
@@ -122,6 +123,10 @@ type CalendarCandidateItem = {
   due_date?: string | null
   expires_at?: string | null
   calendar_candidate?: boolean
+  calendar_event_status?: string | null
+  calendar_event_title?: string | null
+  calendar_event_date?: string | null
+  calendar_event_all_day?: boolean
   created_at?: string | null
   source_conversation_id?: string | null
 }
@@ -592,7 +597,7 @@ export default function MemoriesPage() {
 
   async function calendarCandidateAction(
     candidate: CalendarCandidateItem,
-    actionName: "dismiss" | "archive",
+    actionName: "dismiss" | "archive" | "confirm-local",
     pin: string,
   ) {
     setSavingId(`calendar-${candidate.id}`)
@@ -790,6 +795,15 @@ export default function MemoriesPage() {
             candidates={calendarCandidates?.items || []}
             loading={loading}
             savingId={savingId}
+            onConfirmLocal={(candidate) =>
+              requireMemoryPin(
+                "Confirm event draft",
+                "This creates a local calendar event draft. It will not create a Google Calendar event yet.",
+                async (pin) => {
+                  await calendarCandidateAction(candidate, "confirm-local", pin)
+                },
+              )
+            }
             onDismiss={(candidate) =>
               requireMemoryPin(
                 "Remove calendar candidate",
@@ -1021,12 +1035,14 @@ function CalendarCandidatePanel({
   candidates,
   loading,
   savingId,
+  onConfirmLocal,
   onDismiss,
   onArchive,
 }: {
   candidates: CalendarCandidateItem[]
   loading: boolean
   savingId: string | null
+  onConfirmLocal: (candidate: CalendarCandidateItem) => void
   onDismiss: (candidate: CalendarCandidateItem) => void
   onArchive: (candidate: CalendarCandidateItem) => void
 }) {
@@ -1111,9 +1127,21 @@ function CalendarCandidatePanel({
                     <span className="font-medium text-slate-700 dark:text-zinc-200">Created:</span>{" "}
                     {formatDateTime(candidate.created_at)}
                   </div>
+                  <div>
+                    <span className="font-medium text-slate-700 dark:text-zinc-200">Event status:</span>{" "}
+                    {humanizeLabel(candidate.calendar_event_status) || "Candidate"}
+                  </div>
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => onConfirmLocal(candidate)}
+                    disabled={saving || !candidate.due_date}
+                    className="inline-flex items-center gap-2 rounded-full bg-cyan-400 px-3 py-2 text-xs font-medium text-zinc-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
+                    Confirm event draft
+                  </button>
                   <button
                     onClick={() => onDismiss(candidate)}
                     disabled={saving}
