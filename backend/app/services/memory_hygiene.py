@@ -280,6 +280,9 @@ def _infer_key_value(
         ("preference", r"\buser wants\b\s+(.+)", "preference"),
         ("preference", r"\bpanggil (aku|saya)\b\s+(.+)", "preferred_address"),
         ("preference", r"\bjangan panggil (aku|saya)\b\s+(.+)", "disallowed_address"),
+        ("preference", r"\b(user\s+)?(often|frequently|usually)\s+(stays up late|sleeps late)\b", "sleep_pattern"),
+        ("preference", r"\b(user\s+)?sering\s+(begadang|tidur larut|bangun larut malam)\b", "sleep_pattern"),
+        ("preference", r"\b(user\s+)?masih\s+(bangun larut malam|bangun malam|begadang)\b", "sleep_pattern"),
         ("identity", r"\bmy name is\b\s+(.+)", "name"),
         ("identity", r"\bnama saya\b\s+(.+)", "name"),
         ("context", r"\bi live in\b\s+(.+)", "location"),
@@ -308,7 +311,7 @@ def _infer_category(field: str | None) -> str:
     normalized = str(field or "").casefold()
     if normalized in {"name", "preferred_address", "disallowed_address"}:
         return "identity"
-    if "preference" in normalized or "address" in normalized:
+    if "preference" in normalized or "address" in normalized or "sleep" in normalized:
         return "preferences"
     if "location" in normalized or "timezone" in normalized:
         return "context"

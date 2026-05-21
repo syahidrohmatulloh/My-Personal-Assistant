@@ -63,6 +63,7 @@ SAFE_APPLY_REASONS = {
     "communication_style",
     "disliked_style",
     "food_preference",
+    "sleep_pattern",
     "family_member_name",
     "child_name",
     "spouse_name",
@@ -203,6 +204,17 @@ def infer_structure(content: str, kind: str | None = None) -> InferredStructure 
             if value:
                 return InferredStructure(field, value[:160], category, 0.82, reason)
 
+    # Sleep pattern / recent sleep habit.
+    sleep_patterns: tuple[tuple[str, str], ...] = (
+        ("often_stays_up_late", r"\b(?:user\s+)?(?:often|frequently|usually|tends to)\s+(?:stays up late|sleeps late)\b"),
+        ("often_stays_up_late", r"\b(?:user\s+)?sering\s+(?:begadang|tidur larut|bangun larut malam)\b"),
+        ("currently_stays_up_late", r"\b(?:user\s+)?(?:masih|recently|akhir-akhir ini)\s+(?:bangun larut malam|bangun malam|begadang|tidur larut)\b"),
+    )
+
+    for value, pattern in sleep_patterns:
+        if re.search(pattern, lower):
+            return InferredStructure("sleep_pattern", value, "preferences", 0.78, "sleep_pattern")
+
     # Preferences.
     preference_patterns: tuple[tuple[str, str, str], ...] = (
         ("communication_style", r"\b(?:user\s+)?(?:prefers|lebih suka|suka)\s+(?:answers?|jawaban)?\s*(.+)$", "preferences"),
@@ -281,7 +293,7 @@ def infer_category(field: str) -> str:
         return "life_context"
     if "meeting" in key or "employer" in key or "work" in key:
         return "work"
-    if "style" in key or "preference" in key or "address" in key or "food" in key or "assistant_name" in key:
+    if "style" in key or "preference" in key or "address" in key or "food" in key or "assistant_name" in key or "sleep" in key:
         return "preferences"
     if "child" in key or "spouse" in key or "wife" in key or "husband" in key or "family" in key:
         return "relationships"
