@@ -57,7 +57,7 @@ function MessageBubbleBase({ role, content, pending }: Props) {
           className="mt-1.5"
         />
 
-        <div className="px-3 py-3">
+        <div className="px-2 py-3 text-fg">
           <PendingDots />
         </div>
       </div>
@@ -150,10 +150,31 @@ export const MessageBubble = memo(
 
 function PendingDots() {
   return (
-    <div className="not-prose flex items-center gap-2.5" aria-label="Assistant is thinking">
-      <span className="h-2.5 w-2.5 rounded-full bg-fg animate-bounce [animation-delay:-260ms]" />
-      <span className="h-2.5 w-2.5 rounded-full bg-fg/75 animate-bounce [animation-delay:-130ms]" />
-      <span className="h-2.5 w-2.5 rounded-full bg-fg/55 animate-bounce" />
+    <div className="not-prose flex items-center gap-2.5 text-fg" aria-label="Assistant is thinking">
+      <span
+        className="h-2.5 w-2.5 rounded-full bg-current"
+        style={{ animation: "mpa-dot-bounce 0.9s infinite ease-in-out", animationDelay: "0ms" }}
+      />
+      <span
+        className="h-2.5 w-2.5 rounded-full bg-current opacity-80"
+        style={{ animation: "mpa-dot-bounce 0.9s infinite ease-in-out", animationDelay: "140ms" }}
+      />
+      <span
+        className="h-2.5 w-2.5 rounded-full bg-current opacity-60"
+        style={{ animation: "mpa-dot-bounce 0.9s infinite ease-in-out", animationDelay: "280ms" }}
+      />
+      <style jsx>{`
+        @keyframes mpa-dot-bounce {
+          0%, 80%, 100% {
+            transform: translateY(0);
+            opacity: 0.45;
+          }
+          40% {
+            transform: translateY(-7px);
+            opacity: 1;
+          }
+        }
+      `}</style>
     </div>
   );
 }
