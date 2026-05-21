@@ -417,12 +417,6 @@ async def update_calendar_candidate_draft(
 
     candidate = await _load_memory_for_calendar_candidate(memory_id=memory_id, user_id=user_id)
 
-    if candidate.get("google_calendar_event_id") or candidate.get("calendar_event_status") == "synced_google":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This calendar event is already synced to Google Calendar and cannot be edited here.",
-        )
-
     title = _clean_optional(body.title) or _event_title_from_candidate(candidate)
     event_date = _clean_optional(body.event_date) or _clean_optional(
         str(candidate.get("calendar_event_date") or candidate.get("due_date") or "")
@@ -466,6 +460,60 @@ async def update_calendar_candidate_draft(
         end_at=end_at,
     )
 
+    google_event_id = _clean_optional(str(candidate.get("google_calendar_event_id") or ""))
+    was_synced = bool(google_event_id or candidate.get("calendar_event_status") == "synced_google")
+
+    if was_synced and not google_event_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This memory is marked as synced but is missing a Google Calendar event ID.",
+        )
+
+    google_event_link = candidate.get("google_calendar_event_link")
+
+    if was_synced:
+        access_token = await get_active_google_calendar_access_token(user_id=user_id)
+
+        try:
+            patched_event = await _patch_google_calendar_event(
+                access_token=access_token,
+                google_event_id=str(google_event_id),
+                title=title,
+                event_date=event_date,
+                description=_google_event_description(
+                    {
+                        **candidate,
+                        "content": candidate.get("content"),
+                        "structured_value": structured_value,
+                    }
+                ),
+                start_at=start_at,
+                end_at=end_at,
+            )
+            google_event_link = patched_event.get("htmlLink") or google_event_link
+        except Exception as exc:  # noqa: BLE001
+            clean_error = _humanize_google_calendar_sync_error(exc)
+            await asyncio.to_thread(
+                lambda: safe_execute(
+                    lambda sb: sb.table("memories")
+                    .update(
+                        {
+                            "calendar_sync_error": clean_error[:500],
+                            "updated_at": now,
+                        }
+                    )
+                    .eq("id", memory_id)
+                    .eq("user_id", user_id)
+                    .execute()
+                )
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=clean_error,
+            ) from exc
+
+    status_value = "synced_google" if was_synced else "confirmed_local"
+
     try:
         await asyncio.to_thread(
             lambda: safe_execute(
@@ -473,7 +521,7 @@ async def update_calendar_candidate_draft(
                 .update(
                     {
                         "calendar_candidate": False,
-                        "calendar_event_status": "confirmed_local",
+                        "calendar_event_status": status_value,
                         "calendar_event_title": title,
                         "calendar_event_date": event_date,
                         "calendar_event_start_at": start_at,
@@ -483,6 +531,8 @@ async def update_calendar_candidate_draft(
                         "structured_field": "scheduled_event",
                         "structured_value": structured_value,
                         "due_date": event_date,
+                        "google_calendar_event_link": google_event_link,
+                        "calendar_synced_at": now if was_synced else candidate.get("calendar_synced_at"),
                         "calendar_sync_error": None,
                         "updated_at": now,
                     }
@@ -500,13 +550,15 @@ async def update_calendar_candidate_draft(
 
     return {
         "ok": True,
-        "action": "calendar_event_draft_updated",
+        "action": "calendar_event_updated_google" if was_synced else "calendar_event_draft_updated",
         "memory_id": memory_id,
         "title": title,
         "date": event_date,
         "start_at": start_at,
         "end_at": end_at,
         "all_day": all_day,
+        "google_calendar_event_id": google_event_id,
+        "google_calendar_event_link": google_event_link,
     }
 
 
@@ -636,6 +688,40 @@ async def _create_google_calendar_event(
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.post(
             "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+
+    if response.status_code >= 400:
+        raise RuntimeError(response.text[:500])
+
+    return response.json()
+
+
+async def _patch_google_calendar_event(
+    *,
+    access_token: str,
+    google_event_id: str,
+    title: str,
+    event_date: str,
+    description: str,
+    start_at: str | None = None,
+    end_at: str | None = None,
+) -> dict[str, Any]:
+    payload = _build_google_calendar_event_payload(
+        title=title,
+        event_date=event_date,
+        description=description,
+        start_at=start_at,
+        end_at=end_at,
+    )
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.patch(
+            f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{google_event_id}",
             headers={
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",

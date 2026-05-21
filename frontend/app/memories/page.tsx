@@ -1395,16 +1395,14 @@ function CalendarCandidatePanel({
                 ) : null}
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {candidate.calendar_event_status !== "synced_google" ? (
-                    <button
-                      onClick={() => onEditDraft(candidate)}
-                      disabled={saving}
-                      className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-white disabled:opacity-60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
-                    >
-                      {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pencil className="h-3.5 w-3.5" />}
-                      Edit draft
-                    </button>
-                  ) : null}
+                  <button
+                    onClick={() => onEditDraft(candidate)}
+                    disabled={saving}
+                    className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-white disabled:opacity-60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
+                  >
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pencil className="h-3.5 w-3.5" />}
+                    {candidate.calendar_event_status === "synced_google" ? "Edit synced event" : "Edit draft"}
+                  </button>
 
                   {candidate.calendar_event_status === "confirmed_local" ? (
                     <button
