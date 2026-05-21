@@ -32,6 +32,7 @@ from app.services.embeddings import embed_document, embed_query
 from app.services.supabase_client import get_supabase
 from app.services.memory_hygiene import sanitize_memory_rows
 from app.services.goal_source_rules import convert_goal_duplicate_rows
+from app.services.memory_supersession import apply_memory_supersession
 
 log = logging.getLogger(__name__)
 
@@ -239,6 +240,7 @@ async def extract_and_save(
 
     rows = sanitize_memory_rows(rows)
     rows = convert_goal_duplicate_rows(user_id=user_id, rows=rows)
+    rows = apply_memory_supersession(user_id=user_id, rows=rows)
 
     if not rows:
         return 0
