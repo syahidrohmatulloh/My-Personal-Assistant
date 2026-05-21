@@ -153,6 +153,16 @@ type EditState = {
   structured_value: string
 }
 
+
+type CalendarDraftEditState = {
+  candidate: CalendarCandidateItem
+  title: string
+  event_date: string
+  all_day: boolean
+  start_at: string
+  end_at: string
+}
+
 const MASKED_INPUT_TYPE = "pass" + "word"
 
 const CATEGORY_OPTIONS = [
@@ -246,6 +256,7 @@ export default function MemoriesPage() {
     description: string
     action: (pin: string) => Promise<void>
   }>(null)
+  const [calendarDraftEdit, setCalendarDraftEdit] = useState<CalendarDraftEditState | null>(null)
   const [pinInput, setPinInput] = useState("")
   const [pinChecking, setPinChecking] = useState(false)
   const [verifiedMemoryPin, setVerifiedMemoryPin] = useState<string | null>(null)
@@ -806,16 +817,14 @@ export default function MemoriesPage() {
             loading={loading}
             savingId={savingId}
             onEditDraft={(candidate) => {
-              const payload = buildCalendarDraftEditPayload(candidate)
-              if (!payload) return
-
-              requireMemoryPin(
-                "Edit calendar draft",
-                "This updates the local calendar draft before syncing to Google Calendar.",
-                async (pin) => {
-                  await calendarCandidateAction(candidate, "update-draft", pin, payload)
-                },
-              )
+              setCalendarDraftEdit({
+                candidate,
+                title: candidate.calendar_event_title || candidate.content || "",
+                event_date: candidate.calendar_event_date || candidate.due_date || "",
+                all_day: Boolean(candidate.calendar_event_all_day),
+                start_at: candidate.calendar_event_start_at || "",
+                end_at: candidate.calendar_event_end_at || "",
+              })
             }}
             onSyncGoogle={(candidate) =>
               requireMemoryPin(
@@ -954,6 +963,26 @@ export default function MemoriesPage() {
         )}
       </div>
 
+      {calendarDraftEdit ? (
+        <CalendarDraftEditDialog
+          state={calendarDraftEdit}
+          saving={savingId === `calendar-${calendarDraftEdit.candidate.id}`}
+          onChange={setCalendarDraftEdit}
+          onCancel={() => setCalendarDraftEdit(null)}
+          onSave={(payload) => {
+            const candidate = calendarDraftEdit.candidate
+            setCalendarDraftEdit(null)
+            requireMemoryPin(
+              "Edit calendar draft",
+              "This updates the local calendar draft before syncing to Google Calendar.",
+              async (pin) => {
+                await calendarCandidateAction(candidate, "update-draft", pin, payload)
+              },
+            )
+          }}
+        />
+      ) : null}
+
       {pinModal ? (
         <MemoryPinDialog
           title={pinModal.title}
@@ -1062,47 +1091,171 @@ function TabButton({
   )
 }
 
-function buildCalendarDraftEditPayload(candidate: CalendarCandidateItem): Record<string, unknown> | null {
-  const currentTitle = candidate.calendar_event_title || candidate.content || ""
-  const title = window.prompt("Event title", currentTitle)
-  if (title === null) return null
+function CalendarDraftEditDialog({
+  state,
+  saving,
+  onChange,
+  onCancel,
+  onSave,
+}: {
+  state: CalendarDraftEditState
+  saving: boolean
+  onChange: (state: CalendarDraftEditState) => void
+  onCancel: () => void
+  onSave: (payload: Record<string, unknown>) => void
+}) {
+  const validationError = validateCalendarDraftState(state)
 
-  const currentDate = candidate.calendar_event_date || candidate.due_date || ""
-  const eventDate = window.prompt("Event date (YYYY-MM-DD)", currentDate)
-  if (eventDate === null) return null
+  function update<K extends keyof CalendarDraftEditState>(
+    key: K,
+    value: CalendarDraftEditState[K],
+  ) {
+    onChange({ ...state, [key]: value })
+  }
 
-  const allDayAnswer = window.prompt(
-    "All-day event? Type yes or no",
-    candidate.calendar_event_all_day ? "yes" : "no",
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-[1.75rem] border border-slate-200/70 bg-white p-5 shadow-2xl shadow-slate-950/20 dark:border-white/10 dark:bg-zinc-950 dark:shadow-black/40">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-300">
+              Calendar draft
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950 dark:text-white">
+              Edit event details
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-zinc-400">
+              Review the title, date, and time before syncing to Google Calendar.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="mt-5 space-y-4">
+          <label className="block">
+            <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">Event title</span>
+            <input
+              value={state.title}
+              onChange={(event) => update("title", event.target.value)}
+              className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-white/[0.04] dark:text-white"
+              placeholder="Meeting with GH Risk"
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">Event date</span>
+            <input
+              type="date"
+              value={state.event_date}
+              onChange={(event) => update("event_date", event.target.value)}
+              className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-white/[0.04] dark:text-white"
+            />
+          </label>
+
+          <label className="flex items-center gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/80 px-3 py-3 dark:border-white/10 dark:bg-white/[0.04]">
+            <input
+              type="checkbox"
+              checked={state.all_day}
+              onChange={(event) => update("all_day", event.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-cyan-500 focus:ring-cyan-400"
+            />
+            <span className="text-sm font-medium text-slate-700 dark:text-zinc-200">All-day event</span>
+          </label>
+
+          {!state.all_day ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">Start</span>
+                <input
+                  value={state.start_at}
+                  onChange={(event) => update("start_at", event.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-white/[0.04] dark:text-white"
+                  placeholder="2026-05-22T15:00:00+07:00"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">End</span>
+                <input
+                  value={state.end_at}
+                  onChange={(event) => update("end_at", event.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-white/[0.04] dark:text-white"
+                  placeholder="2026-05-22T16:00:00+07:00"
+                />
+              </label>
+            </div>
+          ) : null}
+
+          {validationError ? (
+            <p className="rounded-2xl border border-amber-200/70 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-300/15 dark:bg-amber-500/10 dark:text-amber-100">
+              {validationError}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="inline-flex items-center justify-center rounded-full border border-slate-200/70 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-60 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-white/10"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              onSave({
+                title: state.title.trim(),
+                event_date: state.event_date.trim(),
+                all_day: state.all_day,
+                start_at: state.all_day ? null : state.start_at.trim(),
+                end_at: state.all_day ? null : state.end_at.trim(),
+              })
+            }
+            disabled={saving || Boolean(validationError)}
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-zinc-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
+            Save draft
+          </button>
+        </div>
+      </div>
+    </div>
   )
-  if (allDayAnswer === null) return null
+}
 
-  const allDay = allDayAnswer.trim().toLowerCase().startsWith("y")
+function validateCalendarDraftState(state: CalendarDraftEditState): string | null {
+  if (!state.title.trim()) return "Event title is required."
+  if (!state.event_date.trim()) return "Event date is required."
 
-  let startAt: string | null = null
-  let endAt: string | null = null
-
-  if (!allDay) {
-    startAt = window.prompt(
-      "Start datetime ISO, example: 2026-05-22T15:00:00+07:00",
-      candidate.calendar_event_start_at || "",
-    )
-    if (startAt === null) return null
-
-    endAt = window.prompt(
-      "End datetime ISO, example: 2026-05-22T16:00:00+07:00",
-      candidate.calendar_event_end_at || "",
-    )
-    if (endAt === null) return null
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(state.event_date.trim())) {
+    return "Event date must use YYYY-MM-DD format."
   }
 
-  return {
-    title: title.trim(),
-    event_date: eventDate.trim(),
-    all_day: allDay,
-    start_at: startAt?.trim() || null,
-    end_at: endAt?.trim() || null,
+  if (state.all_day) return null
+
+  if (!state.start_at.trim() || !state.end_at.trim()) {
+    return "Timed events require both start and end datetime."
   }
+
+  const start = Date.parse(state.start_at)
+  const end = Date.parse(state.end_at)
+
+  if (Number.isNaN(start) || Number.isNaN(end)) {
+    return "Start and end must be valid ISO datetime values."
+  }
+
+  if (end <= start) return "End time must be after start time."
+
+  return null
 }
 
 
