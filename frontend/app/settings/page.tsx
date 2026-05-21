@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import {ArrowLeft, ChevronRight, MessageSquare, Heart, Image} from "lucide-react";
+import {ChevronRight, MessageSquare, Heart, Image, ShieldCheck} from "lucide-react";
 import { BackgroundStyleSettings } from "@/components/ambient/background-style-settings";
 import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 
@@ -42,6 +42,12 @@ export default function SettingsPage() {
   title="AI Avatar Mode"
   subtitle="Set the assistant avatar image and animation style"
 />
+            <SettingsRow
+              href="/settings/security"
+              icon={<ShieldCheck className="h-4 w-4" />}
+              title="Security & Privacy"
+              subtitle="Manage Memory PIN and Google Calendar connection"
+            />
           </div>
         </section>
 
