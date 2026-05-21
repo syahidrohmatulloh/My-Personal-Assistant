@@ -30,6 +30,7 @@ from app.config import settings
 from app.services.claude import get_claude
 from app.services.embeddings import embed_document, embed_query
 from app.services.supabase_client import get_supabase
+from app.services.memory_hygiene import sanitize_memory_rows
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +52,10 @@ DEDUP_SIMILARITY_THRESHOLD = 0.92
 class ExtractedMemory(BaseModel):
     content: str = Field(min_length=3, max_length=500)
     kind: Literal["fact", "preference", "context", "plan"]
+    memory_key: str = Field(min_length=2, max_length=120)
+    memory_value: str = Field(min_length=2, max_length=300)
+    category: str = Field(min_length=2, max_length=80)
+    confidence: float = Field(default=0.72, ge=0.0, le=1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +74,12 @@ Output a JSON array. Each item has:
       - "context" — current situation
       - "plan" — a concrete plan, recommendation, or structured advice the \
 assistant gave the user that the user seems to have accepted or asked to follow
+  - memory_key: a concise stable key for the memory, snake_case, not generic
+      examples: timezone, preferred_name, food_preference, communication_style
+  - memory_value: the exact useful value to remember
+      examples: GMT+7, Beb, prefers concise answers, avoids spicy food
+  - category: one of identity, preferences, context, goals, routines, relationships, projects, constraints, important_dates
+  - confidence: number from 0.0 to 1.0
 
 Be CONSERVATIVE. Only extract things that are:
 - Clearly stated by the user (for fact/preference/context), OR
@@ -100,6 +111,9 @@ focus compound lifts (squat, bench, deadlift, OHP), progressive overload weekly"
 
 Examples of what NOT to extract:
 - Generic chat ("user said hello")
+- Greeting/filler/acknowledgement/test messages like "hai", "halo", "oke", "done", "test"
+- Very short fragments that do not contain a durable fact, preference, goal, identity detail, routine, constraint, or plan
+- Anything where you cannot produce a clear memory_key and memory_value
 - Things the user asked but didn't reveal about themselves
 - General information the assistant provided that wasn't a concrete plan for the user
 - A plan the user explicitly rejected or said they wouldn't follow
@@ -211,11 +225,18 @@ async def extract_and_save(
                 "user_id": user_id,
                 "content": mem.content,
                 "kind": mem.kind,
+                "category": mem.category,
+                "structured_field": mem.memory_key,
+                "structured_value": mem.memory_value,
+                "confidence": mem.confidence,
                 "embedding": embedding,
                 "source": "auto",
+                "source_priority": "explicit_user_statement",
                 "source_conversation_id": conversation_id,
             }
         )
+
+    rows = sanitize_memory_rows(rows)
 
     if not rows:
         return 0
