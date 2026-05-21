@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useState } from "react";
 import { Loader2, Volume2, VolumeX } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -44,11 +44,11 @@ function MessageBubbleBase({ role, content, pending }: Props) {
     }
   }
 
-  const isThinking = !isUser && pending && !content;
+  const isThinking = !isUser && pending && !content.trim();
 
   if (isThinking) {
     return (
-      <div className="flex w-full fade-up items-start gap-3 justify-start">
+      <div className="flex w-full items-start justify-start gap-3 fade-up">
         <AssistantAvatar
           profile={avatarProfile}
           assistantName={assistantName}
@@ -57,7 +57,7 @@ function MessageBubbleBase({ role, content, pending }: Props) {
           className="mt-1.5"
         />
 
-        <div className="min-w-[5.75rem] rounded-[1.35rem] px-5 py-4 sm:px-6 sm:py-5">
+        <div className="rounded-[1.35rem] px-5 py-4">
           <PendingDots />
         </div>
       </div>
@@ -65,7 +65,7 @@ function MessageBubbleBase({ role, content, pending }: Props) {
   }
 
   return (
-    <div className={cn("flex w-full fade-up items-start gap-3", isUser ? "justify-end" : "justify-start")}>
+    <div className={cn("flex w-full items-start gap-3 fade-up", isUser ? "justify-end" : "justify-start")}>
       {!isUser ? (
         <AssistantAvatar
           profile={avatarProfile}
@@ -80,7 +80,7 @@ function MessageBubbleBase({ role, content, pending }: Props) {
         className={cn(
           "max-w-[92%] sm:max-w-[78%] rounded-[1.35rem] px-4 py-3 sm:px-5 sm:py-4",
           "text-[16.5px] leading-[1.72] sm:text-[17px] sm:leading-[1.78]",
-          "transition-all duration-500 ease-out",
+          "transition-opacity duration-500 ease-out",
           isUser
             ? "bg-accent text-on-accent shadow-lg shadow-accent/20"
             : "glass text-fg shadow-sm",
@@ -91,7 +91,14 @@ function MessageBubbleBase({ role, content, pending }: Props) {
         ) : (
           <div className="prose-chat break-words">
             {content ? (
-              <ProgressiveMarkdown content={content} />
+              <div className="animate-in fade-in duration-500">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeHighlight]}
+                >
+                  {content}
+                </ReactMarkdown>
+              </div>
             ) : null}
 
             {content ? (
@@ -141,94 +148,12 @@ export const MessageBubble = memo(
     a.role === b.role && a.content === b.content && a.pending === b.pending,
 );
 
-function ProgressiveMarkdown({ content }: { content: string }) {
-  const prefersReducedMotion = usePrefersReducedMotion();
-  const [visibleLength, setVisibleLength] = useState(() => (prefersReducedMotion ? content.length : 0));
-  const previousContentRef = useRef(content);
-
-  useEffect(() => {
-    if (prefersReducedMotion) {
-      setVisibleLength(content.length);
-      previousContentRef.current = content;
-      return;
-    }
-
-    if (content !== previousContentRef.current) {
-      previousContentRef.current = content;
-      setVisibleLength(0);
-    }
-
-    let cancelled = false;
-    let frameId = 0;
-
-    function tick() {
-      if (cancelled) return;
-
-      setVisibleLength((current) => {
-        if (current >= content.length) return current;
-
-        const remaining = content.length - current;
-        const step = remaining > 600 ? 12 : remaining > 240 ? 8 : remaining > 80 ? 5 : 3;
-        return Math.min(content.length, current + step);
-      });
-
-      frameId = window.setTimeout(tick, 34);
-    }
-
-    frameId = window.setTimeout(tick, 28);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(frameId);
-    };
-  }, [content, prefersReducedMotion]);
-
-  const visibleContent = useMemo(() => {
-    if (prefersReducedMotion) return content;
-    return content.slice(0, visibleLength);
-  }, [content, prefersReducedMotion, visibleLength]);
-
-  return (
-    <div className="animate-in fade-in duration-700">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
-      >
-        {visibleContent}
-      </ReactMarkdown>
-
-      {!prefersReducedMotion && visibleLength < content.length ? (
-        <span className="not-prose ml-0.5 inline-block h-4 w-1 translate-y-0.5 rounded-full bg-fg/35 animate-pulse" />
-      ) : null}
-    </div>
-  );
-}
-
 function PendingDots() {
   return (
-    <div className="not-prose flex items-end gap-2 py-1" aria-label="Assistant is thinking">
-      <span className="h-2.5 w-2.5 rounded-full bg-fg/65 shadow-sm animate-bounce [animation-delay:-260ms]" />
-      <span className="h-2.5 w-2.5 rounded-full bg-fg/55 shadow-sm animate-bounce [animation-delay:-130ms]" />
-      <span className="h-2.5 w-2.5 rounded-full bg-fg/45 shadow-sm animate-bounce" />
+    <div className="not-prose flex items-end gap-2.5 py-1" aria-label="Assistant is thinking">
+      <span className="h-2.5 w-2.5 rounded-full bg-fg/70 shadow-sm animate-bounce [animation-delay:-260ms]" />
+      <span className="h-2.5 w-2.5 rounded-full bg-fg/60 shadow-sm animate-bounce [animation-delay:-130ms]" />
+      <span className="h-2.5 w-2.5 rounded-full bg-fg/50 shadow-sm animate-bounce" />
     </div>
   );
-}
-
-function usePrefersReducedMotion() {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-
-    const sync = () => setPrefersReducedMotion(mediaQuery.matches);
-    sync();
-
-    mediaQuery.addEventListener("change", sync);
-
-    return () => {
-      mediaQuery.removeEventListener("change", sync);
-    };
-  }, []);
-
-  return prefersReducedMotion;
 }

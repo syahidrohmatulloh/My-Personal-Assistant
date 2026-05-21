@@ -53,7 +53,7 @@ const STICK_THRESHOLD = 120;
 function scrollContainerToBottom(el: HTMLDivElement | null, smooth = false) {
   if (!el) return;
   if (smooth) {
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
   } else {
     el.scrollTop = el.scrollHeight;
   }
