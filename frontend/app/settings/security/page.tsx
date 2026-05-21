@@ -231,10 +231,10 @@ export default function SecuritySettingsPage() {
             </div>
 
             <Link
-              href="/memories"
+              href="/settings"
               className="inline-flex w-full items-center justify-center rounded-full border border-slate-200/70 bg-white/65 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm shadow-slate-900/5 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10 sm:w-auto"
             >
-              Back to Memories
+              Back to Settings
             </Link>
           </div>
         </header>
