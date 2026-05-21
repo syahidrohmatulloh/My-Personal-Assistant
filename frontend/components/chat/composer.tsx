@@ -20,7 +20,7 @@ type PendingUpload =
 const ACCEPT = "image/jpeg,image/png,image/gif,image/webp,application/pdf";
 
 export function Composer({ value, onChange, onSubmit, disabled }: Props) {
-  const voiceInput = useVoiceInput({ language: "id" });
+  const voiceInput = useVoiceInput({ language: "multi" });
   const voiceBusy = voiceInput.isRecording || voiceInput.isTranscribing;
 
   async function handleVoiceClick() {

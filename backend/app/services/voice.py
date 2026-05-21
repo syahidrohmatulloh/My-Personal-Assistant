@@ -184,7 +184,7 @@ async def transcribe_audio(
         "punctuate": "true",
     }
 
-    clean_language = (language or os.getenv("DEEPGRAM_LANGUAGE", "")).strip()
+    clean_language = (language or os.getenv("DEEPGRAM_LANGUAGE", "multi")).strip()
     if clean_language:
         params["language"] = clean_language
 
