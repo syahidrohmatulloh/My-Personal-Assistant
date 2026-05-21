@@ -20,19 +20,72 @@ from typing import Any
 from app.services.supabase_client import safe_execute
 
 
-_CHRONOLOGY_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+_HIGH_CONFIDENCE_PHRASES: tuple[re.Pattern[str], ...] = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
-        r"\b(first|earliest|oldest)\b.{0,80}\b(chat|chatting|conversation|message|talk|talking)\b",
-        r"\b(chat|chatting|conversation|message|talk|talking)\b.{0,80}\b(first|earliest|oldest)\b",
-        r"\bwhen\b.{0,100}\b(first|start|started|begin|began)\b.{0,100}\b(chat|chatting|talk|talking|conversation)\b",
-        r"\bhow long\b.{0,80}\b(chatting|talking|known|together)\b",
-        r"pertama kali.{0,80}(chat|ngobrol|conversation|pesan|message)",
-        r"(awal mula|awal kita|mulai).{0,80}(chat|ngobrol|conversation|pesan)",
-        r"(chat|ngobrol|conversation|pesan).{0,80}(pertama|awal mula|mulai)",
-        r"tanggal berapa.{0,80}(chat|ngobrol|conversation|pesan)",
-        r"sejak kapan.{0,80}(chat|ngobrol|conversation|pesan|kenal)",
-        r"udah berapa lama.{0,80}(chat|ngobrol|conversation|kenal)",
+        # English explicit forms
+        r"\bwhen\b.{0,100}\b(first|start|started|begin|began)\b.{0,100}\b(chat|chatted|chatting|talk|talked|talking|conversation|message)\b",
+        r"\b(first|earliest|oldest)\b.{0,100}\b(chat|chatted|chatting|talk|talked|talking|conversation|message)\b",
+        r"\b(chat|chatted|chatting|talk|talked|talking|conversation|message)\b.{0,100}\b(first|earliest|oldest)\b",
+        r"\bhow\s+long\b.{0,100}\b(chatting|talking|known|conversation|using this app)\b",
+
+        # Indonesian explicit forms. Use \s* so "pertama kali", "pertamakali",
+        # and "pertama   kali" are treated the same.
+        r"pertama\s*kali.{0,120}(chat|chatting|ngobrol|obrol|conversation|pesan|message|bicara|ngomong)",
+        r"(chat|chatting|ngobrol|obrol|conversation|pesan|message|bicara|ngomong).{0,120}pertama\s*kali",
+        r"(awal\s*mula|awal\s*kita|mulai).{0,120}(chat|chatting|ngobrol|obrol|conversation|pesan|message|bicara|ngomong)",
+        r"(chat|chatting|ngobrol|obrol|conversation|pesan|message|bicara|ngomong).{0,120}(awal\s*mula|awal\s*kita|mulai)",
+        r"tanggal\s*berapa.{0,120}(chat|chatting|ngobrol|obrol|conversation|pesan|message|bicara|ngomong)",
+        r"sejak\s*kapan.{0,120}(chat|chatting|ngobrol|obrol|conversation|pesan|message|bicara|ngomong|kenal)",
+        r"(udah|sudah).{0,30}berapa\s*lama.{0,120}(chat|chatting|ngobrol|obrol|conversation|kenal)",
+    )
+)
+
+_CHRONOLOGY_TERMS = {
+    "first",
+    "earliest",
+    "oldest",
+    "start",
+    "started",
+    "begin",
+    "began",
+    "beginning",
+    "since",
+    "awal",
+    "mula",
+    "mulai",
+    "pertama",
+    "sejak",
+    "kapan",
+    "tanggal",
+    "lama",
+}
+
+_CONVERSATION_TERMS = {
+    "chat",
+    "chatting",
+    "conversation",
+    "conversations",
+    "message",
+    "messages",
+    "talk",
+    "talked",
+    "talking",
+    "ngobrol",
+    "obrol",
+    "obrolan",
+    "pesan",
+    "bicara",
+    "ngomong",
+    "kenal",
+}
+
+_NEGATIVE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        # Avoid falsely triggering on generic preference/memory questions.
+        r"\b(favorite|favourite|prefer|preference|suka|kesukaan|makanan|warna|hobi)\b",
+        r"\b(calendar|kalender|meeting|schedule|jadwal)\b.{0,80}\bpertama\b",
     )
 )
 
@@ -49,10 +102,85 @@ class ConversationChronology:
 
 
 def is_chronology_question(text: str | None) -> bool:
-    value = (text or "").strip()
-    if not value:
+    """Return True when the user asks for conversation chronology.
+
+    This intentionally does not rely on a single phrase. Users may write:
+    - "pertama kali chat"
+    - "pertamakali chatting"
+    - "awal mula kita ngobrol"
+    - "when did we first talk?"
+    - "udah berapa lama kita chat?"
+
+    The detector combines:
+    1. high-confidence phrase regexes;
+    2. normalized token/proximity matching;
+    3. joined-text checks for Indonesian spacing variants.
+    """
+    raw = (text or "").strip()
+    if not raw:
         return False
-    return any(pattern.search(value) for pattern in _CHRONOLOGY_PATTERNS)
+
+    normalized = _normalize_for_detection(raw)
+    joined = normalized.replace(" ", "")
+
+    if any(pattern.search(normalized) or pattern.search(raw) for pattern in _HIGH_CONFIDENCE_PHRASES):
+        return True
+
+    # Catch compact Indonesian variants that may be missed by punctuation/spacing:
+    # "pertamakalichatting", "awalmulangobrol", etc.
+    compact_pairs = (
+        ("pertamakali", ("chat", "chatting", "ngobrol", "obrol", "pesan")),
+        ("awalmula", ("chat", "chatting", "ngobrol", "obrol", "pesan")),
+        ("sejakkapan", ("chat", "chatting", "ngobrol", "obrol", "kenal")),
+        ("tanggalberapa", ("chat", "chatting", "ngobrol", "obrol", "pesan")),
+    )
+    for chrono_compact, conversation_compacts in compact_pairs:
+        if chrono_compact in joined and any(term in joined for term in conversation_compacts):
+            return True
+
+    if any(pattern.search(normalized) for pattern in _NEGATIVE_PATTERNS):
+        # Still allow explicit "first chat" forms despite generic words.
+        if not any(pattern.search(normalized) for pattern in _HIGH_CONFIDENCE_PHRASES):
+            return False
+
+    tokens = normalized.split()
+    if not tokens:
+        return False
+
+    chronology_positions = [
+        idx for idx, token in enumerate(tokens)
+        if token in _CHRONOLOGY_TERMS or token.startswith(("pertama", "awal", "mulai"))
+    ]
+    conversation_positions = [
+        idx for idx, token in enumerate(tokens)
+        if token in _CONVERSATION_TERMS
+        or token.startswith(("chat", "talk", "ngobrol", "obrol", "conversation", "message"))
+    ]
+
+    if not chronology_positions or not conversation_positions:
+        return False
+
+    # Users often phrase it casually; allow proximity within a short sentence.
+    closest_distance = min(
+        abs(a - b) for a in chronology_positions for b in conversation_positions
+    )
+    if closest_distance <= 12:
+        return True
+
+    # For questions with explicit time-question words, allow a slightly wider window.
+    questionish = {"kapan", "tanggal", "when", "how", "long", "lama", "sejak"}
+    if any(token in questionish for token in tokens) and closest_distance <= 20:
+        return True
+
+    return False
+
+
+def _normalize_for_detection(value: str) -> str:
+    value = value.lower()
+    value = re.sub(r"[_\-\\/]+", " ", value)
+    value = re.sub(r"[^a-z0-9\u00c0-\u024f\u1e00-\u1eff]+", " ", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    return value
 
 
 async def build_context_if_relevant(*, user_id: str, query_text: str | None) -> str | None:

@@ -9,16 +9,44 @@ def test_detects_english_first_chat_question():
     assert is_chronology_question("when did we first start chatting?") is True
 
 
+def test_detects_english_first_talk_question():
+    assert is_chronology_question("do you remember the first time we talked?") is True
+
+
 def test_detects_indonesian_first_chat_question():
     assert is_chronology_question("coba inget ga awal mula kita chatting tanggal berapa?") is True
+
+
+def test_detects_indonesian_pertama_kali_with_space():
+    assert is_chronology_question("beb, inget ga pertama kali kita chat?") is True
+
+
+def test_detects_indonesian_pertamakali_without_space_chatting():
+    assert is_chronology_question("beb, kalau sekarang inget ga pertamakali chatting?") is True
+
+
+def test_detects_indonesian_awalmula_without_space():
+    assert is_chronology_question("awalmula kita ngobrol kapan ya?") is True
 
 
 def test_detects_since_when_question():
     assert is_chronology_question("sejak kapan kita ngobrol di app ini?") is True
 
 
+def test_detects_how_long_question():
+    assert is_chronology_question("udah berapa lama kita chatting di sini?") is True
+
+
+def test_detects_simple_first_chat_order_reversed():
+    assert is_chronology_question("kalau awal pertama kali chat?") is True
+
+
 def test_ignores_regular_memory_question():
     assert is_chronology_question("apa makanan favorit saya?") is False
+
+
+def test_ignores_calendar_first_meeting_question():
+    assert is_chronology_question("jadwal meeting pertama saya kapan?") is False
 
 
 def test_render_context_contains_do_not_claim_unavailable():
