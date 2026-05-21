@@ -6,7 +6,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown } from "lucide-react";
 
 import { Composer } from "@/components/chat/composer";
-import { TypingIndicator } from "@/components/chat/typing-indicator";
 import { MessageBubble } from "@/components/chat/message-bubble";
 import { ConversationStyleBadge } from "@/components/chat/conversation-style-badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -416,7 +415,7 @@ const handleSend = useCallback(
       <ConversationStyleBadge conversationId={conversationId} />
 <div
         ref={scrollRef}
-        className="flex-1 min-h-0 overflow-y-auto scroll-smooth-mobile overscroll-contain"
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
       >
         <div
           className={[
@@ -457,8 +456,6 @@ const handleSend = useCallback(
           Jump to latest
         </button>
       )}
-
-<TypingIndicator visible={sending} assistantName={assistantName} />
 
       <Composer
         value={input}
