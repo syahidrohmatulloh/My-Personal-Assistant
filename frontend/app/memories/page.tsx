@@ -8,6 +8,7 @@ import {
   Archive,
   AlertTriangle,
   Brain,
+  CalendarDays,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -111,6 +112,25 @@ type MemoryHealthSchedulerStatus = {
   } | null
 }
 
+
+type CalendarCandidateItem = {
+  id: string
+  content?: string | null
+  category?: string | null
+  structured_field?: string | null
+  structured_value?: string | null
+  due_date?: string | null
+  expires_at?: string | null
+  calendar_candidate?: boolean
+  created_at?: string | null
+  source_conversation_id?: string | null
+}
+
+type CalendarCandidatesPayload = {
+  items: CalendarCandidateItem[]
+  count: number
+}
+
 type EditState = {
   memory: MemoryItem
   content: string
@@ -195,11 +215,12 @@ export default function MemoriesPage() {
   const [data, setData] = useState<MemoryReviewPayload | null>(null)
   const [quality, setQuality] = useState<MemoryQualityPayload | null>(null)
   const [memoryHealthStatus, setMemoryHealthStatus] = useState<MemoryHealthSchedulerStatus | null>(null)
+  const [calendarCandidates, setCalendarCandidates] = useState<CalendarCandidatesPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<string | null>(null)
   const [consolidating, setConsolidating] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState<"active" | "archived" | "review">("active")
+  const [tab, setTab] = useState<"active" | "archived" | "review" | "calendar">("active")
   const [query, setQuery] = useState("")
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
   const [edit, setEdit] = useState<EditState | null>(null)
@@ -241,6 +262,7 @@ export default function MemoriesPage() {
       setOpenGroups((prev) => ({ ...nextOpen, ...prev }))
       await loadQuality()
       await loadMemoryHealthStatus()
+      await loadCalendarCandidates()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load memories")
     } finally {
@@ -305,6 +327,24 @@ export default function MemoriesPage() {
     }
   }
 
+
+  async function loadCalendarCandidates() {
+    try {
+      const res = await fetch("/api/memory-review/calendar-candidates", {
+        cache: "no-store",
+      })
+
+      if (!res.ok) {
+        setCalendarCandidates(null)
+        return
+      }
+
+      setCalendarCandidates((await res.json()) as CalendarCandidatesPayload)
+    } catch {
+      setCalendarCandidates(null)
+    }
+  }
+
   async function loadPinStatus() {
     try {
       const res = await fetch("/api/memory-review/pin/status", { cache: "no-store" })
@@ -319,9 +359,10 @@ export default function MemoriesPage() {
     void load()
     void loadPinStatus()
     void loadMemoryHealthStatus()
+    void loadCalendarCandidates()
   }, [])
 
-  const currentGroups = tab === "review" ? {} : data?.[tab] || {}
+  const currentGroups = tab === "review" || tab === "calendar" ? {} : data?.[tab] || {}
 
   const filteredGroups = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -549,6 +590,35 @@ export default function MemoriesPage() {
     }
   }
 
+  async function calendarCandidateAction(
+    candidate: CalendarCandidateItem,
+    actionName: "dismiss" | "archive",
+    pin: string,
+  ) {
+    setSavingId(`calendar-${candidate.id}`)
+    setError(null)
+
+    try {
+      const res = await fetch(`/api/memory-review/calendar-candidates/${candidate.id}/${actionName}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin }),
+      })
+
+      if (!res.ok) {
+        const detail = await safeDetail(res)
+        throw new Error(detail || "Failed to update calendar candidate")
+      }
+
+      await load()
+      await loadCalendarCandidates()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update calendar candidate")
+    } finally {
+      setSavingId(null)
+    }
+  }
+
   async function confirmMemoryFreshness(memoryId: string) {
     setSavingId(memoryId)
     setError(null)
@@ -576,6 +646,7 @@ export default function MemoriesPage() {
   const activeCount = data?.counts?.active ?? 0
   const archivedCount = data?.counts?.archived ?? 0
   const reviewCount = quality?.summary?.needs_review ?? 0
+  const calendarCandidateCount = calendarCandidates?.count ?? 0
 
   return (
     <main className="min-h-screen px-4 py-6 text-slate-950 dark:text-slate-900 dark:text-zinc-100 sm:px-6 lg:px-8">
@@ -656,10 +727,11 @@ export default function MemoriesPage() {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-4">
+          <div className="mt-6 grid gap-3 sm:grid-cols-5">
             <StatCard label="Active" value={activeCount} />
             <StatCard label="Archived" value={archivedCount} />
             <StatCard label="Needs Review" value={reviewCount} />
+            <StatCard label="Calendar" value={calendarCandidateCount} />
             <StatCard label="Total" value={data?.counts?.total ?? 0} />
           </div>
 
@@ -689,6 +761,11 @@ export default function MemoriesPage() {
               onClick={() => setTab("review")}
               label={`Needs Review (${reviewCount})`}
             />
+            <TabButton
+              active={tab === "calendar"}
+              onClick={() => setTab("calendar")}
+              label={`Calendar (${calendarCandidateCount})`}
+            />
           </div>
 
           <div className="relative w-full md:max-w-md">
@@ -708,7 +785,31 @@ export default function MemoriesPage() {
           </div>
         ) : null}
 
-        {tab === "review" ? (
+        {tab === "calendar" ? (
+          <CalendarCandidatePanel
+            candidates={calendarCandidates?.items || []}
+            loading={loading}
+            savingId={savingId}
+            onDismiss={(candidate) =>
+              requireMemoryPin(
+                "Remove calendar candidate",
+                "This keeps the memory, but removes it from the Calendar Candidates tab.",
+                async (pin) => {
+                  await calendarCandidateAction(candidate, "dismiss", pin)
+                },
+              )
+            }
+            onArchive={(candidate) =>
+              requireMemoryPin(
+                "Archive calendar candidate",
+                "This archives the selected memory-backed calendar candidate.",
+                async (pin) => {
+                  await calendarCandidateAction(candidate, "archive", pin)
+                },
+              )
+            }
+          />
+        ) : tab === "review" ? (
           <MemoryQualityPanel
             quality={quality}
             loading={loading}
@@ -914,6 +1015,136 @@ function TabButton({
       {label}
     </button>
   )
+}
+
+function CalendarCandidatePanel({
+  candidates,
+  loading,
+  savingId,
+  onDismiss,
+  onArchive,
+}: {
+  candidates: CalendarCandidateItem[]
+  loading: boolean
+  savingId: string | null
+  onDismiss: (candidate: CalendarCandidateItem) => void
+  onArchive: (candidate: CalendarCandidateItem) => void
+}) {
+  if (loading) return <LoadingState />
+
+  if (!candidates.length) {
+    return (
+      <div className="rounded-[1.5rem] border border-emerald-200/70 bg-emerald-50/70 p-8 text-center shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-emerald-300/15 dark:bg-emerald-300/10">
+        <CalendarDays className="mx-auto h-8 w-8 text-emerald-600 dark:text-emerald-300" />
+        <h2 className="mt-3 text-lg font-semibold text-slate-950 dark:text-white">
+          No calendar candidates
+        </h2>
+        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600 dark:text-zinc-300">
+          Time-bound memories that may belong on your calendar will appear here for review.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <section className="space-y-4">
+      <div className="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white/70 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035]">
+        <div className="border-b border-slate-200/70 p-5 dark:border-white/10">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl bg-cyan-400/15 p-2 text-cyan-700 dark:text-cyan-300">
+              <CalendarDays className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
+                Calendar candidates
+              </h2>
+              <p className="text-sm text-slate-500 dark:text-zinc-400">
+                Review time-bound memories before turning them into calendar events.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 p-4 lg:grid-cols-2">
+          {candidates.map((candidate) => {
+            const saving = savingId === `calendar-${candidate.id}`
+
+            return (
+              <div
+                key={candidate.id}
+                className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-black/20"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-300/80">
+                      Calendar candidate
+                    </p>
+                    <h3 className="mt-2 text-base font-semibold leading-6 text-slate-950 dark:text-white">
+                      {candidate.structured_value || candidate.content || "Untitled candidate"}
+                    </h3>
+                  </div>
+                  <span className="rounded-full bg-cyan-400/15 px-3 py-1 text-xs font-medium text-cyan-800 dark:text-cyan-200">
+                    {candidate.due_date || "No date"}
+                  </span>
+                </div>
+
+                {candidate.content ? (
+                  <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-zinc-300">
+                    {candidate.content}
+                  </p>
+                ) : null}
+
+                <div className="mt-4 grid gap-2 text-xs text-slate-500 dark:text-zinc-400 sm:grid-cols-2">
+                  <div>
+                    <span className="font-medium text-slate-700 dark:text-zinc-200">Due date:</span>{" "}
+                    {candidate.due_date || "—"}
+                  </div>
+                  <div>
+                    <span className="font-medium text-slate-700 dark:text-zinc-200">Expires:</span>{" "}
+                    {formatDateTime(candidate.expires_at)}
+                  </div>
+                  <div>
+                    <span className="font-medium text-slate-700 dark:text-zinc-200">Field:</span>{" "}
+                    {humanizeLabel(candidate.structured_field)}
+                  </div>
+                  <div>
+                    <span className="font-medium text-slate-700 dark:text-zinc-200">Created:</span>{" "}
+                    {formatDateTime(candidate.created_at)}
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => onDismiss(candidate)}
+                    disabled={saving}
+                    className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-white disabled:opacity-60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
+                  >
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+                    Not calendar event
+                  </button>
+                  <button
+                    onClick={() => onArchive(candidate)}
+                    disabled={saving}
+                    className="inline-flex items-center gap-2 rounded-full border border-red-200/70 bg-red-50/80 px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:opacity-60 dark:border-red-300/15 dark:bg-red-500/10 dark:text-red-200"
+                  >
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
+                    Archive
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "—"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
 }
 
 function MemoryQualityPanel({

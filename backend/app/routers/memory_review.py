@@ -104,6 +104,19 @@ class MemoryActionOut(BaseModel):
     new_memory_id: str | None = None
 
 
+class CalendarCandidateOut(BaseModel):
+    id: str
+    content: str | None = None
+    category: str | None = None
+    structured_field: str | None = None
+    structured_value: str | None = None
+    due_date: str | None = None
+    expires_at: str | None = None
+    calendar_candidate: bool = False
+    created_at: str | None = None
+    source_conversation_id: str | None = None
+
+
 @router.get("/pin/status")
 async def memory_pin_status(
     user_id: str = Depends(get_current_user_id),
@@ -214,6 +227,121 @@ async def list_memory_review(
 
     rows = result.data or []
     return _build_review_payload(rows)
+
+
+
+@router.get("/calendar-candidates")
+async def list_calendar_candidates(
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    """Return memory-backed calendar candidates for review.
+
+    This does not create calendar events. It only exposes scheduled/time-bound
+    memories that have been marked as calendar candidates.
+    """
+    try:
+        result = await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("memories")
+                .select(
+                    "id, content, category, structured_field, structured_value, "
+                    "due_date, expires_at, calendar_candidate, created_at, "
+                    "source_conversation_id, archived, superseded"
+                )
+                .eq("user_id", user_id)
+                .eq("calendar_candidate", True)
+                .eq("archived", False)
+                .eq("superseded", False)
+                .order("due_date", desc=False)
+                .limit(100)
+                .execute()
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load calendar candidates: {exc}",
+        ) from exc
+
+    rows = result.data or []
+    items = [_normalize_calendar_candidate(row) for row in rows]
+
+    return {
+        "items": items,
+        "count": len(items),
+    }
+
+
+@router.post("/calendar-candidates/{memory_id}/dismiss")
+async def dismiss_calendar_candidate(
+    memory_id: str,
+    body: MemoryPinIn,
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    """Keep the memory, but remove it from calendar candidate review."""
+    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
+    await _assert_memory_owner(memory_id=memory_id, user_id=user_id)
+
+    now = _now_iso()
+    try:
+        await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("memories")
+                .update(
+                    {
+                        "calendar_candidate": False,
+                        "updated_at": now,
+                    }
+                )
+                .eq("id", memory_id)
+                .eq("user_id", user_id)
+                .execute()
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to dismiss calendar candidate: {exc}",
+        ) from exc
+
+    return {"ok": True, "action": "calendar_candidate_dismissed", "memory_id": memory_id}
+
+
+@router.post("/calendar-candidates/{memory_id}/archive")
+async def archive_calendar_candidate(
+    memory_id: str,
+    body: MemoryPinIn,
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    """Archive a calendar candidate memory."""
+    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
+    await _assert_memory_owner(memory_id=memory_id, user_id=user_id)
+
+    now = _now_iso()
+    try:
+        await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("memories")
+                .update(
+                    {
+                        "archived": True,
+                        "archived_by": "calendar_candidate_review",
+                        "archived_at": now,
+                        "updated_at": now,
+                    }
+                )
+                .eq("id", memory_id)
+                .eq("user_id", user_id)
+                .execute()
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to archive calendar candidate: {exc}",
+        ) from exc
+
+    return {"ok": True, "action": "calendar_candidate_archived", "memory_id": memory_id}
 
 
 @router.get("/quality")
@@ -519,6 +647,21 @@ def _build_review_payload(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "archived": sum(len(v) for v in archived.values()),
             "total": len(rows),
         },
+    }
+
+
+def _normalize_calendar_candidate(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row.get("id"),
+        "content": row.get("content"),
+        "category": row.get("category"),
+        "structured_field": row.get("structured_field"),
+        "structured_value": row.get("structured_value"),
+        "due_date": str(row.get("due_date")) if row.get("due_date") else None,
+        "expires_at": row.get("expires_at"),
+        "calendar_candidate": bool(row.get("calendar_candidate")),
+        "created_at": row.get("created_at"),
+        "source_conversation_id": row.get("source_conversation_id"),
     }
 
 
