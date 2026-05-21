@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:3000"
 
+    # Google Calendar OAuth foundation. Optional so the backend can boot before
+    # Google OAuth is configured.
+    GOOGLE_CLIENT_ID: str | None = None
+    GOOGLE_CLIENT_SECRET: str | None = None
+    GOOGLE_CALENDAR_REDIRECT_URI: str | None = None
+    APP_FRONTEND_URL: str | None = None
+
     # Conversation Style Profile safety/cost controls
     # Upload can be large, but only a representative bounded sample is sent to Claude.
     STYLE_ANALYSIS_UPLOAD_MAX_CHARS: int = 5_000_000

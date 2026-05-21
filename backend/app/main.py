@@ -18,6 +18,7 @@ from app.routers import (
     reflections,
     style_profiles,
     avatar_mode,
+    calendar_oauth,
     voice,
 )
 from app.services import memory_health_scheduler
@@ -51,6 +52,7 @@ app.include_router(attachments.router)
 app.include_router(reflections.router)
 app.include_router(style_profiles.router)
 app.include_router(avatar_mode.router)
+app.include_router(calendar_oauth.router)
 app.include_router(voice.router)
 
 
