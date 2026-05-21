@@ -57,7 +57,7 @@ function MessageBubbleBase({ role, content, pending }: Props) {
           className="mt-1.5"
         />
 
-        <div className="glass-strong border border-border/70 shadow-sm rounded-full px-4 py-3">
+        <div className="px-3 py-3">
           <PendingDots />
         </div>
       </div>
@@ -151,9 +151,9 @@ export const MessageBubble = memo(
 function PendingDots() {
   return (
     <div className="not-prose flex items-center gap-2.5" aria-label="Assistant is thinking">
-      <span className="h-3 w-3 rounded-full bg-fg shadow-sm animate-bounce [animation-delay:-260ms]" />
-      <span className="h-3 w-3 rounded-full bg-fg/80 shadow-sm animate-bounce [animation-delay:-130ms]" />
-      <span className="h-3 w-3 rounded-full bg-fg/60 shadow-sm animate-bounce" />
+      <span className="h-2.5 w-2.5 rounded-full bg-fg animate-bounce [animation-delay:-260ms]" />
+      <span className="h-2.5 w-2.5 rounded-full bg-fg/75 animate-bounce [animation-delay:-130ms]" />
+      <span className="h-2.5 w-2.5 rounded-full bg-fg/55 animate-bounce" />
     </div>
   );
 }
