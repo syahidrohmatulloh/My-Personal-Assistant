@@ -127,6 +127,8 @@ type CalendarCandidateItem = {
   calendar_event_status?: string | null
   calendar_event_title?: string | null
   calendar_event_date?: string | null
+  calendar_event_start_at?: string | null
+  calendar_event_end_at?: string | null
   calendar_event_all_day?: boolean
   google_calendar_event_id?: string | null
   google_calendar_event_link?: string | null

@@ -118,6 +118,8 @@ class CalendarCandidateOut(BaseModel):
     calendar_event_status: str | None = None
     calendar_event_title: str | None = None
     calendar_event_date: str | None = None
+    calendar_event_start_at: str | None = None
+    calendar_event_end_at: str | None = None
     calendar_event_all_day: bool = False
     google_calendar_event_id: str | None = None
     google_calendar_event_link: str | None = None
@@ -257,8 +259,9 @@ async def list_calendar_candidates(
                 .select(
                     "id, content, category, structured_field, structured_value, "
                     "due_date, expires_at, calendar_candidate, calendar_event_status, "
-                    "calendar_event_title, calendar_event_date, calendar_event_all_day, "
-                    "google_calendar_event_id, google_calendar_event_link, google_calendar_id, "
+                    "calendar_event_title, calendar_event_date, calendar_event_start_at, "
+                    "calendar_event_end_at, calendar_event_all_day, google_calendar_event_id, "
+                    "google_calendar_event_link, google_calendar_id, "
                     "calendar_synced_at, calendar_sync_error, created_at, source_conversation_id, "
                     "archived, superseded"
                 )
@@ -353,6 +356,9 @@ async def confirm_calendar_candidate_local_event(
         )
 
     title = _event_title_from_candidate(candidate)
+    start_at = _clean_optional(str(candidate.get("calendar_event_start_at") or ""))
+    end_at = _clean_optional(str(candidate.get("calendar_event_end_at") or ""))
+    is_timed_event = bool(start_at and end_at)
     now = _now_iso()
 
     try:
@@ -365,7 +371,9 @@ async def confirm_calendar_candidate_local_event(
                         "calendar_event_status": "confirmed_local",
                         "calendar_event_title": title,
                         "calendar_event_date": due_date,
-                        "calendar_event_all_day": True,
+                        "calendar_event_start_at": start_at,
+                        "calendar_event_end_at": end_at,
+                        "calendar_event_all_day": not is_timed_event,
                         "calendar_event_created_at": now,
                         "updated_at": now,
                     }
@@ -426,6 +434,8 @@ async def sync_calendar_candidate_to_google(
 
     title = str(candidate.get("calendar_event_title") or "").strip() or _event_title_from_candidate(candidate)
     description = _google_event_description(candidate)
+    start_at = _clean_optional(str(candidate.get("calendar_event_start_at") or ""))
+    end_at = _clean_optional(str(candidate.get("calendar_event_end_at") or ""))
 
     access_token = await get_active_google_calendar_access_token(user_id=user_id)
 
@@ -435,6 +445,8 @@ async def sync_calendar_candidate_to_google(
             title=title,
             event_date=event_date,
             description=description,
+            start_at=start_at,
+            end_at=end_at,
         )
     except Exception as exc:  # noqa: BLE001
         clean_error = _humanize_google_calendar_sync_error(exc)
@@ -498,15 +510,16 @@ async def _create_google_calendar_event(
     title: str,
     event_date: str,
     description: str,
+    start_at: str | None = None,
+    end_at: str | None = None,
 ) -> dict[str, Any]:
-    # All-day event: Google Calendar end.date is exclusive.
-    end_date = _next_iso_date(event_date)
-    payload = {
-        "summary": title[:250],
-        "description": description[:4000],
-        "start": {"date": event_date},
-        "end": {"date": end_date},
-    }
+    payload = _build_google_calendar_event_payload(
+        title=title,
+        event_date=event_date,
+        description=description,
+        start_at=start_at,
+        end_at=end_at,
+    )
 
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.post(
@@ -522,6 +535,42 @@ async def _create_google_calendar_event(
         raise RuntimeError(response.text[:500])
 
     return response.json()
+
+
+def _build_google_calendar_event_payload(
+    *,
+    title: str,
+    event_date: str,
+    description: str,
+    start_at: str | None = None,
+    end_at: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "summary": title[:250],
+        "description": description[:4000],
+    }
+
+    clean_start = _clean_optional(start_at)
+    clean_end = _clean_optional(end_at)
+
+    if clean_start and clean_end and _is_iso_datetime(clean_start) and _is_iso_datetime(clean_end):
+        payload["start"] = {"dateTime": clean_start}
+        payload["end"] = {"dateTime": clean_end}
+        return payload
+
+    # All-day fallback: Google Calendar end.date is exclusive.
+    end_date = _next_iso_date(event_date)
+    payload["start"] = {"date": event_date}
+    payload["end"] = {"date": end_date}
+    return payload
+
+
+def _is_iso_datetime(value: str) -> bool:
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return False
+    return True
 
 
 def _humanize_google_calendar_sync_error(exc: Exception) -> str:
@@ -891,8 +940,9 @@ async def _assert_memory_owner(*, memory_id: str, user_id: str) -> dict[str, Any
             .select(
                 "id, user_id, content, kind, category, structured_field, "
                 "structured_value, due_date, calendar_candidate, calendar_event_status, "
-                "calendar_event_title, calendar_event_date, calendar_event_all_day, "
-                "google_calendar_event_id, google_calendar_event_link, "
+                "calendar_event_title, calendar_event_date, calendar_event_start_at, "
+                "calendar_event_end_at, calendar_event_all_day, google_calendar_event_id, "
+                "google_calendar_event_link, "
                 "source_conversation_id, superseded"
             )
             .eq("id", memory_id)
@@ -945,8 +995,8 @@ async def _load_memory_for_calendar_candidate(*, memory_id: str, user_id: str) -
                 .select(
                     "id, user_id, content, category, structured_field, structured_value, "
                     "due_date, calendar_candidate, calendar_event_status, calendar_event_title, "
-                    "calendar_event_date, calendar_event_all_day, google_calendar_event_id, "
-                    "google_calendar_event_link"
+                    "calendar_event_date, calendar_event_start_at, calendar_event_end_at, "
+                    "calendar_event_all_day, google_calendar_event_id, google_calendar_event_link"
                 )
                 .eq("id", memory_id)
                 .eq("user_id", user_id)
@@ -1004,6 +1054,8 @@ def _normalize_calendar_candidate(row: dict[str, Any]) -> dict[str, Any]:
         "calendar_event_status": row.get("calendar_event_status"),
         "calendar_event_title": row.get("calendar_event_title"),
         "calendar_event_date": str(row.get("calendar_event_date")) if row.get("calendar_event_date") else None,
+        "calendar_event_start_at": row.get("calendar_event_start_at"),
+        "calendar_event_end_at": row.get("calendar_event_end_at"),
         "calendar_event_all_day": bool(row.get("calendar_event_all_day")),
         "google_calendar_event_id": row.get("google_calendar_event_id"),
         "google_calendar_event_link": row.get("google_calendar_event_link"),
