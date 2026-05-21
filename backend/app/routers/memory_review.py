@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from app.core.auth import get_current_user_id
 from app.services.embeddings import embed_document
 from app.services.supabase_client import get_supabase, safe_execute
+from app.routers.calendar_oauth import get_active_google_calendar_access_token
 from app.services import memory_consolidation, memory_pin
 from app.services.memory_quality import assess_memory_quality
 from app.services.memory_quality_resolve import build_quality_resolve_plan
