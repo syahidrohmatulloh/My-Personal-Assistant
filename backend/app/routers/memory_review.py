@@ -263,7 +263,7 @@ async def list_calendar_candidates(
                     "archived, superseded"
                 )
                 .eq("user_id", user_id)
-                .or_("calendar_candidate.eq.true,calendar_event_status.eq.confirmed_local")
+                .or_("calendar_candidate.eq.true,calendar_event_status.in.(confirmed_local,synced_google)")
                 .eq("archived", False)
                 .eq("superseded", False)
                 .order("due_date", desc=False)
@@ -437,13 +437,14 @@ async def sync_calendar_candidate_to_google(
             description=description,
         )
     except Exception as exc:  # noqa: BLE001
+        clean_error = _humanize_google_calendar_sync_error(exc)
         now = _now_iso()
         await asyncio.to_thread(
             lambda: safe_execute(
                 lambda sb: sb.table("memories")
                 .update(
                     {
-                        "calendar_sync_error": str(exc)[:500],
+                        "calendar_sync_error": clean_error[:500],
                         "updated_at": now,
                     }
                 )
@@ -454,7 +455,7 @@ async def sync_calendar_candidate_to_google(
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to create Google Calendar event: {exc}",
+            detail=clean_error,
         ) from exc
 
     google_event_id = google_event.get("id")
@@ -521,6 +522,48 @@ async def _create_google_calendar_event(
         raise RuntimeError(response.text[:500])
 
     return response.json()
+
+
+def _humanize_google_calendar_sync_error(exc: Exception) -> str:
+    raw = str(exc)
+    lowered = raw.lower()
+
+    if "access_token_scope_insufficient" in lowered or "insufficient permission" in lowered:
+        return (
+            "Google Calendar permission is insufficient. Disconnect Google Calendar, remove app access "
+            "from your Google Account permissions, then connect Google Calendar again and approve Calendar access."
+        )
+
+    if "calendar api has not been used" in lowered or "it is disabled" in lowered:
+        return (
+            "Google Calendar API is not enabled yet for this Google Cloud project. Enable Google Calendar API "
+            "in Google Cloud Console, wait a few minutes, then try again."
+        )
+
+    if "invalid_grant" in lowered:
+        return (
+            "Google Calendar authorization expired or was revoked. Disconnect and reconnect Google Calendar."
+        )
+
+    if "401" in lowered or "unauthorized" in lowered:
+        return (
+            "Google Calendar authorization is no longer valid. Disconnect and reconnect Google Calendar."
+        )
+
+    if "403" in lowered or "permission_denied" in lowered:
+        return (
+            "Google Calendar rejected this request because of permission or project configuration. "
+            "Check Calendar API is enabled and reconnect Google Calendar if needed."
+        )
+
+    if "409" in lowered or "already exists" in lowered:
+        return "This Google Calendar event may already exist. Refresh the Calendar tab before trying again."
+
+    if raw.strip():
+        return f"Failed to create Google Calendar event: {raw[:300]}"
+
+    return "Failed to create Google Calendar event. Please try again."
+
 
 
 def _next_iso_date(value: str) -> str:
