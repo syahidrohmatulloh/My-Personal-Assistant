@@ -13,8 +13,9 @@ This router does not touch companion mood, user mood, journal, or prompt logic.
 
 from __future__ import annotations
 import asyncio
+import httpx
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -117,6 +118,11 @@ class CalendarCandidateOut(BaseModel):
     calendar_event_title: str | None = None
     calendar_event_date: str | None = None
     calendar_event_all_day: bool = False
+    google_calendar_event_id: str | None = None
+    google_calendar_event_link: str | None = None
+    google_calendar_id: str | None = None
+    calendar_synced_at: str | None = None
+    calendar_sync_error: str | None = None
     created_at: str | None = None
     source_conversation_id: str | None = None
 
@@ -251,11 +257,12 @@ async def list_calendar_candidates(
                     "id, content, category, structured_field, structured_value, "
                     "due_date, expires_at, calendar_candidate, calendar_event_status, "
                     "calendar_event_title, calendar_event_date, calendar_event_all_day, "
-                    "created_at, source_conversation_id, archived, superseded"
+                    "google_calendar_event_id, google_calendar_event_link, google_calendar_id, "
+                    "calendar_synced_at, calendar_sync_error, created_at, source_conversation_id, "
+                    "archived, superseded"
                 )
                 .eq("user_id", user_id)
-                .eq("calendar_candidate", True)
-                .is_("calendar_event_status", "null")
+                .or_("calendar_candidate.eq.true,calendar_event_status.eq.confirmed_local")
                 .eq("archived", False)
                 .eq("superseded", False)
                 .order("due_date", desc=False)
@@ -380,6 +387,164 @@ async def confirm_calendar_candidate_local_event(
         "title": title,
         "date": due_date,
     }
+
+
+@router.post("/calendar-candidates/{memory_id}/sync-google")
+async def sync_calendar_candidate_to_google(
+    memory_id: str,
+    body: MemoryPinIn,
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    """Create a real Google Calendar event from a confirmed local event draft."""
+    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
+
+    candidate = await _load_memory_for_calendar_candidate(memory_id=memory_id, user_id=user_id)
+
+    if candidate.get("google_calendar_event_id"):
+        return {
+            "ok": True,
+            "action": "calendar_event_already_synced",
+            "memory_id": memory_id,
+            "google_calendar_event_id": candidate.get("google_calendar_event_id"),
+            "google_calendar_event_link": candidate.get("google_calendar_event_link"),
+        }
+
+    status_value = str(candidate.get("calendar_event_status") or "").strip()
+    if status_value not in {"confirmed_local"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Confirm this calendar candidate as a local event draft before syncing to Google Calendar",
+        )
+
+    event_date = str(candidate.get("calendar_event_date") or candidate.get("due_date") or "").strip()
+    if not event_date or not _is_iso_date(event_date):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Calendar event draft is missing a valid date",
+        )
+
+    title = str(candidate.get("calendar_event_title") or "").strip() or _event_title_from_candidate(candidate)
+    description = _google_event_description(candidate)
+
+    access_token = await get_active_google_calendar_access_token(user_id=user_id)
+
+    try:
+        google_event = await _create_google_calendar_event(
+            access_token=access_token,
+            title=title,
+            event_date=event_date,
+            description=description,
+        )
+    except Exception as exc:  # noqa: BLE001
+        now = _now_iso()
+        await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("memories")
+                .update(
+                    {
+                        "calendar_sync_error": str(exc)[:500],
+                        "updated_at": now,
+                    }
+                )
+                .eq("id", memory_id)
+                .eq("user_id", user_id)
+                .execute()
+            )
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to create Google Calendar event: {exc}",
+        ) from exc
+
+    google_event_id = google_event.get("id")
+    google_event_link = google_event.get("htmlLink")
+    now = _now_iso()
+
+    await asyncio.to_thread(
+        lambda: safe_execute(
+            lambda sb: sb.table("memories")
+            .update(
+                {
+                    "calendar_candidate": False,
+                    "calendar_event_status": "synced_google",
+                    "google_calendar_event_id": google_event_id,
+                    "google_calendar_event_link": google_event_link,
+                    "google_calendar_id": "primary",
+                    "calendar_synced_at": now,
+                    "calendar_sync_error": None,
+                    "updated_at": now,
+                }
+            )
+            .eq("id", memory_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    )
+
+    return {
+        "ok": True,
+        "action": "calendar_event_synced_google",
+        "memory_id": memory_id,
+        "google_calendar_event_id": google_event_id,
+        "google_calendar_event_link": google_event_link,
+    }
+
+
+async def _create_google_calendar_event(
+    *,
+    access_token: str,
+    title: str,
+    event_date: str,
+    description: str,
+) -> dict[str, Any]:
+    # All-day event: Google Calendar end.date is exclusive.
+    end_date = _next_iso_date(event_date)
+    payload = {
+        "summary": title[:250],
+        "description": description[:4000],
+        "start": {"date": event_date},
+        "end": {"date": end_date},
+    }
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(
+            "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+
+    if response.status_code >= 400:
+        raise RuntimeError(response.text[:500])
+
+    return response.json()
+
+
+def _next_iso_date(value: str) -> str:
+    parsed = date.fromisoformat(value)
+    return (parsed + timedelta(days=1)).isoformat()
+
+
+def _google_event_description(row: dict[str, Any]) -> str:
+    parts = [
+        "Created from Aliyya / My Personal Assistant memory review.",
+    ]
+
+    content = str(row.get("content") or "").strip()
+    if content:
+        parts.append("")
+        parts.append("Source memory:")
+        parts.append(content)
+
+    structured_value = str(row.get("structured_value") or "").strip()
+    if structured_value:
+        parts.append("")
+        parts.append("Structured value:")
+        parts.append(structured_value)
+
+    return "\n".join(parts)
 
 
 @router.post("/calendar-candidates/{memory_id}/archive")
@@ -682,6 +847,8 @@ async def _assert_memory_owner(*, memory_id: str, user_id: str) -> dict[str, Any
             .select(
                 "id, user_id, content, kind, category, structured_field, "
                 "structured_value, due_date, calendar_candidate, calendar_event_status, "
+                "calendar_event_title, calendar_event_date, calendar_event_all_day, "
+                "google_calendar_event_id, google_calendar_event_link, "
                 "source_conversation_id, superseded"
             )
             .eq("id", memory_id)
@@ -733,7 +900,9 @@ async def _load_memory_for_calendar_candidate(*, memory_id: str, user_id: str) -
                 lambda sb: sb.table("memories")
                 .select(
                     "id, user_id, content, category, structured_field, structured_value, "
-                    "due_date, calendar_candidate, calendar_event_status"
+                    "due_date, calendar_candidate, calendar_event_status, calendar_event_title, "
+                    "calendar_event_date, calendar_event_all_day, google_calendar_event_id, "
+                    "google_calendar_event_link"
                 )
                 .eq("id", memory_id)
                 .eq("user_id", user_id)
@@ -792,6 +961,11 @@ def _normalize_calendar_candidate(row: dict[str, Any]) -> dict[str, Any]:
         "calendar_event_title": row.get("calendar_event_title"),
         "calendar_event_date": str(row.get("calendar_event_date")) if row.get("calendar_event_date") else None,
         "calendar_event_all_day": bool(row.get("calendar_event_all_day")),
+        "google_calendar_event_id": row.get("google_calendar_event_id"),
+        "google_calendar_event_link": row.get("google_calendar_event_link"),
+        "google_calendar_id": row.get("google_calendar_id"),
+        "calendar_synced_at": row.get("calendar_synced_at"),
+        "calendar_sync_error": row.get("calendar_sync_error"),
         "created_at": row.get("created_at"),
         "source_conversation_id": row.get("source_conversation_id"),
     }

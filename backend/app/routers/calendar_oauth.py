@@ -26,6 +26,7 @@ router = APIRouter(prefix="/calendar/oauth", tags=["calendar_oauth"])
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
+GOOGLE_CALENDAR_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 
 GOOGLE_CALENDAR_SCOPES = [
     "openid",
@@ -327,3 +328,101 @@ def _parse_dt(value: Any) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed
+
+
+async def get_active_google_calendar_access_token(*, user_id: str) -> str:
+    """Return a valid Google Calendar access token, refreshing if needed.
+
+    Raises HTTPException when not connected or refresh is impossible.
+    """
+    row = _get_token_connection(user_id=user_id)
+    if not row or row.get("status") != "active":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google Calendar is not connected",
+        )
+
+    access_token = str(row.get("access_token") or "").strip()
+    refresh_token = str(row.get("refresh_token") or "").strip()
+    expires_at = _parse_dt(row.get("expires_at"))
+
+    if access_token and expires_at and expires_at > datetime.now(timezone.utc) + timedelta(minutes=2):
+        return access_token
+
+    if not refresh_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google Calendar access token expired and no refresh token is available. Reconnect Google Calendar.",
+        )
+
+    client_id, client_secret, _redirect_uri = _require_google_oauth_config()
+    refreshed = await _refresh_access_token(
+        refresh_token=refresh_token,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    new_access_token = str(refreshed.get("access_token") or "").strip()
+    if not new_access_token:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Google token refresh did not return an access token",
+        )
+
+    _store_refreshed_token(user_id=user_id, token_payload=refreshed)
+    return new_access_token
+
+
+def _get_token_connection(*, user_id: str) -> dict[str, Any] | None:
+    result = safe_execute(
+        lambda sb: sb.table("google_calendar_connections")
+        .select("status,access_token,refresh_token,expires_at")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    rows = result.data or []
+    return rows[0] if rows else None
+
+
+async def _refresh_access_token(
+    *,
+    refresh_token: str,
+    client_id: str,
+    client_secret: str,
+) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(
+            GOOGLE_TOKEN_URL,
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token",
+            },
+        )
+
+    if response.status_code >= 400:
+        raise RuntimeError(f"Google token refresh failed: {response.text[:300]}")
+
+    return response.json()
+
+
+def _store_refreshed_token(*, user_id: str, token_payload: dict[str, Any]) -> None:
+    now = datetime.now(timezone.utc)
+    expires_in = int(token_payload.get("expires_in") or 3600)
+    expires_at = (now + timedelta(seconds=expires_in)).isoformat()
+
+    safe_execute(
+        lambda sb: sb.table("google_calendar_connections")
+        .update(
+            {
+                "access_token": token_payload.get("access_token"),
+                "token_type": token_payload.get("token_type"),
+                "expires_at": expires_at,
+                "updated_at": now.isoformat(),
+            }
+        )
+        .eq("user_id", user_id)
+        .execute()
+    )

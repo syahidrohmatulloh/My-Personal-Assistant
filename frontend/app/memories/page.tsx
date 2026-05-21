@@ -11,6 +11,7 @@ import {
   CalendarDays,
   CheckCircle2,
   ClipboardCheck,
+  ExternalLink,
   ChevronDown,
   ChevronRight,
   Edit3,
@@ -127,6 +128,11 @@ type CalendarCandidateItem = {
   calendar_event_title?: string | null
   calendar_event_date?: string | null
   calendar_event_all_day?: boolean
+  google_calendar_event_id?: string | null
+  google_calendar_event_link?: string | null
+  google_calendar_id?: string | null
+  calendar_synced_at?: string | null
+  calendar_sync_error?: string | null
   created_at?: string | null
   source_conversation_id?: string | null
 }
@@ -597,7 +603,7 @@ export default function MemoriesPage() {
 
   async function calendarCandidateAction(
     candidate: CalendarCandidateItem,
-    actionName: "dismiss" | "archive" | "confirm-local",
+    actionName: "dismiss" | "archive" | "confirm-local" | "sync-google",
     pin: string,
   ) {
     setSavingId(`calendar-${candidate.id}`)
@@ -795,6 +801,15 @@ export default function MemoriesPage() {
             candidates={calendarCandidates?.items || []}
             loading={loading}
             savingId={savingId}
+            onSyncGoogle={(candidate) =>
+              requireMemoryPin(
+                "Create Google Calendar event",
+                "This will create a real all-day event in your connected Google Calendar.",
+                async (pin) => {
+                  await calendarCandidateAction(candidate, "sync-google", pin)
+                },
+              )
+            }
             onConfirmLocal={(candidate) =>
               requireMemoryPin(
                 "Confirm event draft",
@@ -1035,6 +1050,7 @@ function CalendarCandidatePanel({
   candidates,
   loading,
   savingId,
+  onSyncGoogle,
   onConfirmLocal,
   onDismiss,
   onArchive,
@@ -1042,6 +1058,7 @@ function CalendarCandidatePanel({
   candidates: CalendarCandidateItem[]
   loading: boolean
   savingId: string | null
+  onSyncGoogle: (candidate: CalendarCandidateItem) => void
   onConfirmLocal: (candidate: CalendarCandidateItem) => void
   onDismiss: (candidate: CalendarCandidateItem) => void
   onArchive: (candidate: CalendarCandidateItem) => void
@@ -1131,17 +1148,50 @@ function CalendarCandidatePanel({
                     <span className="font-medium text-slate-700 dark:text-zinc-200">Event status:</span>{" "}
                     {humanizeLabel(candidate.calendar_event_status) || "Candidate"}
                   </div>
+                  <div>
+                    <span className="font-medium text-slate-700 dark:text-zinc-200">Synced:</span>{" "}
+                    {formatDateTime(candidate.calendar_synced_at)}
+                  </div>
                 </div>
 
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    onClick={() => onConfirmLocal(candidate)}
-                    disabled={saving || !candidate.due_date}
-                    className="inline-flex items-center gap-2 rounded-full bg-cyan-400 px-3 py-2 text-xs font-medium text-zinc-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+                {candidate.calendar_sync_error ? (
+                  <p className="mt-3 rounded-2xl border border-red-200/70 bg-red-50/80 px-3 py-2 text-xs leading-5 text-red-700 dark:border-red-300/15 dark:bg-red-500/10 dark:text-red-200">
+                    {candidate.calendar_sync_error}
+                  </p>
+                ) : null}
+
+                {candidate.google_calendar_event_link ? (
+                  <a
+                    href={candidate.google_calendar_event_link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-200/70 bg-emerald-50/80 px-3 py-2 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-300/15 dark:bg-emerald-500/10 dark:text-emerald-200"
                   >
-                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
-                    Confirm event draft
-                  </button>
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Open in Google Calendar
+                  </a>
+                ) : null}
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {candidate.calendar_event_status === "confirmed_local" ? (
+                    <button
+                      onClick={() => onSyncGoogle(candidate)}
+                      disabled={saving || !candidate.calendar_event_date}
+                      className="inline-flex items-center gap-2 rounded-full bg-emerald-400 px-3 py-2 text-xs font-medium text-zinc-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarDays className="h-3.5 w-3.5" />}
+                      Create Google Calendar event
+                    </button>
+                  ) : candidate.calendar_event_status === "synced_google" ? null : (
+                    <button
+                      onClick={() => onConfirmLocal(candidate)}
+                      disabled={saving || !candidate.due_date}
+                      className="inline-flex items-center gap-2 rounded-full bg-cyan-400 px-3 py-2 text-xs font-medium text-zinc-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
+                      Confirm event draft
+                    </button>
+                  )}
                   <button
                     onClick={() => onDismiss(candidate)}
                     disabled={saving}
