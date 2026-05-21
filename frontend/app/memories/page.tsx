@@ -576,10 +576,6 @@ export default function MemoriesPage() {
   const activeCount = data?.counts?.active ?? 0
   const archivedCount = data?.counts?.archived ?? 0
   const reviewCount = quality?.summary?.needs_review ?? 0
-  const schedulerReviewCount = Math.max(
-    0,
-    Number(memoryHealthStatus?.user_summary?.needs_review || 0),
-  )
 
   return (
     <main className="min-h-screen px-4 py-6 text-slate-950 dark:text-slate-900 dark:text-zinc-100 sm:px-6 lg:px-8">
@@ -667,10 +663,10 @@ export default function MemoriesPage() {
             <StatCard label="Total" value={data?.counts?.total ?? 0} />
           </div>
 
-          {schedulerReviewCount > 0 ? (
+          {reviewCount > 0 ? (
             <div className="mt-4 rounded-2xl border border-amber-200/70 bg-amber-50/80 p-4 text-sm leading-6 text-amber-900 shadow-sm shadow-amber-900/5 dark:border-amber-300/15 dark:bg-amber-300/10 dark:text-amber-100">
-              Memory review found {schedulerReviewCount} memor
-              {schedulerReviewCount === 1 ? "y" : "ies"} that may need review.
+              Memory review found {reviewCount} memor
+              {reviewCount === 1 ? "y" : "ies"} that may need review.
               Open the Needs Review tab to inspect and resolve them.
             </div>
           ) : null}
