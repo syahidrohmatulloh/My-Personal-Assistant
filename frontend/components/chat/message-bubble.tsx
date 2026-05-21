@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Loader2, Volume2, VolumeX } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -27,6 +27,12 @@ function MessageBubbleBase({ role, content, pending }: Props) {
   const avatarActivity = useAvatarActivity();
   const avatarAudio = useAvatarAudioPlayer();
   const [speakError, setSpeakError] = useState<string | null>(null);
+  const [entered, setEntered] = useState(false);
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => setEntered(true));
+    return () => window.cancelAnimationFrame(frameId);
+  }, []);
 
   async function handleSpeak() {
     if (isUser || avatarAudio.isPlaying) return;
@@ -48,7 +54,12 @@ function MessageBubbleBase({ role, content, pending }: Props) {
 
   if (isThinking) {
     return (
-      <div className="flex w-full items-start justify-start gap-3 fade-up">
+      <div
+        className={cn(
+          "flex w-full items-start justify-start gap-3 transition-all duration-500 ease-out",
+          entered ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0",
+        )}
+      >
         <AssistantAvatar
           profile={avatarProfile}
           assistantName={assistantName}
@@ -65,7 +76,13 @@ function MessageBubbleBase({ role, content, pending }: Props) {
   }
 
   return (
-    <div className={cn("flex w-full items-start gap-3 fade-up", isUser ? "justify-end" : "justify-start")}>
+    <div
+      className={cn(
+        "flex w-full items-start gap-3 transition-all duration-500 ease-out",
+        isUser ? "justify-end" : "justify-start",
+        entered ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0",
+      )}
+    >
       {!isUser ? (
         <AssistantAvatar
           profile={avatarProfile}
@@ -80,7 +97,6 @@ function MessageBubbleBase({ role, content, pending }: Props) {
         className={cn(
           "max-w-[92%] sm:max-w-[78%] rounded-[1.35rem] px-4 py-3 sm:px-5 sm:py-4",
           "text-[16.5px] leading-[1.72] sm:text-[17px] sm:leading-[1.78]",
-          "transition-opacity duration-500 ease-out",
           isUser
             ? "bg-accent text-on-accent shadow-lg shadow-accent/20"
             : "glass text-fg shadow-sm",
@@ -91,14 +107,12 @@ function MessageBubbleBase({ role, content, pending }: Props) {
         ) : (
           <div className="prose-chat break-words">
             {content ? (
-              <div className="animate-in fade-in duration-500">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeHighlight]}
-                >
-                  {content}
-                </ReactMarkdown>
-              </div>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeHighlight]}
+              >
+                {content}
+              </ReactMarkdown>
             ) : null}
 
             {content ? (
