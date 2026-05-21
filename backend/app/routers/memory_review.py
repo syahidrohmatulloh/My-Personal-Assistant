@@ -12,6 +12,7 @@ This router does not touch companion mood, user mood, journal, or prompt logic.
 """
 
 from __future__ import annotations
+import asyncio
 
 from datetime import datetime, timezone
 from typing import Any, Literal
