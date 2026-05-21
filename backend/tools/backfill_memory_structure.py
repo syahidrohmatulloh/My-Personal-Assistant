@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import re
 from typing import Any
 
@@ -64,6 +64,8 @@ SAFE_APPLY_REASONS = {
     "disliked_style",
     "food_preference",
     "sleep_pattern",
+    "scheduled_event",
+    "active_project",
     "family_member_name",
     "child_name",
     "spouse_name",
@@ -85,6 +87,35 @@ def token_count(value: str) -> int:
     return len(re.findall(r"[\w@.+:-]+", value.casefold()))
 
 
+def parse_created_date(value: Any) -> datetime | None:
+    raw = clean_text(value)
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def resolve_relative_due_date(relative: str, created_at: Any) -> str:
+    base = parse_created_date(created_at)
+    if base is None:
+        return f"relative:{relative}"
+
+    normalized = normalize(relative)
+    if normalized == "today":
+        return base.date().isoformat()
+    if normalized == "tomorrow":
+        return (base + timedelta(days=1)).date().isoformat()
+    if normalized in {"next week", "minggu depan"}:
+        return (base + timedelta(days=7)).date().isoformat()
+
+    return f"relative:{relative}"
+
+
 def trim_value(value: str) -> str:
     value = clean_text(value)
     value = re.split(
@@ -96,7 +127,7 @@ def trim_value(value: str) -> str:
     return clean_text(value).strip(" ,.;:-")
 
 
-def infer_structure(content: str, kind: str | None = None) -> InferredStructure | None:
+def infer_structure(content: str, kind: str | None = None, created_at: Any = None) -> InferredStructure | None:
     text = clean_text(content)
     lower = normalize(text)
 
@@ -203,6 +234,52 @@ def infer_structure(content: str, kind: str | None = None) -> InferredStructure 
             value = trim_value(match.group(1))
             if value:
                 return InferredStructure(field, value[:160], category, 0.82, reason)
+
+    # Active project / durable workstream.
+    active_project_patterns: tuple[str, ...] = (
+        r"\buser is working on an?\s+(.+?project\s+with\s+.+?)(?:$|[.,;])",
+        r"\buser is working on\s+(.+?project\s+with\s+.+?)(?:$|[.,;])",
+        r"\buser is working on an?\s+(.+?project)(?:$|[.,;])",
+        r"\buser is working on\s+(.+?project)(?:$|[.,;])",
+        r"\buser works on\s+(.+?-related projects?)(?:$|[.,;])",
+    )
+
+    for pattern in active_project_patterns:
+        match = re.search(pattern, lower)
+        if match:
+            # Do not use trim_value() here because durable project names can
+            # legitimately contain "with", e.g. "project with Institutional Grade..."
+            value = clean_text(match.group(1)).strip(" ,.;:-")
+            if value and token_count(value) >= 3:
+                return InferredStructure("active_project", value[:240], "goals", 0.80, "active_project")
+
+    # Food or drink preference. Allow single-item preferences such as mangoes.
+    food_like_match = re.search(
+        r"\b(?:user\s+)?(?:likes|suka)\s+([^().,;]+)(?:\s*\(([^)]{2,80})\))?",
+        lower,
+    )
+    if food_like_match:
+        main = trim_value(food_like_match.group(1))
+        alias = trim_value(food_like_match.group(2) or "")
+        if main and 1 <= token_count(main) <= 8:
+            value = f"{main} ({alias})" if alias else main
+            return InferredStructure("food_preference", value[:180], "preferences", 0.80, "food_preference")
+
+    # Scheduled / time-bound event. Store as memory for now; later this can feed Calendar.
+    scheduled_event_patterns: tuple[str, ...] = (
+        r"\buser has an?\s+(.+?)\s+scheduled for\s+(today|tomorrow|next week|minggu depan)\b",
+        r"\buser has\s+(.+?)\s+scheduled for\s+(today|tomorrow|next week|minggu depan)\b",
+    )
+
+    for pattern in scheduled_event_patterns:
+        match = re.search(pattern, lower)
+        if match:
+            event_name = trim_value(match.group(1))
+            relative = trim_value(match.group(2))
+            if event_name and token_count(event_name) >= 3:
+                due_date = resolve_relative_due_date(relative, created_at)
+                value = f"{event_name} | due_date={due_date} | relative={relative}"
+                return InferredStructure("scheduled_event", value[:260], "goals", 0.76, "scheduled_event")
 
     # Sleep pattern / recent sleep habit.
     sleep_patterns: tuple[tuple[str, str], ...] = (
@@ -404,7 +481,7 @@ def main() -> int:
     for row in rows:
         memory_id = str(row.get("id"))
         content = clean_text(row.get("content"))
-        inferred = infer_structure(content, row.get("kind"))
+        inferred = infer_structure(content, row.get("kind"), row.get("created_at"))
 
         if inferred:
             is_safe_reason = inferred.reason in SAFE_APPLY_REASONS
