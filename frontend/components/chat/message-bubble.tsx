@@ -4,6 +4,7 @@ import { memo } from "react";
 import { AssistantAvatar } from "@/components/avatar/AssistantAvatar";
 import { useAssistantDisplayName } from "@/hooks/use-assistant-display-name";
 import { useAvatarProfile } from "@/hooks/use-avatar-mode";
+import { useAvatarActivity } from "@/hooks/use-avatar-activity";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -19,6 +20,7 @@ function MessageBubbleBase({ role, content, pending }: Props) {
   const isUser = role === "user";
   const assistantName = useAssistantDisplayName();
   const { data: avatarProfile } = useAvatarProfile();
+  const avatarActivity = useAvatarActivity();
 
   return (
     <div className={cn("flex w-full fade-up items-start gap-2", isUser ? "justify-end" : "justify-start")}>
@@ -26,7 +28,7 @@ function MessageBubbleBase({ role, content, pending }: Props) {
         <AssistantAvatar
           profile={avatarProfile}
           assistantName={assistantName}
-          state={pending ? "typing" : "idle"}
+          state={avatarActivity === "speaking" ? "speaking" : pending ? "typing" : "idle"}
           size="sm"
           className="mt-1"
         />
