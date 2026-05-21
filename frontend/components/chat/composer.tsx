@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, FileText, ImageIcon, Loader2, Paperclip, X } from "lucide-react";
+import {ArrowUp, FileText, ImageIcon, Loader2, Paperclip, X, Mic, Square} from "lucide-react";
 import { type AttachmentMeta, uploadAttachment } from "@/lib/api";
+import { useVoiceInput } from "@/hooks/use-voice-input";
 
 type Props = {
   value: string;
@@ -19,6 +20,23 @@ type PendingUpload =
 const ACCEPT = "image/jpeg,image/png,image/gif,image/webp,application/pdf";
 
 export function Composer({ value, onChange, onSubmit, disabled }: Props) {
+  const voiceInput = useVoiceInput({ language: "id" });
+  const voiceBusy = voiceInput.isRecording || voiceInput.isTranscribing;
+
+  async function handleVoiceClick() {
+    if (disabled || voiceInput.isTranscribing) return;
+
+    if (!voiceInput.isRecording) {
+      await voiceInput.start();
+      return;
+    }
+
+    const transcript = await voiceInput.stopAndTranscribe();
+    if (!transcript) return;
+
+    const nextValue = value.trim() ? `${value.trim()} ${transcript}` : transcript;
+    onChange(nextValue);
+  }
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<PendingUpload[]>([]);
@@ -153,6 +171,34 @@ export function Composer({ value, onChange, onSubmit, disabled }: Props) {
               e.target.value = ""; // allow re-uploading same file
             }}
           />
+          <button
+            type="button"
+            onClick={handleVoiceClick}
+            disabled={disabled || voiceInput.isTranscribing}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-fg/[0.035] text-fg-muted transition hover:bg-fg/[0.06] hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label={
+              voiceInput.isRecording
+                ? "Stop recording and transcribe"
+                : voiceInput.isTranscribing
+                  ? "Transcribing voice"
+                  : "Record voice"
+            }
+            title={
+              voiceInput.isRecording
+                ? "Stop recording and transcribe"
+                : voiceInput.isTranscribing
+                  ? "Transcribing voice"
+                  : "Record voice"
+            }
+          >
+            {voiceInput.isTranscribing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : voiceInput.isRecording ? (
+              <Square className="h-3.5 w-3.5 fill-current" />
+            ) : (
+              <Mic className="h-4 w-4" />
+            )}
+          </button>
           <textarea
             ref={textareaRef}
             rows={1}
@@ -184,6 +230,7 @@ export function Composer({ value, onChange, onSubmit, disabled }: Props) {
           </p>
         )}
         <p className="hidden sm:block text-[11px] text-fg-subtle mt-2 text-center">
+          {voiceInput.error ? <span className="text-[11px] text-red-500">{voiceInput.error}</span> : null}
           Shift + Enter for newline · Enter to send
         </p>
       </div>

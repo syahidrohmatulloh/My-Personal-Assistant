@@ -24,10 +24,20 @@ class VoiceProviderError(RuntimeError):
     """Raised when the voice provider cannot generate audio."""
 
 
+class TranscriptionProviderError(RuntimeError):
+    """Raised when the transcription provider cannot transcribe audio."""
+
+
 @dataclass(frozen=True)
 class SpeechAudio:
     content: bytes
     media_type: str = "audio/mpeg"
+
+
+@dataclass(frozen=True)
+class TranscriptionResult:
+    text: str
+    confidence: float | None = None
 
 
 def _required_env(name: str) -> str:
@@ -103,3 +113,117 @@ async def generate_speech(text: str) -> SpeechAudio:
         raise VoiceProviderError("Speech generation returned empty audio")
 
     return SpeechAudio(content=response.content, media_type=content_type)
+
+
+def _clean_audio_upload(content: bytes, content_type: str | None) -> tuple[bytes, str]:
+    if not content:
+        raise ValueError("Audio file is required")
+
+    max_bytes = 20 * 1024 * 1024
+    if len(content) > max_bytes:
+        raise ValueError("Audio file is too large")
+
+    media_type = (content_type or "application/octet-stream").split(";")[0].strip().lower()
+    allowed_media_types = {
+        "audio/webm",
+        "audio/mp4",
+        "audio/mpeg",
+        "audio/mp3",
+        "audio/wav",
+        "audio/x-wav",
+        "audio/ogg",
+        "application/octet-stream",
+    }
+
+    if media_type not in allowed_media_types:
+        raise ValueError("Unsupported audio format")
+
+    return content, media_type
+
+
+def _extract_deepgram_text(payload: dict) -> TranscriptionResult:
+    alternatives = (
+        payload.get("results", {})
+        .get("channels", [{}])[0]
+        .get("alternatives", [])
+    )
+    if not alternatives:
+        return TranscriptionResult(text="", confidence=None)
+
+    best = alternatives[0] or {}
+    transcript = " ".join(str(best.get("transcript", "")).split())
+    confidence = best.get("confidence")
+    try:
+        confidence_value = float(confidence) if confidence is not None else None
+    except (TypeError, ValueError):
+        confidence_value = None
+
+    return TranscriptionResult(text=transcript, confidence=confidence_value)
+
+
+async def transcribe_audio(
+    *,
+    content: bytes,
+    content_type: str | None,
+    language: str | None = None,
+) -> TranscriptionResult:
+    """Transcribe user audio with Deepgram.
+
+    This only converts the authenticated user's microphone audio into text.
+    It does not identify speakers or infer identity.
+    """
+    audio, media_type = _clean_audio_upload(content, content_type)
+
+    api_key = _required_env("DEEPGRAM_API_KEY")
+    base_url = os.getenv("DEEPGRAM_BASE_URL", "https://api.deepgram.com").strip().rstrip("/")
+    model = os.getenv("DEEPGRAM_MODEL_ID", "nova-3").strip() or "nova-3"
+
+    params = {
+        "model": model,
+        "smart_format": "true",
+        "punctuate": "true",
+    }
+
+    clean_language = (language or os.getenv("DEEPGRAM_LANGUAGE", "")).strip()
+    if clean_language:
+        params["language"] = clean_language
+
+    headers = {
+        "Authorization": f"Token {api_key}",
+        "Content-Type": media_type,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TTS_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                f"{base_url}/v1/listen",
+                params=params,
+                content=audio,
+                headers=headers,
+            )
+    except httpx.HTTPError as exc:
+        log.warning("transcription provider network error: %s", exc)
+        raise TranscriptionProviderError("Transcription provider is unreachable") from exc
+
+    if response.status_code == 401:
+        raise TranscriptionProviderError("Transcription failed because the API key is unauthorized")
+    if response.status_code == 402:
+        raise TranscriptionProviderError("Transcription failed because billing or credits are required")
+    if response.status_code == 429:
+        raise TranscriptionProviderError("Transcription rate limit reached")
+    if response.status_code >= 400:
+        log.warning(
+            "transcription provider error status=%s body=%s",
+            response.status_code,
+            response.text[:500],
+        )
+        raise TranscriptionProviderError(
+            f"Transcription failed with provider status {response.status_code}"
+        )
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise TranscriptionProviderError("Transcription provider returned invalid JSON") from exc
+
+    return _extract_deepgram_text(payload)
