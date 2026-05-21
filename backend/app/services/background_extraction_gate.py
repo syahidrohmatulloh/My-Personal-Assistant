@@ -22,6 +22,7 @@ class ExtractionDecision:
     run_mood_memory_feedback: bool
     run_relationship_memory: bool
     run_goal_intelligence: bool
+    run_calendar_candidate_extraction: bool
     reasons: list[str]
 
 
@@ -47,6 +48,31 @@ _MEMORY_SIGNALS = (
     "birthday",
     "jangan panggil",
     "don't call me",
+)
+
+_CALENDAR_SIGNALS = (
+    "meeting",
+    "meet",
+    "call",
+    "zoom",
+    "gmeet",
+    "google meet",
+    "presentasi",
+    "presentation",
+    "rapat",
+    "ketemu",
+    "diskusi",
+    "deadline",
+    "appointment",
+    "janji",
+    "agenda",
+    "besok",
+    "tomorrow",
+    "lusa",
+    "hari ini",
+    "today",
+    "jam ",
+    "pukul ",
 )
 
 _GOAL_SIGNALS = (
@@ -167,6 +193,7 @@ def decide(
         recent_messages or [],
     )
     has_goal_signal = _contains_any(text, _GOAL_SIGNALS)
+    has_calendar_signal = _contains_any(text, _CALENDAR_SIGNALS)
     has_mood_feedback_signal = _contains_any(combined, _MOOD_FEEDBACK_SIGNALS)
     has_relationship_signal = _contains_any(combined, _RELATIONSHIP_SIGNALS)
 
@@ -174,6 +201,8 @@ def decide(
         reasons.append("memory_signal")
     if has_goal_signal:
         reasons.append("goal_signal")
+    if has_calendar_signal:
+        reasons.append("calendar_signal")
     if has_mood_feedback_signal:
         reasons.append("mood_feedback_signal")
     if has_relationship_signal:
@@ -195,6 +224,7 @@ def decide(
 
     # Goal intelligence is an LLM call. Run only on goal-like turns.
     run_goal_intelligence = has_goal_signal
+    run_calendar_candidate_extraction = has_calendar_signal
 
     return ExtractionDecision(
         run_legacy_memory=run_legacy_memory,
@@ -202,5 +232,6 @@ def decide(
         run_mood_memory_feedback=run_mood_memory_feedback,
         run_relationship_memory=run_relationship_memory,
         run_goal_intelligence=run_goal_intelligence,
+        run_calendar_candidate_extraction=run_calendar_candidate_extraction,
         reasons=reasons,
     )

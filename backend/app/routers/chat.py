@@ -39,6 +39,7 @@ from app.config import settings
 from app.core.auth import get_current_user_id
 from app.schemas import ChatIn
 from app.services import (
+    calendar_candidate_extractor,
     conversation_chronology,
     capability_registry,
     attachments,
@@ -1087,6 +1088,16 @@ async def _stream_claude_response(
             conversation_id=conversation_id,
             user_message=user_message,
             assistant_response=assistant_text,
+        )
+
+    # Calendar candidate extraction — deterministic, review-first, never syncs directly.
+    if extraction_decision.run_calendar_candidate_extraction:
+        background_tasks.add_task(
+            calendar_candidate_extractor.extract_and_persist,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            user_message=user_message,
+            client_context=body.client_context,
         )
 
 
