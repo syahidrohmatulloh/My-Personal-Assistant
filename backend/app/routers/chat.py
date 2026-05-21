@@ -39,6 +39,7 @@ from app.config import settings
 from app.core.auth import get_current_user_id
 from app.schemas import ChatIn
 from app.services import (
+    conversation_chronology,
     capability_registry,
     attachments,
     companion,
@@ -720,12 +721,19 @@ async def chat(
     else:
         assistant_name = companion_settings_row.get("assistant_name") or "Assistant"
 
+    chronology_context = await conversation_chronology.build_context_if_relevant(
+        user_id=user_id,
+        query_text=body.message,
+    )
+
     # === Phase 2: history (must be after save) ===
     messages = await _load_history(supabase, body.conversation_id)
     messages = trim_history(messages)
 
     # === Build prompt with cached base + volatile context ===
     volatile_context = render_context(context)
+    if chronology_context:
+        volatile_context += "\n\n" + chronology_context
     volatile_context += "\n\n" + capability_registry.render_capability_registry()
     volatile_context += (
         "\\n\\nGoal feature capability state — authoritative:"
