@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Loader2, Volume2, VolumeX } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -28,6 +28,8 @@ function MessageBubbleBase({ role, content, pending }: Props) {
   const avatarAudio = useAvatarAudioPlayer();
   const [speakError, setSpeakError] = useState<string | null>(null);
   const [entered, setEntered] = useState(false);
+
+  const displayContent = useStreamingText(content, !isUser && pending === true);
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => setEntered(true));
@@ -106,16 +108,16 @@ function MessageBubbleBase({ role, content, pending }: Props) {
           <p className="whitespace-pre-wrap break-words">{content}</p>
         ) : (
           <div className="prose-chat break-words">
-            {content ? (
+            {displayContent ? (
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeHighlight]}
               >
-                {content}
+                {displayContent}
               </ReactMarkdown>
             ) : null}
 
-            {content ? (
+            {content && !pending ? (
               <div className="not-prose mt-3 flex items-center gap-2">
                 <button
                   type="button"
@@ -162,6 +164,76 @@ export const MessageBubble = memo(
     a.role === b.role && a.content === b.content && a.pending === b.pending,
 );
 
+function useStreamingText(content: string, active: boolean) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const [displayed, setDisplayed] = useState(() => (active && !prefersReducedMotion ? "" : content));
+
+  const targetRef = useRef(active && !prefersReducedMotion ? "" : content);
+  const displayedRef = useRef(displayed);
+  const activeRef = useRef(active);
+  const timerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    displayedRef.current = displayed;
+  }, [displayed]);
+
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
+
+  useEffect(() => {
+    if (prefersReducedMotion) {
+      targetRef.current = content;
+      displayedRef.current = content;
+      setDisplayed(content);
+      return;
+    }
+
+    const previousTarget = targetRef.current;
+
+    if (!content.startsWith(previousTarget) && content !== previousTarget) {
+      targetRef.current = content;
+      displayedRef.current = active ? "" : content;
+      setDisplayed(displayedRef.current);
+    } else {
+      targetRef.current = content;
+    }
+
+    if (timerRef.current == null) {
+      timerRef.current = window.setInterval(() => {
+        const target = targetRef.current;
+        const current = displayedRef.current;
+
+        if (current.length >= target.length) {
+          if (!activeRef.current && timerRef.current != null) {
+            window.clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+          return;
+        }
+
+        const remaining = target.length - current.length;
+        const step = remaining > 500 ? 14 : remaining > 180 ? 9 : remaining > 60 ? 6 : 3;
+        const next = target.slice(0, current.length + step);
+
+        displayedRef.current = next;
+        setDisplayed(next);
+      }, 34);
+    }
+  }, [active, content, prefersReducedMotion]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current != null) {
+        window.clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, []);
+
+  return displayed;
+}
+
 function PendingDots() {
   return (
     <div className="not-prose flex items-center gap-2.5 text-fg" aria-label="Assistant is thinking">
@@ -191,4 +263,23 @@ function PendingDots() {
       `}</style>
     </div>
   );
+}
+
+function usePrefersReducedMotion() {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+    const sync = () => setPrefersReducedMotion(mediaQuery.matches);
+    sync();
+
+    mediaQuery.addEventListener("change", sync);
+
+    return () => {
+      mediaQuery.removeEventListener("change", sync);
+    };
+  }, []);
+
+  return prefersReducedMotion;
 }

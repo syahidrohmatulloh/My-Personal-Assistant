@@ -293,6 +293,8 @@ const handleSend = useCallback(
     let assistantText = "";
     let pending = "";
     let rafId: number | null = null;
+    const minThinkingMs = 650;
+    const thinkingStartedAt = Date.now();
     const flush = () => {
       if (!pending) {
         rafId = null;
@@ -333,10 +335,20 @@ const handleSend = useCallback(
         if (event.type === "done") continue;
 
         pending += event.text;
+
+        if (Date.now() - thinkingStartedAt < minThinkingMs) {
+          continue;
+        }
+
         if (rafId == null) {
           rafId = requestAnimationFrame(flush);
         }
       }
+      const remainingThinkingMs = minThinkingMs - (Date.now() - thinkingStartedAt);
+      if (remainingThinkingMs > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, remainingThinkingMs));
+      }
+
       if (rafId != null) cancelAnimationFrame(rafId);
       flush();
 
