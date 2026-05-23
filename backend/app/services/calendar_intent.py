@@ -53,23 +53,9 @@ Rules:
 
 
 def _get_claude_client():
-    candidates = (
-        ("app.services", "get_claude"),
-        ("app.services.claude_client", "get_claude"),
-        ("app.services.anthropic", "get_claude"),
-        ("app.services.anthropic_client", "get_claude"),
-    )
+    from app.services.claude import get_claude
 
-    for module_name, attr in candidates:
-        try:
-            module = importlib.import_module(module_name)
-            getter = getattr(module, attr, None)
-            if getter:
-                return getter()
-        except Exception:
-            continue
-
-    raise RuntimeError("Could not locate get_claude client factory")
+    return get_claude()
 
 
 def _client_context_dict(client_context: dict[str, Any] | None) -> dict[str, Any]:
