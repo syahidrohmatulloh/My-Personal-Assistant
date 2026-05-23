@@ -47,6 +47,147 @@ type TimelineRow =
       endAt: string
     }
 
+
+type UnknownRecord = Record<string, unknown>
+
+function asRecord(value: unknown): UnknownRecord | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as UnknownRecord)
+    : null
+}
+
+function pickString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null
+}
+
+function getRecordField(record: UnknownRecord | null, key: string): unknown {
+  return record ? record[key] : undefined
+}
+
+function pickUserDisplayNameFromPayload(payload: unknown): string | null {
+  const root = asRecord(payload)
+  if (!root) {
+    return null
+  }
+
+  const identity = asRecord(getRecordField(root, "identity"))
+  const context = asRecord(getRecordField(root, "context"))
+  const contextIdentity = asRecord(getRecordField(context, "identity"))
+
+  const profile =
+    asRecord(getRecordField(root, "profile")) ||
+    asRecord(getRecordField(identity, "profile")) ||
+    asRecord(getRecordField(contextIdentity, "profile")) ||
+    null
+
+  const candidates = [
+    getRecordField(root, "user_name"),
+    getRecordField(root, "userName"),
+    getRecordField(root, "name"),
+    getRecordField(root, "display_name"),
+    getRecordField(root, "displayName"),
+    getRecordField(profile, "user_name"),
+    getRecordField(profile, "userName"),
+    getRecordField(profile, "name"),
+    getRecordField(profile, "display_name"),
+    getRecordField(profile, "displayName"),
+    getRecordField(profile, "preferred_name"),
+    getRecordField(profile, "preferredName"),
+  ]
+
+  for (const candidate of candidates) {
+    const value = pickString(candidate)
+    if (value) {
+      return value.split(/\s+/)[0]
+    }
+  }
+
+  return null
+}
+
+function pickUserDisplayNameFromStorage(): string | null {
+  if (typeof window === "undefined") {
+    return null
+  }
+
+  const directKeys = [
+    "app:user-name",
+    "app:userName",
+    "user_name",
+    "userName",
+    "profile:user_name",
+    "identity:user_name",
+  ]
+
+  for (const key of directKeys) {
+    const value = pickString(window.localStorage.getItem(key))
+    if (value) {
+      return value.split(/\s+/)[0]
+    }
+  }
+
+  const jsonKeys = ["app:identity", "identity", "profile", "user", "app:user"]
+
+  for (const key of jsonKeys) {
+    const raw = window.localStorage.getItem(key)
+    if (!raw) {
+      continue
+    }
+
+    try {
+      const parsed = JSON.parse(raw)
+      const value = pickUserDisplayNameFromPayload(parsed)
+      if (value) {
+        return value
+      }
+    } catch {
+      // Ignore non-JSON cache values.
+    }
+  }
+
+  return null
+}
+
+async function loadCalendarOwnerName(): Promise<string> {
+  const cached = pickUserDisplayNameFromStorage()
+  if (cached) {
+    return cached
+  }
+
+  const endpoints = [
+    "/api/identity",
+    "/api/profile",
+    "/api/me",
+    "/api/user-context",
+    "/api/context",
+  ]
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      })
+
+      if (!response.ok) {
+        continue
+      }
+
+      const payload = await response.json()
+      const value = pickUserDisplayNameFromPayload(payload)
+
+      if (value) {
+        return value
+      }
+    } catch {
+      // Try the next optional endpoint.
+    }
+  }
+
+  return "My"
+}
+
 function normalizeTitle(item: RawCalendarItem): string {
   const raw =
     item.calendar_event_title ||
@@ -251,6 +392,7 @@ export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [calendarOwnerName, setCalendarOwnerName] = useState("My")
 
   async function loadCalendarEvents() {
     setIsLoading(true)
@@ -286,6 +428,20 @@ export default function CalendarPage() {
     void loadCalendarEvents()
   }, [])
 
+  useEffect(() => {
+    let mounted = true
+
+    void loadCalendarOwnerName().then((name) => {
+      if (mounted) {
+        setCalendarOwnerName(name)
+      }
+    })
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
   const groupedEvents = useMemo(() => groupByDate(events), [events])
 
   return (
@@ -295,7 +451,7 @@ export default function CalendarPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-fg-muted">
-                Aliyya Calendar
+                {calendarOwnerName} Calendar
               </p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
                 Calendar
