@@ -50,6 +50,40 @@ type TimelineRow =
 
 type UnknownRecord = Record<string, unknown>
 
+const ASSISTANT_NAME_VALUES = new Set([
+  "aliyya",
+  "assistant",
+  "asisten",
+  "beb",
+  "bebe",
+  "sayang",
+])
+
+const USER_NAME_KEYS = new Set([
+  "user_name",
+  "userName",
+  "preferred_user_name",
+  "preferredUserName",
+  "preferred_name",
+  "preferredName",
+  "display_name",
+  "displayName",
+  "full_name",
+  "fullName",
+  "name",
+])
+
+const ASSISTANT_NAME_KEYS = new Set([
+  "assistant_name",
+  "assistantName",
+  "assistant_display_name",
+  "assistantDisplayName",
+  "bot_name",
+  "botName",
+  "ai_name",
+  "aiName",
+])
+
 function asRecord(value: unknown): UnknownRecord | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as UnknownRecord)
@@ -60,49 +94,60 @@ function pickString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null
 }
 
-function getRecordField(record: UnknownRecord | null, key: string): unknown {
-  return record ? record[key] : undefined
+function firstName(value: string): string {
+  return value.trim().split(/\s+/)[0] || value.trim()
 }
 
-function pickUserDisplayNameFromPayload(payload: unknown): string | null {
-  const root = asRecord(payload)
-  if (!root) {
+function isLikelyAssistantName(value: string): boolean {
+  return ASSISTANT_NAME_VALUES.has(value.trim().toLowerCase())
+}
+
+function findUserNameDeep(value: unknown, depth = 0): string | null {
+  if (depth > 5) {
     return null
   }
 
-  const identity = asRecord(getRecordField(root, "identity"))
-  const context = asRecord(getRecordField(root, "context"))
-  const contextIdentity = asRecord(getRecordField(context, "identity"))
+  const record = asRecord(value)
+  if (!record) {
+    return null
+  }
 
-  const profile =
-    asRecord(getRecordField(root, "profile")) ||
-    asRecord(getRecordField(identity, "profile")) ||
-    asRecord(getRecordField(contextIdentity, "profile")) ||
-    null
+  // Prefer explicit user-ish keys first.
+  for (const [key, raw] of Object.entries(record)) {
+    if (ASSISTANT_NAME_KEYS.has(key)) {
+      continue
+    }
 
-  const candidates = [
-    getRecordField(root, "user_name"),
-    getRecordField(root, "userName"),
-    getRecordField(root, "name"),
-    getRecordField(root, "display_name"),
-    getRecordField(root, "displayName"),
-    getRecordField(profile, "user_name"),
-    getRecordField(profile, "userName"),
-    getRecordField(profile, "name"),
-    getRecordField(profile, "display_name"),
-    getRecordField(profile, "displayName"),
-    getRecordField(profile, "preferred_name"),
-    getRecordField(profile, "preferredName"),
-  ]
+    if (USER_NAME_KEYS.has(key)) {
+      const candidate = pickString(raw)
+      if (candidate && !isLikelyAssistantName(candidate)) {
+        return firstName(candidate)
+      }
+    }
+  }
 
-  for (const candidate of candidates) {
-    const value = pickString(candidate)
-    if (value) {
-      return value.split(/\s+/)[0]
+  // Then scan nested objects.
+  for (const [key, raw] of Object.entries(record)) {
+    if (ASSISTANT_NAME_KEYS.has(key)) {
+      continue
+    }
+
+    const nested = asRecord(raw)
+    if (!nested) {
+      continue
+    }
+
+    const candidate = findUserNameDeep(nested, depth + 1)
+    if (candidate) {
+      return candidate
     }
   }
 
   return null
+}
+
+function pickUserDisplayNameFromPayload(payload: unknown): string | null {
+  return findUserNameDeep(payload)
 }
 
 function pickUserDisplayNameFromStorage(): string | null {
@@ -117,16 +162,26 @@ function pickUserDisplayNameFromStorage(): string | null {
     "userName",
     "profile:user_name",
     "identity:user_name",
+    "app:profile:user_name",
   ]
 
   for (const key of directKeys) {
     const value = pickString(window.localStorage.getItem(key))
-    if (value) {
-      return value.split(/\s+/)[0]
+    if (value && !isLikelyAssistantName(value)) {
+      return firstName(value)
     }
   }
 
-  const jsonKeys = ["app:identity", "identity", "profile", "user", "app:user"]
+  const jsonKeys = [
+    "app:identity",
+    "identity",
+    "profile",
+    "user",
+    "app:user",
+    "app:user-context",
+    "user-context",
+    "memory-review:identity",
+  ]
 
   for (const key of jsonKeys) {
     const raw = window.localStorage.getItem(key)
@@ -155,6 +210,10 @@ async function loadCalendarOwnerName(): Promise<string> {
   }
 
   const endpoints = [
+    "/api/memory-review/identity",
+    "/api/memory-review/profile",
+    "/api/memory-review/context",
+    "/api/memory-review",
     "/api/identity",
     "/api/profile",
     "/api/me",
@@ -178,6 +237,9 @@ async function loadCalendarOwnerName(): Promise<string> {
       const value = pickUserDisplayNameFromPayload(payload)
 
       if (value) {
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem("app:user-name", value)
+        }
         return value
       }
     } catch {
@@ -187,6 +249,7 @@ async function loadCalendarOwnerName(): Promise<string> {
 
   return "My"
 }
+
 
 function normalizeTitle(item: RawCalendarItem): string {
   const raw =
