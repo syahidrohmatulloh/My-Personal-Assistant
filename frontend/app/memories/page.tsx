@@ -196,13 +196,78 @@ const GROUP_ORDER = [
   "Other",
 ]
 
+type MemoriesSnapshotPayload = {
+  version: 1
+  savedAt: string
+  data: MemoryReviewPayload | null
+  quality: MemoryQualityPayload | null
+  memoryHealthStatus: MemoryHealthSchedulerStatus | null
+}
+
+const MEMORIES_SNAPSHOT_KEY = "app:memories-snapshot:v1"
+
+function readMemoriesSnapshot(): MemoriesSnapshotPayload | null {
+  if (typeof window === "undefined") {
+    return null
+  }
+
+  const raw = window.localStorage.getItem(MEMORIES_SNAPSHOT_KEY)
+  if (!raw) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<MemoriesSnapshotPayload>
+
+    if (parsed.version !== 1) {
+      return null
+    }
+
+    return {
+      version: 1,
+      savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : new Date(0).toISOString(),
+      data: parsed.data ?? null,
+      quality: parsed.quality ?? null,
+      memoryHealthStatus: parsed.memoryHealthStatus ?? null,
+    }
+  } catch {
+    return null
+  }
+}
+
+function writeMemoriesSnapshot(payload: {
+  data: MemoryReviewPayload | null
+  quality: MemoryQualityPayload | null
+  memoryHealthStatus: MemoryHealthSchedulerStatus | null
+}) {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  const snapshot: MemoriesSnapshotPayload = {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    data: payload.data,
+    quality: payload.quality,
+    memoryHealthStatus: payload.memoryHealthStatus,
+  }
+
+  try {
+    window.localStorage.setItem(MEMORIES_SNAPSHOT_KEY, JSON.stringify(snapshot))
+  } catch {
+    // Ignore storage quota or private-mode failures.
+  }
+}
+
+
 export default function MemoriesPage() {
   const assistantName = useAssistantDisplayName();
   const memoriesEyebrow = useAssistantOwnedLabel("Memories");
-  const [data, setData] = useState<MemoryReviewPayload | null>(null)
-  const [quality, setQuality] = useState<MemoryQualityPayload | null>(null)
-  const [memoryHealthStatus, setMemoryHealthStatus] = useState<MemoryHealthSchedulerStatus | null>(null)
-  const [loading, setLoading] = useState(true)
+  const initialSnapshot = useMemo(() => readMemoriesSnapshot(), [])
+  const [data, setData] = useState<MemoryReviewPayload | null>(initialSnapshot?.data ?? null)
+  const [quality, setQuality] = useState<MemoryQualityPayload | null>(initialSnapshot?.quality ?? null)
+  const [memoryHealthStatus, setMemoryHealthStatus] = useState<MemoryHealthSchedulerStatus | null>(initialSnapshot?.memoryHealthStatus ?? null)
+  const [loading, setLoading] = useState(() => !initialSnapshot?.data)
   const [savingId, setSavingId] = useState<string | null>(null)
   const [consolidating, setConsolidating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -246,8 +311,17 @@ export default function MemoriesPage() {
         }
       }
       setOpenGroups((prev) => ({ ...nextOpen, ...prev }))
-      await loadQuality()
-      await loadMemoryHealthStatus()
+
+      const [nextQuality, nextHealthStatus] = await Promise.all([
+        loadQuality(),
+        loadMemoryHealthStatus(),
+      ])
+
+      writeMemoriesSnapshot({
+        data: json,
+        quality: nextQuality,
+        memoryHealthStatus: nextHealthStatus,
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load memories")
     } finally {
@@ -255,21 +329,24 @@ export default function MemoriesPage() {
     }
   }
 
-  async function loadQuality() {
+  async function loadQuality(): Promise<MemoryQualityPayload | null> {
     try {
       const res = await fetch("/api/memory-review/quality", {
         cache: "no-store",
       })
 
-      if (!res.ok) return
+      if (!res.ok) return null
 
-      setQuality((await res.json()) as MemoryQualityPayload)
+      const payload = (await res.json()) as MemoryQualityPayload
+      setQuality(payload)
+      return payload
     } catch {
       setQuality(null)
+      return null
     }
   }
 
-  async function loadMemoryHealthStatus() {
+  async function loadMemoryHealthStatus(): Promise<MemoryHealthSchedulerStatus | null> {
     try {
       const schedulerRes = await fetch("/api/memory-review/quality/scheduler/status", {
         cache: "no-store",
@@ -279,11 +356,12 @@ export default function MemoriesPage() {
         const schedulerJson = (await schedulerRes.json()) as MemoryHealthSchedulerStatus
 
         if (typeof schedulerJson.user_summary?.needs_review === "number") {
-          setMemoryHealthStatus({
+          const payload: MemoryHealthSchedulerStatus = {
             ...schedulerJson,
             health_source: "scheduler",
-          })
-          return
+          }
+          setMemoryHealthStatus(payload)
+          return payload
         }
       }
 
@@ -293,11 +371,11 @@ export default function MemoriesPage() {
 
       if (!liveRes.ok) {
         setMemoryHealthStatus(null)
-        return
+        return null
       }
 
       const liveJson = (await liveRes.json()) as MemoryQualityPayload
-      setMemoryHealthStatus({
+      const payload: MemoryHealthSchedulerStatus = {
         health_source: "live",
         user_summary: {
           needs_review: liveJson.summary.needs_review,
@@ -306,9 +384,12 @@ export default function MemoriesPage() {
           low_quality_memories: liveJson.summary.low_quality_memories,
           stale_memories: liveJson.summary.stale_memories || 0,
         },
-      })
+      }
+      setMemoryHealthStatus(payload)
+      return payload
     } catch {
       setMemoryHealthStatus(null)
+      return null
     }
   }
 
@@ -326,7 +407,6 @@ export default function MemoriesPage() {
   useEffect(() => {
     void load()
     void loadPinStatus()
-    void loadMemoryHealthStatus()
   }, [])
 
   const currentGroups = tab === "review" ? {} : data?.[tab as "active" | "archived"] || {}
@@ -601,6 +681,11 @@ export default function MemoriesPage() {
                 Review what {assistantName} remembers, manage active memories, and
                 inspect archived or archived memories in one place.
               </p>
+              {loading && data ? (
+                <p className="mt-2 text-xs text-slate-500 dark:text-zinc-400">
+                  Showing saved snapshot while refreshing latest memories…
+                </p>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap gap-3">
@@ -654,7 +739,7 @@ export default function MemoriesPage() {
                 disabled={loading}
                 className="inline-flex items-center gap-2 rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-zinc-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {loading ? (
+                {loading && !data ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <RefreshCcw className="h-4 w-4" />
