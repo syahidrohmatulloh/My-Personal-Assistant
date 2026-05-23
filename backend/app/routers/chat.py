@@ -744,6 +744,17 @@ async def chat(
         "\\n- Do not claim the goal is already active/saved unless a direct create-goal action has explicitly succeeded in the current request."
         "\\n- Preferred wording: Aku bantu siapkan ini sebagai kandidat goal di Goals."
     )
+    if calendar_candidate_extractor.has_calendar_signal(body.message):
+        volatile_context += (
+            "\\n\\nCalendar Candidate capability state — authoritative:"
+            "\\n- The user message appears to contain a schedule/calendar event request."
+            "\\n- The app has a review-first Calendar Candidate system that can prepare event drafts from chat."
+            "\\n- Do not say you cannot help with calendar handling."
+            "\\n- Do not claim the event is already created in Google Calendar unless a direct Google Calendar sync action has explicitly succeeded in the current request."
+            "\\n- Say you will prepare or have prepared it as a Calendar Candidate for review in Memories → Calendar."
+            "\\n- Summarize the event naturally with title, date, time, and location if available from the user's message."
+            "\\n- Preferred Indonesian wording: Aku siapkan ini sebagai Calendar Candidate dulu ya, nanti kamu bisa review dan sync ke Google Calendar dari Memories → Calendar."
+        )
     temporal_grounding_block = temporal_grounding.render_temporal_grounding_block(
         user_message=body.message,
         client_context=getattr(body, "client_context", None),
