@@ -45,6 +45,28 @@ _EVENT_KEYWORDS = (
     "janji",
     "agenda",
     "interview",
+    "acara",
+    "sharing session",
+    "session",
+    "seminar",
+    "workshop",
+)
+
+_EXPLICIT_CALENDAR_COMMANDS = (
+    "masukin ke kalender",
+    "masukkan ke kalender",
+    "tambahin ke kalender",
+    "tambahkan ke kalender",
+    "catat ke kalender",
+    "masukin kalender",
+    "masukkan kalender",
+    "tambahin kalender",
+    "tambahkan kalender",
+    "catat kalender",
+    "add to calendar",
+    "put on calendar",
+    "schedule",
+    "jadwalkan",
 )
 
 _DATE_SIGNALS = (
@@ -74,6 +96,11 @@ _DATE_SIGNALS = (
 
 _TIME_SIGNAL_RE = re.compile(
     r"\b(?:jam|pukul|at)?\s*(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|pagi|siang|sore|malam)?\b",
+    re.IGNORECASE,
+)
+
+_TIME_RANGE_RE = re.compile(
+    r"\b(?:jam|pukul|at)?\s*(\d{1,2})(?:[:.](\d{2}))?\s*(?:-|–|—|sampai|sd|s/d|to)\s*(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|pagi|siang|sore|malam)?\b",
     re.IGNORECASE,
 )
 
@@ -118,13 +145,20 @@ def has_calendar_signal(text: str | None) -> bool:
     has_event_keyword = any(keyword in normalized for keyword in _EVENT_KEYWORDS)
     has_date_signal = any(signal in normalized for signal in _DATE_SIGNALS)
     has_time_signal = _looks_like_time_mention(normalized)
+    has_explicit_calendar_command = any(
+        command in normalized for command in _EXPLICIT_CALENDAR_COMMANDS
+    )
 
-    # Meeting/call + date or time is strong enough.
+    # Explicit calendar command + date/time is enough, even when the event noun is unusual.
+    if has_explicit_calendar_command and (has_date_signal or has_time_signal):
+        return True
+
+    # Meeting/call/session/event + date or time is strong enough.
     if has_event_keyword and (has_date_signal or has_time_signal):
         return True
 
     # Explicit deadline/schedule language with date is enough.
-    if any(word in normalized for word in ("deadline", "jadwal", "agenda")) and has_date_signal:
+    if any(word in normalized for word in ("deadline", "jadwal", "agenda", "acara")) and has_date_signal:
         return True
 
     return False
@@ -145,7 +179,8 @@ def extract_candidate(
     if not event_date:
         return None
 
-    local_time = _extract_time(normalized)
+    time_range = _extract_time_range(normalized)
+    local_time = time_range[0] if time_range else _extract_time(normalized)
     start_at = None
     end_at = None
     all_day = True
@@ -155,7 +190,12 @@ def extract_candidate(
         offset = timezone_offset_minutes if timezone_offset_minutes is not None else 420
         tz = timezone(timedelta(minutes=offset))
         start_dt = datetime.combine(event_date, local_time, tzinfo=tz)
-        end_dt = start_dt + timedelta(hours=1)
+        if time_range:
+            end_dt = datetime.combine(event_date, time_range[1], tzinfo=tz)
+            if end_dt <= start_dt:
+                end_dt = end_dt + timedelta(days=1)
+        else:
+            end_dt = start_dt + timedelta(hours=1)
         start_at = start_dt.isoformat()
         end_at = end_dt.isoformat()
 
@@ -324,15 +364,9 @@ def _extract_time(text: str) -> time | None:
         prefix = text[max(0, match.start() - 8): match.start()].strip()
         has_time_marker = any(marker in prefix for marker in ("jam", "pukul", "at"))
 
-        if suffix in {"pm"} and raw_hour < 12:
-            raw_hour += 12
-        elif suffix in {"am"} and raw_hour == 12:
-            raw_hour = 0
-        elif suffix in {"sore", "malam"} and 1 <= raw_hour <= 11:
-            raw_hour += 12
-        elif suffix == "siang" and 1 <= raw_hour <= 10:
-            raw_hour += 12
-        elif not has_time_marker and not suffix and match.group(2) is None:
+        raw_hour = _apply_period(raw_hour, suffix)
+
+        if not has_time_marker and not suffix and match.group(2) is None:
             continue
 
         try:
@@ -343,17 +377,57 @@ def _extract_time(text: str) -> time | None:
     return None
 
 
+def _extract_time_range(text: str) -> tuple[time, time] | None:
+    match = _TIME_RANGE_RE.search(text)
+    if not match:
+        return None
+
+    start_hour = int(match.group(1))
+    start_minute = int(match.group(2) or 0)
+    end_hour = int(match.group(3))
+    end_minute = int(match.group(4) or 0)
+    suffix = (match.group(5) or "").casefold()
+
+    start_hour = _apply_period(start_hour, suffix)
+    end_hour = _apply_period(end_hour, suffix)
+
+    try:
+        return time(start_hour, start_minute), time(end_hour, end_minute)
+    except ValueError:
+        return None
+
+
+def _apply_period(hour: int, suffix: str) -> int:
+    if suffix == "pm" and hour < 12:
+        return hour + 12
+    if suffix == "am" and hour == 12:
+        return 0
+    if suffix in {"sore", "malam"} and 1 <= hour <= 11:
+        return hour + 12
+    if suffix == "siang" and 1 <= hour <= 10:
+        return hour + 12
+    return hour
+
+
 def _looks_like_time_mention(text: str) -> bool:
     return _extract_time(text) is not None
 
 
 def _build_title(text: str) -> str:
     cleaned = re.sub(r"\s+", " ", text.strip())
+    cleaned = re.sub(r"(?i)\b(beb|tolong|please|ya)\b", " ", cleaned)
     cleaned = re.sub(
-        r"(?i)\b(hari ini|today|besok|tomorrow|lusa|jam|pukul|at)\b",
+        r"(?i)\b(masukin|masukkan|tambahin|tambahkan|input|catat|buat|bikin)\b.{0,35}\b(kalender|calendar|jadwal)\b[:,]?",
         " ",
         cleaned,
     )
+    cleaned = re.sub(r"(?i)\b(jadwalkan|schedule|add to calendar|put on calendar)\b[:,]?", " ", cleaned)
+    cleaned = re.sub(
+        r"(?i)\b(hari ini|today|besok|tomorrow|lusa|jam|pukul|at|aku|saya|gue|gw|ada|acara)\b",
+        " ",
+        cleaned,
+    )
+    cleaned = _TIME_RANGE_RE.sub(" ", cleaned)
     cleaned = re.sub(r"\b\d{1,2}([:.]\d{2})?\s*(am|pm|pagi|siang|sore|malam)?\b", " ", cleaned, flags=re.I)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.;:-")
 
