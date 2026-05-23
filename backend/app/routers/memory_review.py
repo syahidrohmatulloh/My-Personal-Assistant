@@ -255,8 +255,11 @@ async def list_memory_review(
 
 
 
+# Pending Calendar candidates are hidden by default from the user interface.
+# They remain internal suggestions until chat confirmation accepts them.
 @router.get("/calendar-candidates")
 async def list_calendar_candidates(
+    include_pending: bool = False,
     user_id: str = Depends(get_current_user_id),
 ) -> dict[str, Any]:
     """Return memory-backed calendar candidates for review.
@@ -278,7 +281,11 @@ async def list_calendar_candidates(
                     "archived, superseded"
                 )
                 .eq("user_id", user_id)
-                .or_("calendar_candidate.eq.true,calendar_event_status.in.(confirmed_local,synced_google)")
+                .or_(
+                    "calendar_candidate.eq.true,calendar_event_status.in.(confirmed_local,synced_google)"
+                    if include_pending
+                    else "calendar_event_status.in.(confirmed_local,synced_google)"
+                )
                 .eq("archived", False)
                 .eq("superseded", False)
                 .order("due_date", desc=False)

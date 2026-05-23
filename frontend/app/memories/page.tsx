@@ -1,4 +1,6 @@
-"use client";
+"use client"
+
+// Calendar UI shows confirmed/synced events only. Pending suggestions are handled in chat.;
 
 
 import { useEffect, useMemo, useState } from "react"
@@ -632,13 +634,13 @@ export default function MemoriesPage() {
 
       if (!res.ok) {
         const detail = await safeDetail(res)
-        throw new Error(detail || "Failed to update calendar candidate")
+        throw new Error(detail || "Failed to update calendar event")
       }
 
       await load()
       await loadCalendarCandidates()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update calendar candidate")
+      setError(err instanceof Error ? err.message : "Failed to update calendar event")
     } finally {
       setSavingId(null)
     }
@@ -1353,7 +1355,7 @@ function CalendarCandidatePanel({
       <div className="rounded-[1.5rem] border border-emerald-200/70 bg-emerald-50/70 p-8 text-center shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-emerald-300/15 dark:bg-emerald-300/10">
         <CalendarDays className="mx-auto h-8 w-8 text-emerald-600 dark:text-emerald-300" />
         <h2 className="mt-3 text-lg font-semibold text-slate-950 dark:text-white">
-          No calendar candidates
+          No calendar events
         </h2>
         <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600 dark:text-zinc-300">
           Time-bound memories that may belong on your calendar will appear here for review.
@@ -1372,7 +1374,7 @@ function CalendarCandidatePanel({
             </div>
             <div>
               <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
-                Calendar candidates
+                Calendar events
               </h2>
               <p className="text-sm text-slate-500 dark:text-zinc-400">
                 Review time-bound memories before turning them into calendar events.
@@ -1398,7 +1400,7 @@ function CalendarCandidatePanel({
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-xs uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-300/80">
-                      Calendar candidate
+                      Calendar event
                     </p>
                     <h3 className="mt-2 text-base font-semibold leading-6 text-slate-950 dark:text-white">
                       {eventTitle}
