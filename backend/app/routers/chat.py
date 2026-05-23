@@ -1093,7 +1093,11 @@ async def _stream_claude_response(
         )
 
     # Calendar candidate extraction — deterministic, review-first, never syncs directly.
-    if extraction_decision.run_calendar_candidate_extraction:
+    should_extract_calendar_candidate = (
+        extraction_decision.run_calendar_candidate_extraction
+        or calendar_candidate_extractor.has_calendar_signal(user_message)
+    )
+    if should_extract_calendar_candidate:
         background_tasks.add_task(
             calendar_candidate_extractor.extract_and_persist,
             user_id=user_id,
