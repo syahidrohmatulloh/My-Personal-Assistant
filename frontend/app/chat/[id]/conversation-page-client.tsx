@@ -289,14 +289,16 @@ export function ConversationPageClient({
 
     if (hasCachedMessages) {
       setMessages(cachedMessages);
-      setHistorySettled(true);
+      // On first entry/open, cached chat should still land at the latest message.
+      // After that, background refresh must not keep forcing the user downward.
+      settleAfterPaint(true);
     }
 
     listMessages(conversationId)
       .then((msgs) => {
         if (cancelled) return;
 
-        const shouldStayAtBottom = !hasCachedMessages || stickToBottomRef.current;
+        const shouldStayAtBottom = stickToBottomRef.current;
 
         setMessages(msgs);
         writeCachedMessages(conversationId, msgs);
