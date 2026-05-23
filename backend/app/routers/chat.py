@@ -936,6 +936,7 @@ async def chat(
             messages=messages,
             volatile_context=volatile_context,
             user_message=body.message,
+            client_context=body.client_context,
             background_tasks=background_tasks,
             is_first_message=is_first_message,
             detected_mode=detected_mode,
@@ -959,6 +960,7 @@ async def _stream_claude_response(
     messages: list[dict],
     volatile_context: str,
     user_message: str,
+    client_context: dict | None = None,
     background_tasks: BackgroundTasks,
     is_first_message: bool,
     detected_mode: str | None = None,
@@ -1097,7 +1099,7 @@ async def _stream_claude_response(
             user_id=user_id,
             conversation_id=conversation_id,
             user_message=user_message,
-            client_context=body.client_context,
+            client_context=client_context,
         )
 
 
