@@ -170,6 +170,31 @@ def has_calendar_signal(text: str | None) -> bool:
     return False
 
 
+def should_attempt_calendar_candidate_extraction(text: str | None) -> bool:
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+
+    if has_calendar_signal(normalized):
+        return True
+
+    if any(command in normalized for command in _EXPLICIT_CALENDAR_COMMANDS):
+        return True
+
+    contextual_terms = (
+        "calendar candidate",
+        "calender candidate",
+        "kalendar candidate",
+        "kalender candidate",
+        "kandidat kalender",
+        "kandidat calendar",
+        "candidate kalender",
+        "candidate calendar",
+    )
+
+    return any(term in normalized for term in contextual_terms)
+
+
 def extract_candidate(
     *,
     text: str,

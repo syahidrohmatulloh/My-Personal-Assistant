@@ -744,7 +744,7 @@ async def chat(
         "\\n- Do not claim the goal is already active/saved unless a direct create-goal action has explicitly succeeded in the current request."
         "\\n- Preferred wording: Aku bantu siapkan ini sebagai kandidat goal di Goals."
     )
-    if calendar_candidate_extractor.has_calendar_signal(body.message):
+    if calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(body.message):
         volatile_context += (
             "\\n\\nCalendar Candidate capability state — authoritative:"
             "\\n- The user message appears to contain a schedule/calendar event request."
@@ -1106,7 +1106,7 @@ async def _stream_claude_response(
     # Calendar candidate extraction — deterministic, review-first, never syncs directly.
     should_extract_calendar_candidate = (
         extraction_decision.run_calendar_candidate_extraction
-        or calendar_candidate_extractor.has_calendar_signal(user_message)
+        or calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(user_message)
     )
     if should_extract_calendar_candidate:
         background_tasks.add_task(

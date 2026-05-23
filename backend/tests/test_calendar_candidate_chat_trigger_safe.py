@@ -8,7 +8,7 @@ CHAT = Path("app/routers/chat.py").read_text(encoding="utf-8")
 
 
 def test_chat_forces_calendar_candidate_when_extractor_signal_matches():
-    assert "calendar_candidate_extractor.has_calendar_signal(user_message)" in CHAT
+    assert "calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(user_message)" in CHAT
     assert "calendar_candidate_extractor.extract_and_persist" in CHAT
     assert "client_context=client_context" in CHAT
 
