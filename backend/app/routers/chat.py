@@ -740,7 +740,7 @@ async def chat(
     volatile_context += "\n\n" + capability_registry.render_capability_registry()
     pending_calendar_confirmation_context = await calendar_confirmation_actions.render_pending_calendar_confirmation_context(
         user_id=user_id,
-        conversation_id=conversation_id,
+        conversation_id=getattr(body, "conversation_id", None),
     )
     if pending_calendar_confirmation_context:
         volatile_context += "\n\n" + pending_calendar_confirmation_context
