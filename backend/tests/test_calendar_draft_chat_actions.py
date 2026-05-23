@@ -77,11 +77,11 @@ def test_chat_wires_calendar_draft_actions_background_task():
     assert "calendar_draft_actions," in CHAT
     assert "calendar_draft_actions.apply_chat_calendar_draft_action" in CHAT
     assert "Calendar draft actions from chat" in CHAT
-    assert "never syncs/deletes Google directly" in CHAT
+    assert "can update/delete local drafts and synced Google events" in CHAT
     assert "not should_apply_calendar_draft_action" in CHAT
 
 
 def test_chat_has_user_facing_calendar_action_guidance():
     assert "Calendar draft action capability state — authoritative" in CHAT
-    assert "Do not claim that a Google Calendar event was changed or deleted from chat" in CHAT
+    assert "You may say the Google Calendar event will be updated/deleted" in CHAT
     assert "Aku hapus dari Calendar ya" in CHAT

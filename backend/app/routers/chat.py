@@ -762,8 +762,8 @@ async def chat(
         volatile_context += (
             "\n\nCalendar draft action capability state — authoritative:"
             "\n- The user appears to be asking to edit, reschedule, remove, cancel, or delete a Calendar item."
-            "\n- The app can update or remove local Calendar drafts from chat when the target is clear."
-            "\n- Do not claim that a Google Calendar event was changed or deleted from chat."
+            "\n- The app can update or remove local Calendar drafts from chat when the target is clear. If the target is already synced to Google Calendar, the app can update/delete the linked Google Calendar event too."
+            "\n- You may say the Google Calendar event will be updated/deleted when the user's request clearly targets a synced Google Calendar event."
             "\n- If the event is already synced to Google Calendar, say changes/deletion may require confirmation from Memories → Calendar."
             "\n- Use natural wording like: Aku update di Calendar ya, or Aku hapus dari Calendar ya."
             "\n- Do not use the phrase 'Calendar Candidate' in user-facing replies."
@@ -1131,7 +1131,7 @@ async def _stream_claude_response(
             assistant_response=assistant_text,
         )
 
-    # Calendar draft actions from chat — local draft only, never syncs/deletes Google directly.
+    # Calendar draft actions from chat — can update/delete local drafts and synced Google events.
     should_apply_calendar_draft_action = calendar_draft_actions.is_calendar_draft_action_request(
         user_message
     )
@@ -1148,9 +1148,27 @@ async def _stream_claude_response(
             ],
         )
 
+    # Direct Google Calendar create from chat — only when the user explicitly asks for Google Calendar.
+    should_create_google_calendar_event = calendar_draft_actions.is_google_calendar_create_request(
+        user_message
+    )
+    if should_create_google_calendar_event:
+        background_tasks.add_task(
+            calendar_draft_actions.create_google_calendar_event_from_chat,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            user_message=user_message,
+            client_context=client_context,
+            recent_messages=[
+                *messages,
+                {"role": "assistant", "content": assistant_text},
+            ],
+        )
+
     # Calendar candidate extraction — deterministic/Haiku-assisted, review-first, never syncs directly.
     should_extract_calendar_candidate = (
         not should_apply_calendar_draft_action
+        and not should_create_google_calendar_event
         and (
             extraction_decision.run_calendar_candidate_extraction
             or calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(user_message)

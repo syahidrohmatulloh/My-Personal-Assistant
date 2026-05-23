@@ -18,7 +18,10 @@ import re
 from typing import Any
 
 from app.services.claude import get_claude
+from app.services.embeddings import embed_document
 from app.services.supabase_client import safe_execute
+from app.services import calendar_intent
+from app.routers.calendar_oauth import get_active_google_calendar_access_token
 
 log = logging.getLogger(__name__)
 
@@ -124,6 +127,169 @@ def is_calendar_draft_action_request(text: str | None) -> bool:
     return has_calendar or has_target_hint or has_time_update
 
 
+
+
+def is_google_calendar_create_request(text: str | None) -> bool:
+    normalized = _norm(text)
+    if not normalized:
+        return False
+
+    create_terms = (
+        "masukin",
+        "masukkan",
+        "tambahin",
+        "tambahkan",
+        "catat",
+        "buat",
+        "bikin",
+        "add",
+        "create",
+        "sync",
+    )
+
+    google_calendar_terms = (
+        "google calendar",
+        "google kalender",
+        "kalender google",
+        "calendar google",
+        "gcal",
+        "google cal",
+    )
+
+    explicit_google_phrases = (
+        "masukin ke google",
+        "masukkan ke google",
+        "tambahin ke google",
+        "tambahkan ke google",
+        "catat ke google",
+        "buat ke google",
+        "bikin ke google",
+        "buat di google",
+        "bikin di google",
+        "add to google",
+        "create in google",
+        "sync ke google",
+        "sync google",
+    )
+
+    has_calendar_word = any(term in normalized for term in ("calendar", "kalender", "agenda", "jadwal"))
+    has_create = any(term in normalized for term in create_terms)
+    has_google_calendar = any(term in normalized for term in google_calendar_terms)
+    has_explicit_google_phrase = any(term in normalized for term in explicit_google_phrases)
+
+    return (
+        (has_create and has_google_calendar)
+        or (has_calendar_word and has_explicit_google_phrase)
+        or has_explicit_google_phrase
+    )
+
+
+async def create_google_calendar_event_from_chat(
+    *,
+    user_id: str,
+    conversation_id: str,
+    user_message: str,
+    recent_messages: list[dict[str, Any]] | None = None,
+    client_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not is_google_calendar_create_request(user_message):
+        return {"attempted": False, "created": False, "reason": "not_google_calendar_create"}
+
+    draft = await calendar_intent.extract_calendar_intent_draft(
+        user_message=user_message,
+        recent_messages=recent_messages,
+        client_context=client_context,
+    )
+    if not draft:
+        return {"attempted": True, "created": False, "reason": "no_confident_draft"}
+
+    title = str(draft.get("title") or "").strip()
+    event_date = str(draft.get("event_date") or "").strip()
+    start_at = draft.get("start_at")
+    end_at = draft.get("end_at")
+    all_day = bool(draft.get("all_day"))
+
+    if not title or not event_date:
+        return {"attempted": True, "created": False, "reason": "missing_required_fields"}
+
+    access_token = await get_active_google_calendar_access_token(user_id=user_id)
+
+    created = await _create_google_calendar_event(
+        access_token=access_token,
+        title=title,
+        event_date=event_date,
+        description=_google_event_description_from_draft(draft),
+        start_at=str(start_at) if start_at else None,
+        end_at=str(end_at) if end_at else None,
+    )
+
+    google_event_id = created.get("id")
+    google_event_link = created.get("htmlLink")
+
+    if not google_event_id:
+        return {"attempted": True, "created": False, "reason": "google_missing_event_id"}
+
+    structured_value = _structured_value(
+        title=title,
+        event_date=event_date,
+        start_at=str(start_at) if start_at else None,
+        end_at=str(end_at) if end_at else None,
+        location=draft.get("location"),
+    )
+    content = f"User has a scheduled event: {title} on {event_date}"
+    if draft.get("location"):
+        content += f" at {draft['location']}"
+
+    try:
+        embedding = await embed_document(content)
+    except Exception as exc:
+        log.warning("calendar_draft_actions: embedding failed after google create: %s", exc)
+        embedding = None
+
+    now = _now_iso()
+    row = {
+        "user_id": user_id,
+        "content": content,
+        "kind": "plan",
+        "category": "goals",
+        "structured_field": "scheduled_event",
+        "structured_value": structured_value,
+        "source_priority": "explicit_user_statement",
+        "confidence": float(draft.get("confidence") or 0.86),
+        "evidence": [user_message[:220]],
+        "source": "auto",
+        "source_conversation_id": conversation_id,
+        "due_date": event_date,
+        "calendar_candidate": False,
+        "calendar_event_status": "synced_google",
+        "calendar_event_title": title,
+        "calendar_event_date": event_date,
+        "calendar_event_start_at": str(start_at) if start_at else None,
+        "calendar_event_end_at": str(end_at) if end_at else None,
+        "calendar_event_all_day": all_day or not bool(start_at),
+        "calendar_event_created_at": now,
+        "google_calendar_event_id": google_event_id,
+        "google_calendar_event_link": google_event_link,
+        "google_calendar_id": "primary",
+        "calendar_synced_at": now,
+        "calendar_sync_error": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    if embedding is not None:
+        row["embedding"] = embedding
+
+    result = safe_execute(lambda sb: sb.table("memories").insert(row).execute())
+
+    return {
+        "attempted": True,
+        "created": True,
+        "google_event_id": google_event_id,
+        "google_event_link": google_event_link,
+        "data": result.data,
+    }
+
+
 async def apply_chat_calendar_draft_action(
     *,
     user_id: str,
@@ -154,14 +320,11 @@ async def apply_chat_calendar_draft_action(
         return {"attempted": True, "updated": False, "deleted": False, "reason": "target_not_found"}
 
     if _is_synced_google(target):
-        return {
-            "attempted": True,
-            "updated": False,
-            "deleted": False,
-            "reason": "synced_google_requires_ui_confirmation",
-            "target_memory_id": target.get("id"),
-            "action": action.get("action"),
-        }
+        return await _apply_synced_google_calendar_action(
+            user_id=user_id,
+            target=target,
+            action=action,
+        )
 
     if action["action"] == "delete":
         payload = _build_archive_payload()
@@ -214,6 +377,266 @@ async def apply_chat_calendar_draft_action(
         }
 
     return {"attempted": True, "updated": False, "deleted": False, "reason": "unsupported_action"}
+
+
+
+async def _apply_synced_google_calendar_action(
+    *,
+    user_id: str,
+    target: dict[str, Any],
+    action: dict[str, Any],
+) -> dict[str, Any]:
+    google_event_id = str(target.get("google_calendar_event_id") or "").strip()
+    google_calendar_id = str(target.get("google_calendar_id") or "primary").strip() or "primary"
+
+    if not google_event_id:
+        return {
+            "attempted": True,
+            "updated": False,
+            "deleted": False,
+            "reason": "synced_google_missing_event_id",
+            "target_memory_id": target.get("id"),
+            "action": action.get("action"),
+        }
+
+    access_token = await get_active_google_calendar_access_token(user_id=user_id)
+
+    if action["action"] == "delete":
+        try:
+            await _delete_google_calendar_event(
+                access_token=access_token,
+                google_event_id=google_event_id,
+                calendar_id=google_calendar_id,
+            )
+        except Exception as exc:
+            log.warning("calendar_draft_actions: google delete failed: %s", exc)
+            return {
+                "attempted": True,
+                "updated": False,
+                "deleted": False,
+                "reason": "google_delete_failed",
+                "target_memory_id": target.get("id"),
+            }
+
+        payload = _build_archive_payload()
+        payload["archived_by"] = "chat_google_calendar_delete"
+        payload["calendar_event_status"] = "deleted_google"
+        payload["calendar_sync_error"] = None
+
+        try:
+            result = safe_execute(
+                lambda sb: sb.table("memories")
+                .update(payload)
+                .eq("id", str(target["id"]))
+                .eq("user_id", user_id)
+                .execute()
+            )
+        except Exception as exc:
+            log.warning("calendar_draft_actions: local archive after google delete failed: %s", exc)
+            return {
+                "attempted": True,
+                "updated": False,
+                "deleted": False,
+                "reason": "local_archive_after_google_delete_failed",
+                "target_memory_id": target.get("id"),
+            }
+
+        return {
+            "attempted": True,
+            "updated": False,
+            "deleted": True,
+            "target_memory_id": target.get("id"),
+            "title": _title_from_target(target),
+            "data": result.data,
+        }
+
+    if action["action"] == "update":
+        payload = _build_update_payload(target, action)
+        if not payload:
+            return {"attempted": True, "updated": False, "deleted": False, "reason": "empty_update"}
+
+        try:
+            patched_event = await _patch_google_calendar_event(
+                access_token=access_token,
+                google_event_id=google_event_id,
+                calendar_id=google_calendar_id,
+                title=str(payload.get("calendar_event_title") or _title_from_target(target)),
+                event_date=str(payload.get("calendar_event_date") or target.get("due_date")),
+                description=_google_event_description_from_payload(payload),
+                start_at=payload.get("calendar_event_start_at"),
+                end_at=payload.get("calendar_event_end_at"),
+            )
+        except Exception as exc:
+            log.warning("calendar_draft_actions: google patch failed: %s", exc)
+            return {
+                "attempted": True,
+                "updated": False,
+                "deleted": False,
+                "reason": "google_patch_failed",
+                "target_memory_id": target.get("id"),
+            }
+
+        payload["google_calendar_event_link"] = patched_event.get("htmlLink") or target.get("google_calendar_event_link")
+        payload["calendar_event_status"] = "synced_google"
+        payload["calendar_sync_error"] = None
+        payload["calendar_synced_at"] = _now_iso()
+
+        try:
+            result = safe_execute(
+                lambda sb: sb.table("memories")
+                .update(payload)
+                .eq("id", str(target["id"]))
+                .eq("user_id", user_id)
+                .execute()
+            )
+        except Exception as exc:
+            log.warning("calendar_draft_actions: local update after google patch failed: %s", exc)
+            return {
+                "attempted": True,
+                "updated": False,
+                "deleted": False,
+                "reason": "local_update_after_google_patch_failed",
+                "target_memory_id": target.get("id"),
+            }
+
+        return {
+            "attempted": True,
+            "updated": True,
+            "deleted": False,
+            "target_memory_id": target.get("id"),
+            "title": payload.get("calendar_event_title") or _title_from_target(target),
+            "date": payload.get("calendar_event_date") or target.get("due_date"),
+            "data": result.data,
+        }
+
+    return {
+        "attempted": True,
+        "updated": False,
+        "deleted": False,
+        "reason": "unsupported_synced_google_action",
+    }
+
+
+async def _create_google_calendar_event(
+    *,
+    access_token: str,
+    title: str,
+    event_date: str,
+    description: str,
+    start_at: str | None = None,
+    end_at: str | None = None,
+    calendar_id: str = "primary",
+) -> dict[str, Any]:
+    import httpx
+    from urllib.parse import quote
+
+    event: dict[str, Any] = {
+        "summary": title,
+        "description": description,
+    }
+
+    if start_at and end_at:
+        event["start"] = {"dateTime": start_at}
+        event["end"] = {"dateTime": end_at}
+    else:
+        event["start"] = {"date": event_date}
+        event["end"] = {"date": event_date}
+
+    url = f"https://www.googleapis.com/calendar/v3/calendars/{quote(calendar_id, safe='')}/events"
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            json=event,
+        )
+
+    response.raise_for_status()
+    return response.json()
+
+
+async def _patch_google_calendar_event(
+    *,
+    access_token: str,
+    google_event_id: str,
+    calendar_id: str,
+    title: str,
+    event_date: str,
+    description: str,
+    start_at: str | None = None,
+    end_at: str | None = None,
+) -> dict[str, Any]:
+    import httpx
+    from urllib.parse import quote
+
+    event: dict[str, Any] = {
+        "summary": title,
+        "description": description,
+    }
+
+    if start_at and end_at:
+        event["start"] = {"dateTime": start_at}
+        event["end"] = {"dateTime": end_at}
+    else:
+        event["start"] = {"date": event_date}
+        event["end"] = {"date": event_date}
+
+    url = (
+        "https://www.googleapis.com/calendar/v3/calendars/"
+        f"{quote(calendar_id or 'primary', safe='')}/events/{quote(google_event_id, safe='')}"
+    )
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.patch(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            json=event,
+        )
+
+    response.raise_for_status()
+    return response.json()
+
+
+async def _delete_google_calendar_event(
+    *,
+    access_token: str,
+    google_event_id: str,
+    calendar_id: str,
+) -> None:
+    import httpx
+    from urllib.parse import quote
+
+    url = (
+        "https://www.googleapis.com/calendar/v3/calendars/"
+        f"{quote(calendar_id or 'primary', safe='')}/events/{quote(google_event_id, safe='')}"
+    )
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.delete(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+
+    if response.status_code in {200, 204, 404, 410}:
+        return
+
+    response.raise_for_status()
+
+
+def _google_event_description_from_draft(draft: dict[str, Any]) -> str:
+    parts = ["Created by Aliyya from chat."]
+    if draft.get("location"):
+        parts.append(f"Location: {draft['location']}")
+    if draft.get("reason"):
+        parts.append(f"Reason: {draft['reason']}")
+    return "\n".join(parts)
+
+
+def _google_event_description_from_payload(payload: dict[str, Any]) -> str:
+    parts = ["Updated by Aliyya from chat."]
+    if payload.get("structured_value"):
+        parts.append(str(payload["structured_value"]))
+    return "\n".join(parts)
 
 
 async def _load_recent_calendar_records(*, user_id: str) -> list[dict[str, Any]]:
