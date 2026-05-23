@@ -33,6 +33,20 @@ type CalendarEvent = {
   syncError: string | null
 }
 
+type TimelineRow =
+  | {
+      type: "event"
+      event: CalendarEvent
+      warning?: string
+    }
+  | {
+      type: "free"
+      id: string
+      minutes: number
+      startAt: string
+      endAt: string
+    }
+
 function normalizeTitle(item: RawCalendarItem): string {
   const raw =
     item.calendar_event_title ||
@@ -107,6 +121,36 @@ function formatTime(value: string | null): string | null {
   }).format(parsed)
 }
 
+function minutesBetween(start: string | null, end: string | null): number | null {
+  if (!start || !end) {
+    return null
+  }
+
+  const startTime = new Date(start).getTime()
+  const endTime = new Date(end).getTime()
+
+  if (Number.isNaN(startTime) || Number.isNaN(endTime)) {
+    return null
+  }
+
+  return Math.round((endTime - startTime) / 60000)
+}
+
+function durationLabel(minutes: number): string {
+  if (minutes < 60) {
+    return `${minutes} menit`
+  }
+
+  const hours = Math.floor(minutes / 60)
+  const mins = minutes % 60
+
+  if (!mins) {
+    return `${hours} jam`
+  }
+
+  return `${hours} jam ${mins} menit`
+}
+
 function eventTimeLabel(event: CalendarEvent): string {
   if (event.allDay || (!event.startAt && !event.endAt)) {
     return "Sepanjang hari"
@@ -123,8 +167,8 @@ function eventTimeLabel(event: CalendarEvent): string {
 }
 
 function sortEvents(a: CalendarEvent, b: CalendarEvent): number {
-  const aKey = `${a.date} ${a.startAt || ""} ${a.title}`
-  const bKey = `${b.date} ${b.startAt || ""} ${b.title}`
+  const aKey = `${a.date} ${a.startAt || "99:99"} ${a.title}`
+  const bKey = `${b.date} ${b.startAt || "99:99"} ${b.title}`
   return aKey.localeCompare(bKey)
 }
 
@@ -141,6 +185,59 @@ function groupByDate(events: CalendarEvent[]): Array<[string, CalendarEvent[]]> 
     date,
     items.sort(sortEvents),
   ])
+}
+
+function buildTimelineRows(events: CalendarEvent[]): TimelineRow[] {
+  const rows: TimelineRow[] = []
+
+  events.forEach((event, index) => {
+    const previous = events[index - 1]
+    let warning: string | undefined
+
+    if (previous?.endAt && event.startAt) {
+      const gap = minutesBetween(previous.endAt, event.startAt)
+
+      if (gap !== null) {
+        if (gap >= 60) {
+          rows.push({
+            type: "free",
+            id: `${previous.id}-${event.id}-free`,
+            minutes: gap,
+            startAt: previous.endAt,
+            endAt: event.startAt,
+          })
+        } else if (gap >= 0 && gap <= 20) {
+          warning = `Hanya berjarak ${durationLabel(gap)} dari acara sebelumnya.`
+        } else if (gap < 0) {
+          warning = "Jadwal ini overlap dengan acara sebelumnya."
+        }
+      }
+    }
+
+    rows.push({ type: "event", event, warning })
+  })
+
+  return rows
+}
+
+function timeRangeColumn(event: CalendarEvent): { start: string; end: string } {
+  if (event.allDay || (!event.startAt && !event.endAt)) {
+    return { start: "All day", end: "" }
+  }
+
+  return {
+    start: formatTime(event.startAt) || "—",
+    end: formatTime(event.endAt) || "",
+  }
+}
+
+function StatusDot({ status }: { status: CalendarEvent["status"] }) {
+  const className =
+    status === "synced_google"
+      ? "bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]"
+      : "bg-indigo-500 shadow-[0_0_0_4px_rgba(99,102,241,0.12)]"
+
+  return <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${className}`} />
 }
 
 export default function CalendarPage() {
@@ -187,7 +284,7 @@ export default function CalendarPage() {
   return (
     <main className="min-h-screen bg-bg px-4 py-6 text-fg sm:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-        <header className="rounded-3xl border border-border bg-fg/[0.035] p-5 shadow-sm sm:p-6">
+        <header className="overflow-hidden rounded-3xl border border-border bg-fg/[0.035] p-5 shadow-sm sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-fg-muted">
@@ -197,8 +294,7 @@ export default function CalendarPage() {
                 Calendar
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-fg-muted">
-                Jadwal yang sudah terkonfirmasi secara lokal dan event yang sudah tersinkron ke Google Calendar.
-                Saran jadwal yang belum kamu konfirmasi tetap diproses lewat chat, bukan ditampilkan di sini.
+                Timeline agenda terkonfirmasi. Saran jadwal yang belum kamu setujui tetap diproses lewat chat.
               </p>
             </div>
 
@@ -244,7 +340,7 @@ export default function CalendarPage() {
           <div className="mb-5 flex flex-col gap-1">
             <h2 className="text-xl font-semibold">Agenda terjadwal</h2>
             <p className="text-sm text-fg-muted">
-              Pending suggestion tidak ditampilkan di halaman ini. Aliyya akan meminta konfirmasi lewat chat.
+              Mini timeline ini membantu melihat urutan acara, jeda waktu senggang, dan jadwal yang terlalu mepet.
             </p>
           </div>
 
@@ -266,58 +362,104 @@ export default function CalendarPage() {
               </p>
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-8">
               {groupedEvents.map(([date, items]) => (
                 <div key={date} className="space-y-3">
                   <div className="sticky top-0 z-10 -mx-1 rounded-2xl bg-bg/90 px-1 py-2 backdrop-blur">
                     <h3 className="text-sm font-semibold text-fg-muted">{formatDate(date)}</h3>
                   </div>
 
-                  <div className="space-y-3">
-                    {items.map((event) => (
-                      <article
-                        key={event.id}
-                        className="rounded-2xl border border-border bg-bg p-4 shadow-sm transition hover:bg-fg/[0.025]"
-                      >
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h4 className="truncate text-base font-semibold">{event.title}</h4>
-                              <span
-                                className={
-                                  event.status === "synced_google"
-                                    ? "rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300"
-                                    : "rounded-full border border-blue-500/25 bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-700 dark:text-blue-300"
-                                }
-                              >
-                                {event.status === "synced_google" ? "Google synced" : "Local"}
-                              </span>
+                  <div className="overflow-hidden rounded-2xl border border-border bg-bg">
+                    {buildTimelineRows(items).map((row, index) => {
+                      if (row.type === "free") {
+                        return (
+                          <div
+                            key={row.id}
+                            className="grid grid-cols-[72px_1fr] border-b border-border/70 bg-fg/[0.018] last:border-b-0 sm:grid-cols-[96px_1fr]"
+                          >
+                            <div className="border-r border-border/70 px-3 py-3 text-xs text-fg-muted sm:px-4">
+                              <div>{formatTime(row.startAt)}</div>
+                              <div>{formatTime(row.endAt)}</div>
                             </div>
+                            <div className="flex items-center gap-3 px-3 py-3 text-xs text-fg-muted sm:px-4">
+                              <span className="rounded-full border border-border bg-bg px-2 py-1">
+                                💤 Free time
+                              </span>
+                              <span>{durationLabel(row.minutes)} kosong</span>
+                            </div>
+                          </div>
+                        )
+                      }
 
-                            <p className="mt-2 text-sm text-fg-muted">
-                              {eventTimeLabel(event)}
-                            </p>
+                      const { event, warning } = row
+                      const time = timeRangeColumn(event)
 
-                            {event.syncError ? (
-                              <p className="mt-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                                Sync note: {event.syncError}
-                              </p>
+                      return (
+                        <article
+                          key={event.id}
+                          className="grid grid-cols-[72px_1fr] border-b border-border/70 last:border-b-0 sm:grid-cols-[96px_1fr]"
+                        >
+                          <div className="border-r border-border/70 px-3 py-4 text-xs sm:px-4">
+                            <div className="font-semibold tabular-nums">{time.start}</div>
+                            {time.end ? (
+                              <div className="mt-1 text-fg-muted tabular-nums">{time.end}</div>
                             ) : null}
                           </div>
 
-                          {event.googleLink ? (
-                            <a
-                              href={event.googleLink}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex h-9 shrink-0 items-center justify-center rounded-full border border-border bg-fg/[0.035] px-3 text-xs font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg"
-                            >
-                              Open Google
-                            </a>
-                          ) : null}
-                        </div>
-                      </article>
-                    ))}
+                          <div className="min-w-0 px-3 py-4 sm:px-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex min-w-0 gap-3">
+                                <StatusDot status={event.status} />
+                                <div className="min-w-0">
+                                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                    <h4 className="truncate text-sm font-semibold sm:text-base">
+                                      {event.title}
+                                    </h4>
+                                    <span className="text-xs text-fg-muted">
+                                      {event.status === "synced_google" ? "Google" : "Local"}
+                                    </span>
+                                  </div>
+
+                                  {event.syncError ? (
+                                    <p className="mt-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                                      Sync note: {event.syncError}
+                                    </p>
+                                  ) : null}
+
+                                  {warning ? (
+                                    <p className="mt-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                                      ⚠️ {warning}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              {event.googleLink ? (
+                                <a
+                                  href={event.googleLink}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="hidden h-8 shrink-0 items-center justify-center rounded-full border border-border bg-fg/[0.035] px-3 text-xs font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg sm:inline-flex"
+                                >
+                                  Open Google
+                                </a>
+                              ) : null}
+                            </div>
+
+                            {event.googleLink ? (
+                              <a
+                                href={event.googleLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mt-3 inline-flex h-8 items-center justify-center rounded-full border border-border bg-fg/[0.035] px-3 text-xs font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg sm:hidden"
+                              >
+                                Open Google
+                              </a>
+                            ) : null}
+                          </div>
+                        </article>
+                      )
+                    })}
                   </div>
                 </div>
               ))}
