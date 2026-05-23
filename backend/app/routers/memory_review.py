@@ -860,6 +860,115 @@ def _google_event_description(row: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+
+async def _delete_google_calendar_event(
+    *,
+    access_token: str,
+    google_event_id: str,
+    calendar_id: str = "primary",
+) -> None:
+    import httpx
+    from urllib.parse import quote
+
+    calendar_id = calendar_id or "primary"
+    url = (
+        "https://www.googleapis.com/calendar/v3/calendars/"
+        f"{quote(calendar_id, safe='')}/events/{quote(google_event_id, safe='')}"
+    )
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.delete(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+
+    if response.status_code in {200, 204, 404, 410}:
+        return
+
+    response.raise_for_status()
+
+
+
+@router.post("/calendar-candidates/{memory_id}/delete-google")
+async def delete_google_calendar_candidate(
+    memory_id: str,
+    body: CalendarActionIn | None = None,
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    """Delete the synced Google Calendar event, then archive the local Calendar item."""
+    candidate = await _load_memory_for_calendar_candidate(memory_id=memory_id, user_id=user_id)
+
+    google_event_id = _clean_optional(str(candidate.get("google_calendar_event_id") or ""))
+    if not google_event_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This Calendar item is not linked to a Google Calendar event.",
+        )
+
+    google_calendar_id = _clean_optional(str(candidate.get("google_calendar_id") or "")) or "primary"
+    access_token = await get_active_google_calendar_access_token(user_id=user_id)
+    now = _now_iso()
+
+    try:
+        await _delete_google_calendar_event(
+            access_token=access_token,
+            google_event_id=google_event_id,
+            calendar_id=google_calendar_id,
+        )
+    except Exception as exc:
+        clean_error = _humanize_google_calendar_sync_error(exc)
+        await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("memories")
+                .update(
+                    {
+                        "calendar_sync_error": clean_error[:500],
+                        "updated_at": now,
+                    }
+                )
+                .eq("id", memory_id)
+                .eq("user_id", user_id)
+                .execute()
+            )
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=clean_error,
+        ) from exc
+
+    try:
+        await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("memories")
+                .update(
+                    {
+                        "archived": True,
+                        "archived_by": "google_calendar_delete",
+                        "archived_at": now,
+                        "calendar_candidate": False,
+                        "calendar_event_status": "deleted_google",
+                        "calendar_sync_error": None,
+                        "updated_at": now,
+                    }
+                )
+                .eq("id", memory_id)
+                .eq("user_id", user_id)
+                .execute()
+            )
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Google event was deleted, but local Calendar item could not be archived: {exc}",
+        ) from exc
+
+    return {
+        "ok": True,
+        "action": "google_calendar_event_deleted",
+        "memory_id": memory_id,
+    }
+
+
 @router.post("/calendar-candidates/{memory_id}/archive")
 async def archive_calendar_candidate(
     memory_id: str,

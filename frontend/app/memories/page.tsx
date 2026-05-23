@@ -617,7 +617,7 @@ export default function MemoriesPage() {
 
   async function calendarCandidateAction(
     candidate: CalendarCandidateItem,
-    actionName: "dismiss" | "archive" | "confirm-local" | "sync-google" | "update-draft",
+    actionName: "dismiss" | "archive" | "confirm-local" | "sync-google" | "update-draft" | "delete-google",
     payload: Record<string, unknown> = {},
   ) {
     setSavingId(`calendar-${candidate.id}`)
@@ -841,6 +841,11 @@ export default function MemoriesPage() {
             onArchive={(candidate) => {
               if (window.confirm("Archive this Calendar item?")) {
                 void calendarCandidateAction(candidate, "archive")
+              }
+            }}
+            onDeleteGoogle={(candidate) => {
+              if (window.confirm("Delete this event from Google Calendar? This cannot be undone in Google Calendar.")) {
+                void calendarCandidateAction(candidate, "delete-google")
               }
             }}
           />
@@ -1329,6 +1334,7 @@ function CalendarCandidatePanel({
   onConfirmLocal,
   onDismiss,
   onArchive,
+  onDeleteGoogle,
 }: {
   candidates: CalendarCandidateItem[]
   loading: boolean
@@ -1338,6 +1344,7 @@ function CalendarCandidatePanel({
   onConfirmLocal: (candidate: CalendarCandidateItem) => void
   onDismiss: (candidate: CalendarCandidateItem) => void
   onArchive: (candidate: CalendarCandidateItem) => void
+  onDeleteGoogle: (candidate: CalendarCandidateItem) => void
 }) {
   if (loading) return <LoadingState />
 
@@ -1469,6 +1476,18 @@ function CalendarCandidatePanel({
                     {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pencil className="h-3.5 w-3.5" />}
                     {candidate.calendar_event_status === "synced_google" ? "Edit synced event" : "Edit draft"}
                   </button>
+                  {(candidate.google_calendar_event_id || candidate.calendar_event_status === "synced_google") ? (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteGoogle(candidate)}
+                      disabled={saving}
+                      className="inline-flex items-center gap-2 rounded-full border border-red-200/80 bg-red-50/80 px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/15"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete from Google Calendar
+                    </button>
+                  ) : null}
+
 
                   {candidate.calendar_event_status === "confirmed_local" ? (
                     <button
