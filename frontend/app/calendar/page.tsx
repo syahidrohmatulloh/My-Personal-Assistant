@@ -183,16 +183,15 @@ function sortEvents(a: CalendarEvent, b: CalendarEvent): number {
 function groupByDate(events: CalendarEvent[]): Array<[string, CalendarEvent[]]> {
   const grouped = new Map<string, CalendarEvent[]>()
 
-  for (const event of events) {
+  for (const event of [...events].sort(sortEvents)) {
     const existing = grouped.get(event.date) || []
     existing.push(event)
     grouped.set(event.date, existing)
   }
 
-  return Array.from(grouped.entries()).map(([date, items]) => [
-    date,
-    items.sort(sortEvents),
-  ])
+  return Array.from(grouped.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, items]) => [date, items.sort(sortEvents)])
 }
 
 function buildTimelineRows(events: CalendarEvent[]): TimelineRow[] {
@@ -379,26 +378,26 @@ export default function CalendarPage() {
                     </h3>
                   </div>
 
-                  <div className="ml-2 border-l border-border/70 pl-4 sm:ml-3 sm:pl-5">
+                  <div className="ml-1 border-l border-border/70 pl-4 sm:ml-3 sm:pl-5">
                     {buildTimelineRows(items).map((row) => {
                       if (row.type === "free") {
                         return (
                           <div
                             key={row.id}
-                            className="relative my-1 flex items-center rounded-r-2xl border-y border-dashed border-border/50 bg-fg/[0.018] px-2 py-2.5"
+                            className="relative my-1 flex items-center rounded-r-2xl border-y border-dashed border-border/50 bg-fg/[0.018] px-1.5 py-2 sm:px-2 sm:py-2.5"
                           >
                             <span className="absolute -left-[21px] top-1/2 h-2 w-2 -translate-y-1/2 rounded-full border border-border bg-bg sm:-left-[25px]" />
 
-                            <div className="w-20 shrink-0 font-mono text-[11px] leading-5 text-fg-muted/80 sm:w-24">
+                            <div className="w-14 shrink-0 pr-3 text-right font-mono text-[10px] leading-5 text-fg-muted/75 sm:w-24 sm:pr-0 sm:text-left sm:text-[11px]">
                               <div>{formatTime(row.startAt)}</div>
                               <div>{formatTime(row.endAt)}</div>
                             </div>
 
-                            <div className="flex min-w-0 items-center gap-2 text-xs italic text-fg-muted">
-                              <span className="rounded-md border border-border/70 bg-bg/60 px-2 py-0.5 not-italic">
-                                💤 Free time
+                            <div className="flex min-w-0 items-center gap-2 text-[11px] italic text-fg-muted sm:text-xs">
+                              <span className="rounded-md border border-border/70 bg-bg/60 px-1.5 py-0.5 not-italic sm:px-2">
+                                💤
                               </span>
-                              <span className="truncate">{durationLabel(row.minutes)} kosong</span>
+                              <span className="break-words">{durationLabel(row.minutes)} kosong</span>
                             </div>
                           </div>
                         )
@@ -416,11 +415,11 @@ export default function CalendarPage() {
                             <StatusDot status={event.status} />
                           </span>
 
-                          <div className="flex items-start gap-3">
-                            <div className="w-20 shrink-0 font-mono text-[11px] leading-5 text-fg-muted/80 sm:w-24">
+                          <div className="flex items-start gap-4 sm:gap-3">
+                            <div className="w-14 shrink-0 pr-3 text-right font-mono text-[10px] leading-5 text-fg-muted/75 sm:w-24 sm:pr-0 sm:text-left sm:text-[11px]">
                               <div className="font-semibold text-fg/80 tabular-nums">{time.start}</div>
                               {time.end ? (
-                                <div className="text-fg-muted/70 tabular-nums">{time.end}</div>
+                                <div className="text-fg-muted/65 tabular-nums">{time.end}</div>
                               ) : null}
                             </div>
 
@@ -428,10 +427,10 @@ export default function CalendarPage() {
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
                                   <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                    <h4 className="truncate text-sm font-medium text-fg/90 transition group-hover:text-fg sm:text-[15px]">
+                                    <h4 className="min-w-0 break-words text-sm font-medium leading-snug text-fg/90 transition group-hover:text-fg sm:text-[15px]">
                                       {event.title}
                                     </h4>
-                                    <span className="font-mono text-[10px] uppercase tracking-wide text-fg-muted/75">
+                                    <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-fg-muted/75">
                                       {event.status === "synced_google" ? "Google" : "Local"}
                                     </span>
                                   </div>
@@ -467,9 +466,10 @@ export default function CalendarPage() {
                                   href={event.googleLink}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="mt-3 inline-flex h-8 items-center justify-center rounded-lg border border-border bg-fg/[0.035] px-3 text-xs font-medium text-fg-muted shadow-sm transition hover:bg-fg/5 hover:text-fg sm:hidden"
+                                  className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 transition hover:text-emerald-500 dark:text-emerald-300 dark:hover:text-emerald-200 sm:hidden"
                                 >
-                                  Open Google
+                                  <span>Open Google</span>
+                                  <span aria-hidden="true">↗</span>
                                 </a>
                               ) : null}
                             </div>
