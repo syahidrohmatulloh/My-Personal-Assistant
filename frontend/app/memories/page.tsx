@@ -10,7 +10,6 @@ import {
   Archive,
   AlertTriangle,
   Brain,
-  CalendarDays,
   CheckCircle2,
   ClipboardCheck,
   Pencil,
@@ -118,35 +117,6 @@ type MemoryHealthSchedulerStatus = {
 }
 
 
-type CalendarCandidateItem = {
-  id: string
-  content?: string | null
-  category?: string | null
-  structured_field?: string | null
-  structured_value?: string | null
-  due_date?: string | null
-  expires_at?: string | null
-  calendar_candidate?: boolean
-  calendar_event_status?: string | null
-  calendar_event_title?: string | null
-  calendar_event_date?: string | null
-  calendar_event_start_at?: string | null
-  calendar_event_end_at?: string | null
-  calendar_event_all_day?: boolean
-  google_calendar_event_id?: string | null
-  google_calendar_event_link?: string | null
-  google_calendar_id?: string | null
-  calendar_synced_at?: string | null
-  calendar_sync_error?: string | null
-  created_at?: string | null
-  source_conversation_id?: string | null
-}
-
-type CalendarCandidatesPayload = {
-  items: CalendarCandidateItem[]
-  count: number
-}
-
 type EditState = {
   memory: MemoryItem
   content: string
@@ -155,15 +125,6 @@ type EditState = {
   structured_value: string
 }
 
-
-type CalendarDraftEditState = {
-  candidate: CalendarCandidateItem
-  title: string
-  event_date: string
-  all_day: boolean
-  start_at: string
-  end_at: string
-}
 
 const MASKED_INPUT_TYPE = "pass" + "word"
 
@@ -241,12 +202,11 @@ export default function MemoriesPage() {
   const [data, setData] = useState<MemoryReviewPayload | null>(null)
   const [quality, setQuality] = useState<MemoryQualityPayload | null>(null)
   const [memoryHealthStatus, setMemoryHealthStatus] = useState<MemoryHealthSchedulerStatus | null>(null)
-  const [calendarCandidates, setCalendarCandidates] = useState<CalendarCandidatesPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<string | null>(null)
   const [consolidating, setConsolidating] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState<"active" | "archived" | "review" | "calendar">("active")
+  const [tab, setTab] = useState<"active" | "archived" | "review">("active")
   const [query, setQuery] = useState("")
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
   const [edit, setEdit] = useState<EditState | null>(null)
@@ -258,7 +218,6 @@ export default function MemoriesPage() {
     description: string
     action: (pin: string) => Promise<void>
   }>(null)
-  const [calendarDraftEdit, setCalendarDraftEdit] = useState<CalendarDraftEditState | null>(null)
   const [pinInput, setPinInput] = useState("")
   const [pinChecking, setPinChecking] = useState(false)
   const [verifiedMemoryPin, setVerifiedMemoryPin] = useState<string | null>(null)
@@ -354,23 +313,6 @@ export default function MemoriesPage() {
   }
 
 
-  async function loadCalendarCandidates() {
-    try {
-      const res = await fetch("/api/memory-review/calendar-candidates", {
-        cache: "no-store",
-      })
-
-      if (!res.ok) {
-        setCalendarCandidates(null)
-        return
-      }
-
-      setCalendarCandidates((await res.json()) as CalendarCandidatesPayload)
-    } catch {
-      setCalendarCandidates(null)
-    }
-  }
-
   async function loadPinStatus() {
     try {
       const res = await fetch("/api/memory-review/pin/status", { cache: "no-store" })
@@ -387,7 +329,7 @@ export default function MemoriesPage() {
     void loadMemoryHealthStatus()
   }, [])
 
-  const currentGroups = tab === "review" || tab === "calendar" ? {} : data?.[tab] || {}
+  const currentGroups = tab === "review" ? {} : data?.[tab as "active" | "archived"] || {}
 
   const filteredGroups = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -615,34 +557,6 @@ export default function MemoriesPage() {
     }
   }
 
-  async function calendarCandidateAction(
-    candidate: CalendarCandidateItem,
-    actionName: "dismiss" | "archive" | "confirm-local" | "sync-google" | "update-draft" | "delete-google",
-    payload: Record<string, unknown> = {},
-  ) {
-    setSavingId(`calendar-${candidate.id}`)
-    setError(null)
-
-    try {
-      const res = await fetch(`/api/memory-review/calendar-candidates/${candidate.id}/${actionName}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-
-      if (!res.ok) {
-        const detail = await safeDetail(res)
-        throw new Error(detail || "Failed to update calendar event")
-      }
-
-      await load()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update calendar event")
-    } finally {
-      setSavingId(null)
-    }
-  }
-
   async function confirmMemoryFreshness(memoryId: string) {
     setSavingId(memoryId)
     setError(null)
@@ -670,7 +584,6 @@ export default function MemoriesPage() {
   const activeCount = data?.counts?.active ?? 0
   const archivedCount = data?.counts?.archived ?? 0
   const reviewCount = quality?.summary?.needs_review ?? 0
-  const calendarCandidateCount = 0
 
   return (
     <main className="min-h-screen px-4 py-6 text-slate-950 dark:text-slate-900 dark:text-zinc-100 sm:px-6 lg:px-8">
@@ -803,46 +716,7 @@ export default function MemoriesPage() {
           </div>
         ) : null}
 
-        {tab === "calendar" ? (
-          <CalendarCandidatePanel
-            candidates={calendarCandidates?.items || []}
-            loading={loading}
-            savingId={savingId}
-            onEditDraft={(candidate) => {
-              setCalendarDraftEdit({
-                candidate,
-                title: candidate.calendar_event_title || candidate.content || "",
-                event_date: candidate.calendar_event_date || candidate.due_date || "",
-                all_day: Boolean(candidate.calendar_event_all_day),
-                start_at: candidate.calendar_event_start_at || "",
-                end_at: candidate.calendar_event_end_at || "",
-              })
-            }}
-            onSyncGoogle={(candidate) => {
-              if (window.confirm("Create this event in Google Calendar?")) {
-                void calendarCandidateAction(candidate, "sync-google")
-              }
-            }}
-            onConfirmLocal={(candidate) => {
-              void calendarCandidateAction(candidate, "confirm-local")
-            }}
-            onDismiss={(candidate) => {
-              if (window.confirm("Remove this item from Calendar?")) {
-                void calendarCandidateAction(candidate, "dismiss")
-              }
-            }}
-            onArchive={(candidate) => {
-              if (window.confirm("Archive this Calendar item?")) {
-                void calendarCandidateAction(candidate, "archive")
-              }
-            }}
-            onDeleteGoogle={(candidate) => {
-              if (window.confirm("Delete this event from Google Calendar? This cannot be undone in Google Calendar.")) {
-                void calendarCandidateAction(candidate, "delete-google")
-              }
-            }}
-          />
-        ) : tab === "review" ? (
+        {tab === "review" ? (
           <MemoryQualityPanel
             quality={quality}
             loading={loading}
@@ -942,21 +816,7 @@ export default function MemoriesPage() {
         )}
       </div>
 
-      {calendarDraftEdit ? (
-        <CalendarDraftEditDialog
-          state={calendarDraftEdit}
-          saving={savingId === `calendar-${calendarDraftEdit.candidate.id}`}
-          onChange={setCalendarDraftEdit}
-          onCancel={() => setCalendarDraftEdit(null)}
-          onSave={(payload) => {
-            const candidate = calendarDraftEdit.candidate
-            setCalendarDraftEdit(null)
-            void calendarCandidateAction(candidate, "update-draft", payload)
-          }}
-        />
-      ) : null}
-
-      {pinModal ? (
+            {pinModal ? (
         <MemoryPinDialog
           title={pinModal.title}
           description={pinModal.description}
@@ -1061,469 +921,6 @@ function TabButton({
     >
       {label}
     </button>
-  )
-}
-
-function CalendarDraftEditDialog({
-  state,
-  saving,
-  onChange,
-  onCancel,
-  onSave,
-}: {
-  state: CalendarDraftEditState
-  saving: boolean
-  onChange: (state: CalendarDraftEditState) => void
-  onCancel: () => void
-  onSave: (payload: Record<string, unknown>) => void
-}) {
-  const validationError = validateCalendarDraftState(state)
-
-  function update<K extends keyof CalendarDraftEditState>(
-    key: K,
-    value: CalendarDraftEditState[K],
-  ) {
-    onChange({ ...state, [key]: value })
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-[1.75rem] border border-slate-200/70 bg-white p-5 shadow-2xl shadow-slate-950/20 dark:border-white/10 dark:bg-zinc-950 dark:shadow-black/40">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-300">
-              Calendar draft
-            </p>
-            <h2 className="mt-2 text-xl font-semibold text-slate-950 dark:text-white">
-              Edit event details
-            </h2>
-            <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-zinc-400">
-              Review the title, date, and time before syncing to Google Calendar.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="mt-5 space-y-4">
-          <label className="block">
-            <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">Event title</span>
-            <input
-              value={state.title}
-              onChange={(event) => update("title", event.target.value)}
-              className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-white/[0.04] dark:text-white"
-              placeholder="Meeting with GH Risk"
-            />
-          </label>
-
-          <label className="block">
-            <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">Event date</span>
-            <input
-              type="date"
-              value={state.event_date}
-              onChange={(event) => update("event_date", event.target.value)}
-              className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-white/[0.04] dark:text-white"
-            />
-          </label>
-
-          <label className="flex items-center gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/80 px-3 py-3 dark:border-white/10 dark:bg-white/[0.04]">
-            <input
-              type="checkbox"
-              checked={state.all_day}
-              onChange={(event) => update("all_day", event.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-cyan-500 focus:ring-cyan-400"
-            />
-            <span className="text-sm font-medium text-slate-700 dark:text-zinc-200">All-day event</span>
-          </label>
-
-          {!state.all_day ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block">
-                <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">Start</span>
-                <input
-                  value={state.start_at}
-                  onChange={(event) => update("start_at", event.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-white/[0.04] dark:text-white"
-                  placeholder="2026-05-22T15:00:00+07:00"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-xs font-medium text-slate-600 dark:text-zinc-300">End</span>
-                <input
-                  value={state.end_at}
-                  onChange={(event) => update("end_at", event.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-white/[0.04] dark:text-white"
-                  placeholder="2026-05-22T16:00:00+07:00"
-                />
-              </label>
-            </div>
-          ) : null}
-
-          {validationError ? (
-            <p className="rounded-2xl border border-amber-200/70 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-300/15 dark:bg-amber-500/10 dark:text-amber-100">
-              {validationError}
-            </p>
-          ) : null}
-        </div>
-
-        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={saving}
-            className="inline-flex items-center justify-center rounded-full border border-slate-200/70 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-60 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-white/10"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              onSave({
-                title: state.title.trim(),
-                event_date: state.event_date.trim(),
-                all_day: state.all_day,
-                start_at: state.all_day ? null : state.start_at.trim(),
-                end_at: state.all_day ? null : state.end_at.trim(),
-              })
-            }
-            disabled={saving || Boolean(validationError)}
-            className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-zinc-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
-            Save draft
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function validateCalendarDraftState(state: CalendarDraftEditState): string | null {
-  if (!state.title.trim()) return "Event title is required."
-  if (!state.event_date.trim()) return "Event date is required."
-
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(state.event_date.trim())) {
-    return "Event date must use YYYY-MM-DD format."
-  }
-
-  if (state.all_day) return null
-
-  if (!state.start_at.trim() || !state.end_at.trim()) {
-    return "Timed events require both start and end datetime."
-  }
-
-  const start = Date.parse(state.start_at)
-  const end = Date.parse(state.end_at)
-
-  if (Number.isNaN(start) || Number.isNaN(end)) {
-    return "Start and end must be valid ISO datetime values."
-  }
-
-  if (end <= start) return "End time must be after start time."
-
-  return null
-}
-
-
-
-function cleanCalendarCandidateTitle(candidate: CalendarCandidateItem) {
-  const raw =
-    candidate.calendar_event_title ||
-    candidate.structured_value ||
-    candidate.content ||
-    "Untitled event"
-
-  let title = raw
-    .replace(/\s*\|\s*due_date=.*$/i, "")
-    .replace(/^User has a scheduled event:\s*/i, "")
-    .replace(/\s+on\s+\d{4}-\d{2}-\d{2}\s*$/i, "")
-    .replace(/\s+/g, " ")
-    .trim()
-
-  if (!title) title = "Untitled event"
-
-  return title
-}
-
-function formatCalendarDate(value?: string | null) {
-  if (!value) return "No date"
-
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!match) return value
-
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
-  return new Intl.DateTimeFormat("id-ID", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(date)
-}
-
-function formatCalendarClock(value?: string | null) {
-  if (!value) return ""
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ""
-
-  return new Intl.DateTimeFormat("id-ID", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "Asia/Jakarta",
-  }).format(date)
-}
-
-function formatCalendarTimeRange(candidate: CalendarCandidateItem) {
-  if (candidate.calendar_event_all_day) return "All day"
-
-  const start = formatCalendarClock(candidate.calendar_event_start_at)
-  const end = formatCalendarClock(candidate.calendar_event_end_at)
-
-  if (start && end) return `${start} – ${end} WIB`
-  if (start) return `${start} WIB`
-
-  return "No time"
-}
-
-function calendarCandidateStatusLabel(candidate: CalendarCandidateItem) {
-  if (candidate.calendar_event_status === "synced_google") {
-    return "Sudah masuk Google Calendar"
-  }
-
-  if (candidate.calendar_event_status === "confirmed_local") {
-    return "Siap dibuat ke Google Calendar"
-  }
-
-  return "Perlu review"
-}
-
-function calendarCandidateStatusClass(candidate: CalendarCandidateItem) {
-  if (candidate.calendar_event_status === "synced_google") {
-    return "border-emerald-200/70 bg-emerald-50/80 text-emerald-700 dark:border-emerald-300/15 dark:bg-emerald-500/10 dark:text-emerald-200"
-  }
-
-  if (candidate.calendar_event_status === "confirmed_local") {
-    return "border-cyan-200/70 bg-cyan-50/80 text-cyan-700 dark:border-cyan-300/15 dark:bg-cyan-500/10 dark:text-cyan-200"
-  }
-
-  return "border-amber-200/70 bg-amber-50/80 text-amber-800 dark:border-amber-300/15 dark:bg-amber-500/10 dark:text-amber-100"
-}
-
-
-function CalendarCandidatePanel({
-  candidates,
-  loading,
-  savingId,
-  onEditDraft,
-  onSyncGoogle,
-  onConfirmLocal,
-  onDismiss,
-  onArchive,
-  onDeleteGoogle,
-}: {
-  candidates: CalendarCandidateItem[]
-  loading: boolean
-  savingId: string | null
-  onEditDraft: (candidate: CalendarCandidateItem) => void
-  onSyncGoogle: (candidate: CalendarCandidateItem) => void
-  onConfirmLocal: (candidate: CalendarCandidateItem) => void
-  onDismiss: (candidate: CalendarCandidateItem) => void
-  onArchive: (candidate: CalendarCandidateItem) => void
-  onDeleteGoogle: (candidate: CalendarCandidateItem) => void
-}) {
-  if (loading) return <LoadingState />
-
-  if (!candidates.length) {
-    return (
-      <div className="rounded-[1.5rem] border border-emerald-200/70 bg-emerald-50/70 p-8 text-center shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-emerald-300/15 dark:bg-emerald-300/10">
-        <CalendarDays className="mx-auto h-8 w-8 text-emerald-600 dark:text-emerald-300" />
-        <h2 className="mt-3 text-lg font-semibold text-slate-950 dark:text-white">
-          No calendar events
-        </h2>
-        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600 dark:text-zinc-300">
-          Time-bound memories that may belong on your calendar will appear here for review.
-        </p>
-      </div>
-    )
-  }
-
-  return (
-    <section className="space-y-4">
-      <div className="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white/70 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035]">
-        <div className="border-b border-slate-200/70 p-5 dark:border-white/10">
-          <div className="flex items-center gap-3">
-            <div className="rounded-2xl bg-cyan-400/15 p-2 text-cyan-700 dark:text-cyan-300">
-              <CalendarDays className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
-                Calendar events
-              </h2>
-              <p className="text-sm text-slate-500 dark:text-zinc-400">
-                Review time-bound memories before turning them into calendar events.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-3 p-4 lg:grid-cols-2">
-          {candidates.map((candidate) => {
-            const saving = savingId === `calendar-${candidate.id}`
-            const eventTitle = cleanCalendarCandidateTitle(candidate)
-            const eventDate = formatCalendarDate(candidate.calendar_event_date || candidate.due_date)
-            const eventTime = formatCalendarTimeRange(candidate)
-            const statusLabel = calendarCandidateStatusLabel(candidate)
-            const statusClass = calendarCandidateStatusClass(candidate)
-
-            return (
-              <div
-                key={candidate.id}
-                className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-black/20"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-300/80">
-                      Calendar event
-                    </p>
-                    <h3 className="mt-2 text-base font-semibold leading-6 text-slate-950 dark:text-white">
-                      {eventTitle}
-                    </h3>
-                  </div>
-                  <span className="rounded-full bg-cyan-400/15 px-3 py-1 text-xs font-medium text-cyan-800 dark:text-cyan-200">
-                    {candidate.due_date || "No date"}
-                  </span>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 text-sm dark:border-white/10 dark:bg-white/[0.035]">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 dark:text-zinc-500">
-                        Date
-                      </p>
-                      <p className="mt-1 font-medium text-slate-800 dark:text-zinc-100">
-                        {eventDate}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 dark:text-zinc-500">
-                        Time
-                      </p>
-                      <p className="mt-1 font-medium text-slate-800 dark:text-zinc-100">
-                        {eventTime}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span className={["inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium", statusClass].join(" ")}>
-                      <CalendarDays className="h-3.5 w-3.5" />
-                      {statusLabel}
-                    </span>
-                    {candidate.created_at ? (
-                      <span className="text-xs text-slate-500 dark:text-zinc-400">
-                        Created {formatDateTime(candidate.created_at)}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-
-                {candidate.calendar_sync_error ? (
-                  <p className="mt-3 rounded-2xl border border-red-200/70 bg-red-50/80 px-3 py-2 text-xs leading-5 text-red-700 dark:border-red-300/15 dark:bg-red-500/10 dark:text-red-200">
-                    {candidate.calendar_sync_error}
-                  </p>
-                ) : null}
-
-                {candidate.calendar_event_status === "synced_google" ? (
-                  <p className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-200/70 bg-emerald-50/80 px-3 py-2 text-xs font-medium text-emerald-700 dark:border-emerald-300/15 dark:bg-emerald-500/10 dark:text-emerald-200">
-                    <CalendarDays className="h-3.5 w-3.5" />
-                    Synced to Google Calendar
-                  </p>
-                ) : null}
-
-                {candidate.google_calendar_event_link ? (
-                  <a
-                    href={candidate.google_calendar_event_link}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-200/70 bg-emerald-50/80 px-3 py-2 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-300/15 dark:bg-emerald-500/10 dark:text-emerald-200"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    Open in Google Calendar
-                  </a>
-                ) : null}
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    onClick={() => onEditDraft(candidate)}
-                    disabled={saving}
-                    className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-white disabled:opacity-60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
-                  >
-                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pencil className="h-3.5 w-3.5" />}
-                    {candidate.calendar_event_status === "synced_google" ? "Edit synced event" : "Edit draft"}
-                  </button>
-                  {(candidate.google_calendar_event_id || candidate.calendar_event_status === "synced_google") ? (
-                    <button
-                      type="button"
-                      onClick={() => onDeleteGoogle(candidate)}
-                      disabled={saving}
-                      className="inline-flex items-center gap-2 rounded-full border border-red-200/80 bg-red-50/80 px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/15"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Delete from Google Calendar
-                    </button>
-                  ) : null}
-
-
-                  {candidate.calendar_event_status === "confirmed_local" ? (
-                    <button
-                      onClick={() => onSyncGoogle(candidate)}
-                      disabled={saving || !candidate.calendar_event_date}
-                      className="inline-flex items-center gap-2 rounded-full bg-emerald-400 px-3 py-2 text-xs font-medium text-zinc-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarDays className="h-3.5 w-3.5" />}
-                      Create Google Calendar event
-                    </button>
-                  ) : candidate.calendar_event_status === "synced_google" ? null : (
-                    <button
-                      onClick={() => onConfirmLocal(candidate)}
-                      disabled={saving || !candidate.due_date}
-                      className="inline-flex items-center gap-2 rounded-full bg-cyan-400 px-3 py-2 text-xs font-medium text-zinc-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
-                      Mark ready
-                    </button>
-                  )}
-                  <button
-                    onClick={() => onDismiss(candidate)}
-                    disabled={saving || candidate.calendar_event_status === "synced_google"}
-                    className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-white disabled:opacity-60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
-                  >
-                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
-                    Not calendar event
-                  </button>
-                  <button
-                    onClick={() => onArchive(candidate)}
-                    disabled={saving || candidate.calendar_event_status === "synced_google"}
-                    className="inline-flex items-center gap-2 rounded-full border border-red-200/70 bg-red-50/80 px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:opacity-60 dark:border-red-300/15 dark:bg-red-500/10 dark:text-red-200"
-                  >
-                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
-                    Archive
-                  </button>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-    </section>
   )
 }
 
