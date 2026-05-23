@@ -35,6 +35,15 @@ type CalendarEvent = {
   syncError: string | null
 }
 
+type CachedCalendarPayload = {
+  version: 1
+  savedAt: string
+  events: CalendarEvent[]
+}
+
+const CALENDAR_EVENTS_CACHE_KEY = "app:calendar-events-cache:v1"
+
+
 type TimelineRow =
   | {
       type: "event"
@@ -184,6 +193,58 @@ function sortEvents(a: CalendarEvent, b: CalendarEvent): number {
   return aKey.localeCompare(bKey)
 }
 
+function isCalendarEvent(value: unknown): value is CalendarEvent {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false
+  }
+
+  const item = value as Partial<CalendarEvent>
+
+  return (
+    typeof item.id === "string" &&
+    typeof item.title === "string" &&
+    typeof item.date === "string" &&
+    (item.status === "confirmed_local" || item.status === "synced_google")
+  )
+}
+
+function readCachedCalendarEvents(): CalendarEvent[] {
+  if (typeof window === "undefined") {
+    return []
+  }
+
+  const raw = window.localStorage.getItem(CALENDAR_EVENTS_CACHE_KEY)
+  if (!raw) {
+    return []
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<CachedCalendarPayload>
+    const events = Array.isArray(parsed.events) ? parsed.events.filter(isCalendarEvent) : []
+    return events.sort(sortEvents)
+  } catch {
+    return []
+  }
+}
+
+function writeCachedCalendarEvents(events: CalendarEvent[]) {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  const payload: CachedCalendarPayload = {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    events,
+  }
+
+  try {
+    window.localStorage.setItem(CALENDAR_EVENTS_CACHE_KEY, JSON.stringify(payload))
+  } catch {
+    // Ignore storage quota or privacy-mode failures.
+  }
+}
+
 function groupByDate(events: CalendarEvent[]): Array<[string, CalendarEvent[]]> {
   const grouped = new Map<string, CalendarEvent[]>()
 
@@ -291,7 +352,7 @@ function StatusDot({ status }: { status: CalendarEvent["status"] }) {
 
 export default function CalendarPage() {
   const calendarEyebrow = useUserOwnedLabel("Calendar")
-  const [events, setEvents] = useState<CalendarEvent[]>([])
+  const [events, setEvents] = useState<CalendarEvent[]>(() => readCachedCalendarEvents())
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -316,7 +377,9 @@ export default function CalendarPage() {
         .map((item: RawCalendarItem) => normalizeEvent(item))
         .filter(Boolean) as CalendarEvent[]
 
-      setEvents(normalized.sort(sortEvents))
+      const sortedEvents = normalized.sort(sortEvents)
+      setEvents(sortedEvents)
+      writeCachedCalendarEvents(sortedEvents)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load Calendar"
       setError(message)
@@ -389,6 +452,9 @@ export default function CalendarPage() {
             <p className="text-sm text-fg-muted">
               Mini timeline ini membantu melihat urutan acara, jeda waktu senggang, dan jadwal yang terlalu mepet.
             </p>
+            {isLoading && groupedEvents.length > 0 ? (
+              <p className="text-xs text-fg-muted/80">Refreshing latest schedule…</p>
+            ) : null}
           </div>
 
           {error ? (
@@ -397,7 +463,7 @@ export default function CalendarPage() {
             </div>
           ) : null}
 
-          {isLoading ? (
+          {isLoading && groupedEvents.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-fg-muted">
               Loading Calendar...
             </div>

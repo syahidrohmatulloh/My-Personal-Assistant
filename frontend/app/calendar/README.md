@@ -20,3 +20,5 @@ Timeline UX features:
 - Back to chat uses the shared BackToLastChat behavior, so it returns to the last active chat instead of always opening /chat.
 
 - Tight/overlapping schedule warnings include a “Bantu Atur Ulang” handoff that opens the last chat and pre-fills a scheduling-help draft.
+
+- Calendar uses a localStorage snapshot for instant loading, then refreshes latest data in the background.
