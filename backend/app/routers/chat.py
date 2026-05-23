@@ -773,6 +773,20 @@ async def chat(
             if hasattr(raw, "dict")
             else raw
         )
+    local_time_available = bool(
+        isinstance(raw_client_context, dict)
+        and str(raw_client_context.get("local_time") or "").strip()
+    )
+    volatile_context += (
+        "\n\n## Time-of-day grounding — strict rule\n"
+        "- Before using any time-of-day label such as pagi, siang, sore, malam, morning, afternoon, evening, or night, verify it against the browser-provided user local time in the app context.\n"
+        "- Never infer time-of-day from conversational cues, activity descriptions, meal references, calendar events, vibes, or assumptions.\n"
+        "- If browser-provided user local time is unavailable, ask the user for the current local time before using a time-of-day label. Do not guess.\n"
+        "- This rule applies to greetings, reactions, calendar/schedule comments, and any contextual comment about timing.\n"
+        "- If the user mentions a future or past event time, treat that as an event timestamp, not as the current time.\n"
+        f"- Browser-provided user local time available this turn: {'yes' if local_time_available else 'no'}."
+    )
+
     client_time_block = render_client_time_context(raw_client_context, profile)
     if client_time_block:
         volatile_context += "\n\n" + client_time_block
