@@ -837,8 +837,8 @@ export default function MemoriesPage() {
             }
             onConfirmLocal={(candidate) =>
               requireMemoryPin(
-                "Confirm event draft",
-                "This creates a local calendar event draft. It will not create a Google Calendar event yet.",
+                "Mark ready",
+                "This marks the candidate as ready before creating a Google Calendar event.",
                 async (pin) => {
                   await calendarCandidateAction(candidate, "confirm-local", pin)
                 },
@@ -1259,6 +1259,92 @@ function validateCalendarDraftState(state: CalendarDraftEditState): string | nul
 }
 
 
+
+function cleanCalendarCandidateTitle(candidate: CalendarCandidateItem) {
+  const raw =
+    candidate.calendar_event_title ||
+    candidate.structured_value ||
+    candidate.content ||
+    "Untitled event"
+
+  let title = raw
+    .replace(/\s*\|\s*due_date=.*$/i, "")
+    .replace(/^User has a scheduled event:\s*/i, "")
+    .replace(/\s+on\s+\d{4}-\d{2}-\d{2}\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  if (!title) title = "Untitled event"
+
+  return title
+}
+
+function formatCalendarDate(value?: string | null) {
+  if (!value) return "No date"
+
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) return value
+
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  return new Intl.DateTimeFormat("id-ID", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date)
+}
+
+function formatCalendarClock(value?: string | null) {
+  if (!value) return ""
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+
+  return new Intl.DateTimeFormat("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Jakarta",
+  }).format(date)
+}
+
+function formatCalendarTimeRange(candidate: CalendarCandidateItem) {
+  if (candidate.calendar_event_all_day) return "All day"
+
+  const start = formatCalendarClock(candidate.calendar_event_start_at)
+  const end = formatCalendarClock(candidate.calendar_event_end_at)
+
+  if (start && end) return `${start} – ${end} WIB`
+  if (start) return `${start} WIB`
+
+  return "No time"
+}
+
+function calendarCandidateStatusLabel(candidate: CalendarCandidateItem) {
+  if (candidate.calendar_event_status === "synced_google") {
+    return "Sudah masuk Google Calendar"
+  }
+
+  if (candidate.calendar_event_status === "confirmed_local") {
+    return "Siap dibuat ke Google Calendar"
+  }
+
+  return "Perlu review"
+}
+
+function calendarCandidateStatusClass(candidate: CalendarCandidateItem) {
+  if (candidate.calendar_event_status === "synced_google") {
+    return "border-emerald-200/70 bg-emerald-50/80 text-emerald-700 dark:border-emerald-300/15 dark:bg-emerald-500/10 dark:text-emerald-200"
+  }
+
+  if (candidate.calendar_event_status === "confirmed_local") {
+    return "border-cyan-200/70 bg-cyan-50/80 text-cyan-700 dark:border-cyan-300/15 dark:bg-cyan-500/10 dark:text-cyan-200"
+  }
+
+  return "border-amber-200/70 bg-amber-50/80 text-amber-800 dark:border-amber-300/15 dark:bg-amber-500/10 dark:text-amber-100"
+}
+
+
 function CalendarCandidatePanel({
   candidates,
   loading,
@@ -1316,6 +1402,11 @@ function CalendarCandidatePanel({
         <div className="grid gap-3 p-4 lg:grid-cols-2">
           {candidates.map((candidate) => {
             const saving = savingId === `calendar-${candidate.id}`
+            const eventTitle = cleanCalendarCandidateTitle(candidate)
+            const eventDate = formatCalendarDate(candidate.calendar_event_date || candidate.due_date)
+            const eventTime = formatCalendarTimeRange(candidate)
+            const statusLabel = calendarCandidateStatusLabel(candidate)
+            const statusClass = calendarCandidateStatusClass(candidate)
 
             return (
               <div
@@ -1328,7 +1419,7 @@ function CalendarCandidatePanel({
                       Calendar candidate
                     </p>
                     <h3 className="mt-2 text-base font-semibold leading-6 text-slate-950 dark:text-white">
-                      {candidate.structured_value || candidate.content || "Untitled candidate"}
+                      {eventTitle}
                     </h3>
                   </div>
                   <span className="rounded-full bg-cyan-400/15 px-3 py-1 text-xs font-medium text-cyan-800 dark:text-cyan-200">
@@ -1336,36 +1427,36 @@ function CalendarCandidatePanel({
                   </span>
                 </div>
 
-                {candidate.content ? (
-                  <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-zinc-300">
-                    {candidate.content}
-                  </p>
-                ) : null}
+                <div className="mt-4 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 text-sm dark:border-white/10 dark:bg-white/[0.035]">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 dark:text-zinc-500">
+                        Date
+                      </p>
+                      <p className="mt-1 font-medium text-slate-800 dark:text-zinc-100">
+                        {eventDate}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 dark:text-zinc-500">
+                        Time
+                      </p>
+                      <p className="mt-1 font-medium text-slate-800 dark:text-zinc-100">
+                        {eventTime}
+                      </p>
+                    </div>
+                  </div>
 
-                <div className="mt-4 grid gap-2 text-xs text-slate-500 dark:text-zinc-400 sm:grid-cols-2">
-                  <div>
-                    <span className="font-medium text-slate-700 dark:text-zinc-200">Due date:</span>{" "}
-                    {candidate.due_date || "—"}
-                  </div>
-                  <div>
-                    <span className="font-medium text-slate-700 dark:text-zinc-200">Expires:</span>{" "}
-                    {formatDateTime(candidate.expires_at)}
-                  </div>
-                  <div>
-                    <span className="font-medium text-slate-700 dark:text-zinc-200">Field:</span>{" "}
-                    {humanizeLabel(candidate.structured_field)}
-                  </div>
-                  <div>
-                    <span className="font-medium text-slate-700 dark:text-zinc-200">Created:</span>{" "}
-                    {formatDateTime(candidate.created_at)}
-                  </div>
-                  <div>
-                    <span className="font-medium text-slate-700 dark:text-zinc-200">Event status:</span>{" "}
-                    {humanizeLabel(candidate.calendar_event_status) || "Candidate"}
-                  </div>
-                  <div>
-                    <span className="font-medium text-slate-700 dark:text-zinc-200">Synced:</span>{" "}
-                    {formatDateTime(candidate.calendar_synced_at)}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className={["inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium", statusClass].join(" ")}>
+                      <CalendarDays className="h-3.5 w-3.5" />
+                      {statusLabel}
+                    </span>
+                    {candidate.created_at ? (
+                      <span className="text-xs text-slate-500 dark:text-zinc-400">
+                        Created {formatDateTime(candidate.created_at)}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
@@ -1420,7 +1511,7 @@ function CalendarCandidatePanel({
                       className="inline-flex items-center gap-2 rounded-full bg-cyan-400 px-3 py-2 text-xs font-medium text-zinc-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
-                      Confirm event draft
+                      Mark ready
                     </button>
                   )}
                   <button
