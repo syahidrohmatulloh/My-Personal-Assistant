@@ -503,3 +503,21 @@ def _has_any(text: str, terms: list[str]) -> bool:
             return True
 
     return False
+
+
+
+_original_detect_assistant_name_explicit_phrase_guard = _detect_assistant_name
+
+
+def _detect_assistant_name(text: str) -> str | None:
+    from app.services import name_normalization
+
+    strict_name = name_normalization._extract_strict_assistant_name_from_text(text)
+    if strict_name:
+        return strict_name
+
+    detected = _original_detect_assistant_name_explicit_phrase_guard(text)
+    if detected and name_normalization.message_explicitly_renames_assistant(text):
+        return name_normalization.normalize_assistant_name(detected)
+
+    return None
