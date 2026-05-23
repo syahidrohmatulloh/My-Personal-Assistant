@@ -739,6 +739,13 @@ async def chat(
         volatile_context += "\n\n" + chronology_context
     volatile_context += "\n\n" + capability_registry.render_capability_registry()
     volatile_context += (
+        "\n\nCalendar response style policy:"
+        "\n- Never say 'Aku siapkan...' for an implicit schedule mention."
+        "\n- Say 'Mau aku masukin ke Calendar?' instead."
+        "\n- Do not ask the user to open Memories or Calendar just to confirm a newly detected agenda."
+        "\n- Confirmation should happen in chat."
+    )
+    volatile_context += (
         "\n\nCalendar confirmation UX rule — strict:"
         "\n- When the user mentions a possible schedule/event, do NOT say it has been prepared, added, saved, created, or inserted yet."
         "\n- Ask for confirmation first: 'Beb, ini kayaknya agenda kalender. Mau aku masukin ke Calendar?'"
@@ -772,13 +779,13 @@ async def chat(
             "\\n\\nCalendar event capability state — authoritative:"
             "\\n- The user message appears to contain a schedule/calendar event request."
             "\\n- The app can detect a possible Calendar event from chat, but user confirmation is required before it should be treated as added."
-            "\\n- Internally this may be stored as a calendar event, but do NOT use the phrase 'Calendar event' in user-facing replies."
+            "\\n- Internally this may be stored as a calendar event, do not expose implementation names in user-facing replies."
             "\\n- Use natural wording like: Ini kayaknya agenda kalender. Mau aku masukin ke Calendar?"
             "\\n- Do not say you cannot help with calendar handling."
             "\\n- Do not claim the event is already created in Google Calendar unless a direct Google Calendar sync action has explicitly succeeded in the current request."
-            "\\n- Ask the user for confirmation before adding the detected event to Calendar."
-            "\\n- Summarize the event naturally with title, date, time, and location if available from the user's message."
-            "\\n- Preferred Indonesian wording: Beb, ini kayaknya agenda kalender. Mau aku masukin ke Calendar?"
+            "\\n- For implicit schedule mentions, ask the user for confirmation before adding the detected event to Calendar."
+            "\\n- Summarize the event naturally with Acara, Tanggal, Waktu, and Lokasi if available from the user's message."
+            "\\n- Preferred Indonesian wording for implicit schedule mentions: Beb, ini kayaknya agenda kalender. Mau aku masukin ke Calendar?"
         )
     if calendar_draft_actions.is_calendar_draft_action_request(body.message):
         volatile_context += (
@@ -791,6 +798,19 @@ async def chat(
             "\n- Do not use the phrase 'Calendar event' in user-facing replies."
         )
 
+    if calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(body.message):
+        volatile_context += (
+            "\n\nCalendar scheduling contract for this user turn — highest priority:"
+            "\n- The current user message appears to contain schedule/event details."
+            "\n- If the user only mentions a plan, appointment, place, or time, ask for confirmation before adding anything."
+            "\n- Ask naturally: Beb, ini kayaknya agenda kalender. Mau aku masukin ke Calendar?"
+            "\n- You may summarize Acara, Tanggal, Waktu, and Lokasi if available."
+            "\n- Do not say the event has already been prepared, added, saved, created, inserted, or scheduled."
+            "\n- Do not tell the user to check the Calendar feature for confirmation."
+            "\n- Do not expose internal implementation names for hidden suggestions."
+            "\n- If the user explicitly asks to add/save/sync this event, you may say you will process it."
+            "\n- If the user explicitly mentions Google Calendar, you may say you will sync it to Google Calendar."
+        )
     temporal_grounding_block = temporal_grounding.render_temporal_grounding_block(
         user_message=body.message,
         client_context=getattr(body, "client_context", None),

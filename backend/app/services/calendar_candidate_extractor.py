@@ -425,13 +425,39 @@ async def _find_existing_calendar_item(
             continue
 
         same_title = normalized_title == row_title or normalized_title in row_title or row_title in normalized_title
-        same_start = not start_at or not row.get("calendar_event_start_at") or str(row.get("calendar_event_start_at")) == str(start_at)
-        same_end = not end_at or not row.get("calendar_event_end_at") or str(row.get("calendar_event_end_at")) == str(end_at)
+        same_time = _same_calendar_time_for_dedupe(
+            row_start=row.get("calendar_event_start_at"),
+            row_end=row.get("calendar_event_end_at"),
+            start_at=start_at,
+            end_at=end_at,
+        )
 
-        if same_title and same_start and same_end:
+        # If exact date/time matches, treat it as the same calendar item even
+        # when Haiku/deterministic extraction produced a slightly different title.
+        if same_time and (same_title or bool(start_at)):
             return str(row.get("id"))
 
     return None
+
+
+
+def _same_calendar_time_for_dedupe(
+    *,
+    row_start: object,
+    row_end: object,
+    start_at: str | None,
+    end_at: str | None,
+) -> bool:
+    row_start_text = str(row_start or "").strip()
+    row_end_text = str(row_end or "").strip()
+    start_text = str(start_at or "").strip()
+    end_text = str(end_at or "").strip()
+
+    if start_text and row_start_text and start_text != row_start_text:
+        return False
+    if end_text and row_end_text and end_text != row_end_text:
+        return False
+    return True
 
 
 def _normalise_title_for_dedupe(value: str) -> str:
