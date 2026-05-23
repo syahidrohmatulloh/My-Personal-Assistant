@@ -746,14 +746,16 @@ async def chat(
     )
     if calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(body.message):
         volatile_context += (
-            "\\n\\nCalendar Candidate capability state — authoritative:"
+            "\\n\\nCalendar event draft capability state — authoritative:"
             "\\n- The user message appears to contain a schedule/calendar event request."
-            "\\n- The app has a review-first Calendar Candidate system that can prepare event drafts from chat."
+            "\\n- The app can automatically prepare a calendar event draft from chat and show it in Memories → Calendar."
+            "\\n- Internally this may be stored as a calendar candidate, but do NOT use the phrase 'Calendar Candidate' in user-facing replies."
+            "\\n- Use natural wording like: Aku catat ke Calendar ya, or Aku siapin event ini di Calendar."
             "\\n- Do not say you cannot help with calendar handling."
             "\\n- Do not claim the event is already created in Google Calendar unless a direct Google Calendar sync action has explicitly succeeded in the current request."
-            "\\n- Say you will prepare or have prepared it as a Calendar Candidate for review in Memories → Calendar."
+            "\\n- Tell the user the event will be available in Memories → Calendar for review, edit, and sync."
             "\\n- Summarize the event naturally with title, date, time, and location if available from the user's message."
-            "\\n- Preferred Indonesian wording: Aku siapkan ini sebagai Calendar Candidate dulu ya, nanti kamu bisa review dan sync ke Google Calendar dari Memories → Calendar."
+            "\\n- Preferred Indonesian wording: Aku catat ke Calendar ya beb. Nanti bisa kamu cek atau edit di Memories → Calendar."
         )
     temporal_grounding_block = temporal_grounding.render_temporal_grounding_block(
         user_message=body.message,
