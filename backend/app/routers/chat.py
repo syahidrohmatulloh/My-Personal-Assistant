@@ -40,6 +40,7 @@ from app.core.auth import get_current_user_id
 from app.schemas import ChatIn
 from app.services import (
     calendar_candidate_extractor,
+    calendar_draft_actions,
     conversation_chronology,
     capability_registry,
     attachments,
@@ -757,6 +758,17 @@ async def chat(
             "\\n- Summarize the event naturally with title, date, time, and location if available from the user's message."
             "\\n- Preferred Indonesian wording: Aku catat ke Calendar ya beb. Nanti bisa kamu cek atau edit di Memories → Calendar."
         )
+    if calendar_draft_actions.is_calendar_draft_action_request(body.message):
+        volatile_context += (
+            "\n\nCalendar draft action capability state — authoritative:"
+            "\n- The user appears to be asking to edit, reschedule, remove, cancel, or delete a Calendar item."
+            "\n- The app can update or remove local Calendar drafts from chat when the target is clear."
+            "\n- Do not claim that a Google Calendar event was changed or deleted from chat."
+            "\n- If the event is already synced to Google Calendar, say changes/deletion may require confirmation from Memories → Calendar."
+            "\n- Use natural wording like: Aku update di Calendar ya, or Aku hapus dari Calendar ya."
+            "\n- Do not use the phrase 'Calendar Candidate' in user-facing replies."
+        )
+
     temporal_grounding_block = temporal_grounding.render_temporal_grounding_block(
         user_message=body.message,
         client_context=getattr(body, "client_context", None),
@@ -1119,10 +1131,30 @@ async def _stream_claude_response(
             assistant_response=assistant_text,
         )
 
-    # Calendar candidate extraction — deterministic, review-first, never syncs directly.
+    # Calendar draft actions from chat — local draft only, never syncs/deletes Google directly.
+    should_apply_calendar_draft_action = calendar_draft_actions.is_calendar_draft_action_request(
+        user_message
+    )
+    if should_apply_calendar_draft_action:
+        background_tasks.add_task(
+            calendar_draft_actions.apply_chat_calendar_draft_action,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            user_message=user_message,
+            client_context=client_context,
+            recent_messages=[
+                *messages,
+                {"role": "assistant", "content": assistant_text},
+            ],
+        )
+
+    # Calendar candidate extraction — deterministic/Haiku-assisted, review-first, never syncs directly.
     should_extract_calendar_candidate = (
-        extraction_decision.run_calendar_candidate_extraction
-        or calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(user_message)
+        not should_apply_calendar_draft_action
+        and (
+            extraction_decision.run_calendar_candidate_extraction
+            or calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(user_message)
+        )
     )
     if should_extract_calendar_candidate:
         background_tasks.add_task(
