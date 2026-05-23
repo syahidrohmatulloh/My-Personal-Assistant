@@ -40,6 +40,7 @@ from app.core.auth import get_current_user_id
 from app.schemas import ChatIn
 from app.services import (
     calendar_candidate_extractor,
+    calendar_confirmation_actions,
     calendar_draft_actions,
     conversation_chronology,
     capability_registry,
@@ -737,6 +738,13 @@ async def chat(
     if chronology_context:
         volatile_context += "\n\n" + chronology_context
     volatile_context += "\n\n" + capability_registry.render_capability_registry()
+    pending_calendar_confirmation_context = await calendar_confirmation_actions.render_pending_calendar_confirmation_context(
+        user_id=user_id,
+        conversation_id=conversation_id,
+    )
+    if pending_calendar_confirmation_context:
+        volatile_context += "\n\n" + pending_calendar_confirmation_context
+
     volatile_context += (
         "\n\nCalendar user-facing language rule — strict:"
         "\n- Never use the phrases 'Calendar event draft', 'calendar event draft', 'event Calendar', or 'event Calendar' in user-facing replies."
@@ -757,12 +765,12 @@ async def chat(
             "\\n- The user message appears to contain a schedule/calendar event request."
             "\\n- The app can automatically prepare a calendar event draft from chat and show it in Memories → Calendar."
             "\\n- Internally this may be stored as a calendar event draft, but do NOT use the phrase 'Calendar event draft' in user-facing replies."
-            "\\n- Use natural wording like: Aku catat ke Calendar ya, or Aku siapin event ini di Calendar."
+            "\\n- Use natural wording like: Ini kayaknya agenda kalender. Mau aku masukin ke Calendar?"
             "\\n- Do not say you cannot help with calendar handling."
             "\\n- Do not claim the event is already created in Google Calendar unless a direct Google Calendar sync action has explicitly succeeded in the current request."
-            "\\n- Tell the user the event will be available in Memories → Calendar for review, edit, and sync."
+            "\\n- Ask the user for confirmation before adding the detected event to Calendar."
             "\\n- Summarize the event naturally with title, date, time, and location if available from the user's message."
-            "\\n- Preferred Indonesian wording: Aku catat ke Calendar ya beb. Nanti bisa kamu cek atau edit di Memories → Calendar."
+            "\\n- Preferred Indonesian wording: Beb, ini kayaknya agenda kalender. Mau aku masukin ke Calendar?"
         )
     if calendar_draft_actions.is_calendar_draft_action_request(body.message):
         volatile_context += (
@@ -1136,6 +1144,19 @@ async def _stream_claude_response(
             user_message=user_message,
             assistant_response=assistant_text,
         )
+
+    # LLM-routed Calendar confirmation — accepts/dismisses the latest hidden pending suggestion.
+    background_tasks.add_task(
+        calendar_confirmation_actions.apply_calendar_confirmation_decision,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        user_message=user_message,
+        client_context=client_context,
+        recent_messages=[
+            *messages,
+            {"role": "assistant", "content": assistant_text},
+        ],
+    )
 
     # Calendar draft actions from chat — can update/delete local drafts and synced Google events.
     should_apply_calendar_draft_action = calendar_draft_actions.is_calendar_draft_action_request(
