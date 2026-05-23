@@ -1115,6 +1115,10 @@ async def _stream_claude_response(
             conversation_id=conversation_id,
             user_message=user_message,
             client_context=client_context,
+            recent_messages=[
+                *messages,
+                {"role": "assistant", "content": assistant_text},
+            ],
         )
 
 

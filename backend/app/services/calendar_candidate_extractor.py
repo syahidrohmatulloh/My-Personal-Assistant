@@ -22,6 +22,7 @@ from typing import Any
 
 from app.services.embeddings import embed_document
 from app.services.supabase_client import safe_execute
+from app.services import calendar_intent
 
 log = logging.getLogger(__name__)
 
@@ -236,6 +237,7 @@ async def extract_and_persist(
     conversation_id: str,
     user_message: str,
     client_context: dict[str, Any] | None = None,
+    recent_messages: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     base_date = _base_date_from_client_context(client_context)
     tz_offset = _timezone_offset_from_client_context(client_context)
@@ -245,6 +247,18 @@ async def extract_and_persist(
         base_date=base_date,
         timezone_offset_minutes=tz_offset,
     )
+    if not candidate:
+        try:
+            intent_draft = await calendar_intent.extract_calendar_intent_draft(
+                user_message=user_message,
+                recent_messages=recent_messages,
+                client_context=client_context,
+            )
+            if intent_draft:
+                candidate = _candidate_from_intent_draft(intent_draft, user_message)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("calendar_candidate_extractor: haiku intent fallback failed: %s", exc)
+
     if not candidate:
         return {"candidate": False, "saved": False}
 
@@ -294,6 +308,49 @@ async def extract_and_persist(
     except Exception as exc:  # noqa: BLE001
         log.warning("calendar_candidate_extractor: insert failed: %s", exc)
         return {"candidate": True, "saved": False, "error": str(exc)[:200]}
+
+
+def _candidate_from_intent_draft(draft: dict[str, Any], source_text: str) -> CalendarCandidate | None:
+    title = str(draft.get("title") or "").strip()
+    event_date = str(draft.get("event_date") or "").strip()
+    start_at = draft.get("start_at")
+    end_at = draft.get("end_at")
+    all_day = bool(draft.get("all_day"))
+    location = draft.get("location")
+    confidence = float(draft.get("confidence") or 0.72)
+    reason = str(draft.get("reason") or "haiku_calendar_intent").strip()
+
+    if not title or not event_date:
+        return None
+
+    value_parts = [
+        title,
+        f"due_date={event_date}",
+    ]
+
+    if start_at:
+        value_parts.append(f"start_at={start_at}")
+    if end_at:
+        value_parts.append(f"end_at={end_at}")
+    if location:
+        value_parts.append(f"location={location}")
+
+    content = f"User has a scheduled event: {title} on {event_date}"
+    if location:
+        content += f" at {location}"
+
+    return CalendarCandidate(
+        title=title,
+        event_date=event_date,
+        start_at=str(start_at) if start_at else None,
+        end_at=str(end_at) if end_at else None,
+        all_day=all_day,
+        structured_value=" | ".join(value_parts),
+        content=content,
+        evidence=[source_text[:220]],
+        confidence=max(0.62, min(confidence, 0.94)),
+        reason=reason or "haiku_calendar_intent",
+    )
 
 
 async def _find_existing_candidate(*, user_id: str, title: str, event_date: str) -> str | None:
