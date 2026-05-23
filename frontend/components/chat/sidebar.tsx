@@ -1,6 +1,6 @@
 "use client"; import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
-import { ChevronDown, Heart, LogOut, Menu, MessageSquare, MoreHorizontal, Pencil, Plus, RefreshCw, Settings, Sparkles, Target, Trash2, User, Users, X,
+import { CalendarDays, ChevronDown, Heart, LogOut, Menu, MessageSquare, MoreHorizontal, Pencil, Plus, RefreshCw, Settings, Sparkles, Target, Trash2, User, Users, X,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -10,7 +10,69 @@ import { createClient } from "@/lib/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils"; // Group conversations by relative time, like ChatGPT / Claude.ai
 type ConvoGroup = { label: string; conversations: Conversation[] }; function groupConversations(convos: Conversation[]): ConvoGroup[] { const now = Date.now(); const ONE_DAY = 86_400_000; const buckets: { [k: string]: Conversation[] } = { Today: [], Yesterday: [], "Previous 7 days": [], "Previous 30 days": [], Older: [], }; for (const c of convos) { const age = now - new Date(c.updated_at).getTime(); if (age < ONE_DAY) buckets.Today.push(c); else if (age < 2 * ONE_DAY) buckets.Yesterday.push(c); else if (age < 7 * ONE_DAY) buckets["Previous 7 days"].push(c); else if (age < 30 * ONE_DAY) buckets["Previous 30 days"].push(c); else buckets.Older.push(c); } return Object.entries(buckets) .filter(([, items]) => items.length > 0) .map(([label, conversations]) => ({ label, conversations }));
-} export function Sidebar({
+} 
+
+type CalendarSidebarItem = {
+  calendar_candidate?: boolean | null;
+  calendar_event_status?: string | null;
+  calendar_event_date?: string | null;
+  due_date?: string | null;
+  calendar_event_start_at?: string | null;
+  calendar_event_end_at?: string | null;
+  archived?: boolean | null;
+  superseded?: boolean | null;
+};
+
+function calendarTimeMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function countCalendarSidebarAlerts(items: CalendarSidebarItem[]): number {
+  const activeItems = items.filter((item) => !item.archived && !item.superseded);
+
+  const pendingCount = activeItems.filter((item) => item.calendar_candidate === true).length;
+
+  const confirmedEvents = activeItems
+    .filter(
+      (item) =>
+        item.calendar_event_status === "confirmed_local" ||
+        item.calendar_event_status === "synced_google",
+    )
+    .sort((a, b) => {
+      const aKey = `${a.calendar_event_date || a.due_date || ""} ${a.calendar_event_start_at || ""}`;
+      const bKey = `${b.calendar_event_date || b.due_date || ""} ${b.calendar_event_start_at || ""}`;
+      return aKey.localeCompare(bKey);
+    });
+
+  let tightOrOverlapCount = 0;
+
+  for (let i = 1; i < confirmedEvents.length; i += 1) {
+    const previous = confirmedEvents[i - 1];
+    const current = confirmedEvents[i];
+
+    const previousDate = previous.calendar_event_date || previous.due_date || "";
+    const currentDate = current.calendar_event_date || current.due_date || "";
+
+    if (!previousDate || previousDate !== currentDate) continue;
+
+    const previousEnd = calendarTimeMs(previous.calendar_event_end_at);
+    const currentStart = calendarTimeMs(current.calendar_event_start_at);
+
+    if (previousEnd == null || currentStart == null) continue;
+
+    const gapMinutes = Math.round((currentStart - previousEnd) / 60000);
+
+    if (gapMinutes <= 20) {
+      tightOrOverlapCount += 1;
+    }
+  }
+
+  return pendingCount + tightOrOverlapCount;
+}
+
+export function Sidebar({
   initialConversations = [],
   initialJournaled = false,
 }: {
@@ -74,7 +136,29 @@ type ConvoGroup = { label: string; conversations: Conversation[] }; function gro
   const memoryNeedsReview = Math.max(
     0,
     Number(memoryHealthStatus?.needs_review || 0),
-  ); const { data: styleProfiles = [] } = useQuery({ queryKey: ["style-profiles"], queryFn: listStyleProfiles, staleTime: 60_000, }); const groups = useMemo(() => groupConversations(conversations), [conversations]); useEffect(() => { setOpen(false); }, [activeId]); useEffect(() => { if (open) { const prev = document.body.style.overflow; document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = prev; }; } }, [open]); const createMut = useMutation({ mutationFn: (styleProfileId: string | null = null) => createConversation("New chat", styleProfileId), onMutate: async () => { const optimistic: Conversation = { id: `temp-${Date.now()}`, title: "New chat", created_at: new Date().toISOString(), updated_at: new Date().toISOString(), }; await qc.cancelQueries({ queryKey: ["conversations"] }); qc.setQueryData<Conversation[]>(["conversations"], (old = []) => [ optimistic, ...old, ]); return { optimistic }; }, onSuccess: (real, _vars, ctx) => { qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.map((c) => (c.id === ctx?.optimistic.id ? real : c)), ); setOpen(false); router.push(`/chat/${real.id}`); }, onError: (_e, _v, ctx) => { qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.filter((c) => c.id !== ctx?.optimistic.id), ); }, }); const deleteMut = useMutation({ mutationFn: (id: string) => deleteConversation(id), onMutate: async (id) => { await qc.cancelQueries({ queryKey: ["conversations"] }); const prev = qc.getQueryData<Conversation[]>(["conversations"]); qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.filter((c) => c.id !== id), ); return { prev }; }, onError: (_e, _id, ctx) => { if (ctx?.prev) qc.setQueryData(["conversations"], ctx.prev); }, }); function handleDelete(id: string) { if (!confirm("Delete this conversation?")) return; deleteMut.mutate(id); if (activeId === id) router.push("/chat"); } async function handleSignOut() { const supabase = createClient(); await supabase.auth.signOut(); router.push("/login"); router.refresh(); } const sidebarBody = ( <> {/* Brand */} <div className="shrink-0 px-4 pt-4 pb-3 flex items-center gap-2"> <Link href="/chat" aria-label="Go to chat home" className="inline-flex items-center gap-2 text-fg no-underline outline-none focus-visible:ring-2 focus-visible:ring-ring/60"> <div className="h-7 w-7 rounded-lg bg-accent grid place-items-center shadow-sm"> <Sparkles className="h-3.5 w-3.5 text-on-accent" strokeWidth={2.5} /> </div> <span className="text-sm font-semibold text-fg tracking-tighter"> {visibleAssistantName} </span> </Link> <button onClick={() => setOpen(false)} className="ml-auto md:hidden h-9 w-9 grid place-items-center rounded-lg text-fg-muted " aria-label="Close menu" > <X className="h-5 w-5" /> </button> </div> {/* New chat */} <div className="shrink-0 px-3 pb-3"> <div className="flex gap-1.5"> <button onClick={() => createMut.mutate(null)} disabled={createMut.isPending} className="flex-1 flex items-center gap-2 rounded-xl bg-accent text-on-accent px-3 py-2.5 text-sm font-medium hover:bg-accent-hover transition-all hover:shadow-lg hover:shadow-accent/20 active:scale-[0.98] disabled:opacity-60" > <Plus className="h-4 w-4" strokeWidth={2.5} /> New chat </button> {styleProfiles.length > 0 && ( <NewChatStyleDropdown profiles={styleProfiles} onPick={(profileId) => createMut.mutate(profileId)} disabled={createMut.isPending} /> )} </div> </div> {/* History header */} {!isLoading && conversations.length > 0 && ( <div className="shrink-0 px-4 pb-1.5"> <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-subtle"> Chat History </p> </div> )} {/* Conversations — flex-1 + min-h-0 lets this scroll independently */} <div className="flex-1 min-h-0 overflow-y-auto scroll-smooth-mobile px-2"> {isLoading ? ( <> <Skeleton className="h-8 mx-1 mb-1" /> <Skeleton className="h-8 mx-1 mb-1 w-3/4" /> <Skeleton className="h-8 mx-1 mb-1 w-2/3" /> </> ) : conversations.length === 0 ? ( <div className="px-2 py-3 text-center"> <MessageSquare className="h-5 w-5 text-fg-subtle mx-auto mb-1.5 opacity-50" /> <p className="text-xs text-fg-subtle">No conversations yet</p> </div> ) : ( groups.map((g) => ( <div key={g.label} className="mb-3"> {/* Section header — clearly heavier and slightly larger than chat titles below. Title rows use text-sm font-normal (14px), this is text-[13px] font-semibold which reads as the heavier element due to weight + the breathing spacing above. Sentence-case (Today, not TODAY) — calmer than uppercase. */} <p className="px-2.5 pt-3 pb-1.5 text-[13px] font-semibold text-fg"> {g.label} </p> {g.conversations.map((c) => ( <ConversationRow key={c.id} conversation={c} active={activeId === c.id} onDelete={() => handleDelete(c.id)} styleProfiles={styleProfiles} /> ))} </div> )) )} </div> {/* Footer */} <div className="shrink-0 px-3 py-3 border-t border-border space-y-0.5 pb-safe"> <NavLink href="/journal" icon={<Heart className="h-4 w-4" />} label="Journal" showDot={today != null && !journaledToday} /> <NavLink href="/goals" icon={<Target className="h-4 w-4" />} label="Goals" /> <NavLink href="/people" icon={<Users className="h-4 w-4" />} label="People" /> <NavLink href="/identity" icon={<User className="h-4 w-4" />} label="Identity" /> <NavLink href="/memories" icon={<Sparkles className="h-4 w-4" />} label="Memories" badge={memoryNeedsReview} /> <NavLink href="/settings" icon={<Settings className="h-4 w-4" />} label="Settings" /> <button onClick={handleSignOut} className="group w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-fg-soft dark:text-zinc-200 active:bg-fg/10 transition-colors hover:bg-slate-900/[0.06] hover:text-slate-950 dark:hover:bg-white/[0.14] dark:hover:text-white" > <LogOut className="h-4 w-4 text-fg-muted dark:text-zinc-300 transition-colors group-hover:text-slate-950 dark:group-hover:text-white" /> Sign out </button> </div> </> ); return ( <> {/* Mobile topbar */} <div className="md:hidden fixed top-0 left-0 right-0 z-30 glass border-b border-border pt-safe"> <div className="flex items-center gap-2 px-3 py-2"> <button onClick={() => setOpen(true)} className="h-10 w-10 grid place-items-center rounded-lg text-fg active:bg-fg/10" aria-label="Open menu" > <Menu className="h-5 w-5" /> </button> <Link href="/chat" aria-label="Go to chat home" className="flex items-center gap-2 text-fg no-underline outline-none focus-visible:ring-2 focus-visible:ring-ring/60"> <div className="h-6 w-6 rounded-md bg-accent grid place-items-center"> <Sparkles className="h-3 w-3 text-on-accent" strokeWidth={2.5} /> </div> <span className="text-sm font-semibold text-fg tracking-tighter"> {visibleAssistantName} </span> </Link> </div> </div> {/* Mobile drawer */} {open && ( <> <div className="md:hidden fixed inset-0 z-40 bg-black/40 drawer-backdrop-enter" onClick={() => setOpen(false)} aria-hidden /> <aside className="app-sidebar md:hidden glass-strong fixed left-0 top-0 bottom-0 z-50 w-[85vw] max-w-[300px] flex flex-col drawer-enter" role="dialog" aria-label="Navigation" > {sidebarBody} </aside> </> )} {/* Desktop sidebar — explicit height accounting for m-2 (= 0.5rem each side) */} <aside className="app-sidebar hidden md:flex glass-strong w-64 shrink-0 flex-col h-[calc(100dvh-1rem)] sticky top-2 m-2 mr-0 rounded-2xl overflow-hidden"> {sidebarBody} </aside> </> );
+  );
+
+  const { data: calendarAlertCount = 0 } = useQuery({
+    queryKey: ["calendar-sidebar-alerts"],
+    queryFn: async () => {
+      const res = await fetch("/api/memory-review/calendar-candidates?include_pending=true", {
+        cache: "no-store",
+      });
+
+      if (!res.ok) return 0;
+
+      const json = (await res.json()) as {
+        items?: CalendarSidebarItem[];
+      };
+
+      return countCalendarSidebarAlerts(Array.isArray(json.items) ? json.items : []);
+    },
+    staleTime: 60_000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: true,
+  });
+
+  const { data: styleProfiles = [] } = useQuery({ queryKey: ["style-profiles"], queryFn: listStyleProfiles, staleTime: 60_000, }); const groups = useMemo(() => groupConversations(conversations), [conversations]); useEffect(() => { setOpen(false); }, [activeId]); useEffect(() => { if (open) { const prev = document.body.style.overflow; document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = prev; }; } }, [open]); const createMut = useMutation({ mutationFn: (styleProfileId: string | null = null) => createConversation("New chat", styleProfileId), onMutate: async () => { const optimistic: Conversation = { id: `temp-${Date.now()}`, title: "New chat", created_at: new Date().toISOString(), updated_at: new Date().toISOString(), }; await qc.cancelQueries({ queryKey: ["conversations"] }); qc.setQueryData<Conversation[]>(["conversations"], (old = []) => [ optimistic, ...old, ]); return { optimistic }; }, onSuccess: (real, _vars, ctx) => { qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.map((c) => (c.id === ctx?.optimistic.id ? real : c)), ); setOpen(false); router.push(`/chat/${real.id}`); }, onError: (_e, _v, ctx) => { qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.filter((c) => c.id !== ctx?.optimistic.id), ); }, }); const deleteMut = useMutation({ mutationFn: (id: string) => deleteConversation(id), onMutate: async (id) => { await qc.cancelQueries({ queryKey: ["conversations"] }); const prev = qc.getQueryData<Conversation[]>(["conversations"]); qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.filter((c) => c.id !== id), ); return { prev }; }, onError: (_e, _id, ctx) => { if (ctx?.prev) qc.setQueryData(["conversations"], ctx.prev); }, }); function handleDelete(id: string) { if (!confirm("Delete this conversation?")) return; deleteMut.mutate(id); if (activeId === id) router.push("/chat"); } async function handleSignOut() { const supabase = createClient(); await supabase.auth.signOut(); router.push("/login"); router.refresh(); } const sidebarBody = ( <> {/* Brand */} <div className="shrink-0 px-4 pt-4 pb-3 flex items-center gap-2"> <Link href="/chat" aria-label="Go to chat home" className="inline-flex items-center gap-2 text-fg no-underline outline-none focus-visible:ring-2 focus-visible:ring-ring/60"> <div className="h-7 w-7 rounded-lg bg-accent grid place-items-center shadow-sm"> <Sparkles className="h-3.5 w-3.5 text-on-accent" strokeWidth={2.5} /> </div> <span className="text-sm font-semibold text-fg tracking-tighter"> {visibleAssistantName} </span> </Link> <button onClick={() => setOpen(false)} className="ml-auto md:hidden h-9 w-9 grid place-items-center rounded-lg text-fg-muted " aria-label="Close menu" > <X className="h-5 w-5" /> </button> </div> {/* New chat */} <div className="shrink-0 px-3 pb-3"> <div className="flex gap-1.5"> <button onClick={() => createMut.mutate(null)} disabled={createMut.isPending} className="flex-1 flex items-center gap-2 rounded-xl bg-accent text-on-accent px-3 py-2.5 text-sm font-medium hover:bg-accent-hover transition-all hover:shadow-lg hover:shadow-accent/20 active:scale-[0.98] disabled:opacity-60" > <Plus className="h-4 w-4" strokeWidth={2.5} /> New chat </button> {styleProfiles.length > 0 && ( <NewChatStyleDropdown profiles={styleProfiles} onPick={(profileId) => createMut.mutate(profileId)} disabled={createMut.isPending} /> )} </div> </div> {/* History header */} {!isLoading && conversations.length > 0 && ( <div className="shrink-0 px-4 pb-1.5"> <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-subtle"> Chat History </p> </div> )} {/* Conversations — flex-1 + min-h-0 lets this scroll independently */} <div className="flex-1 min-h-0 overflow-y-auto scroll-smooth-mobile px-2"> {isLoading ? ( <> <Skeleton className="h-8 mx-1 mb-1" /> <Skeleton className="h-8 mx-1 mb-1 w-3/4" /> <Skeleton className="h-8 mx-1 mb-1 w-2/3" /> </> ) : conversations.length === 0 ? ( <div className="px-2 py-3 text-center"> <MessageSquare className="h-5 w-5 text-fg-subtle mx-auto mb-1.5 opacity-50" /> <p className="text-xs text-fg-subtle">No conversations yet</p> </div> ) : ( groups.map((g) => ( <div key={g.label} className="mb-3"> {/* Section header — clearly heavier and slightly larger than chat titles below. Title rows use text-sm font-normal (14px), this is text-[13px] font-semibold which reads as the heavier element due to weight + the breathing spacing above. Sentence-case (Today, not TODAY) — calmer than uppercase. */} <p className="px-2.5 pt-3 pb-1.5 text-[13px] font-semibold text-fg"> {g.label} </p> {g.conversations.map((c) => ( <ConversationRow key={c.id} conversation={c} active={activeId === c.id} onDelete={() => handleDelete(c.id)} styleProfiles={styleProfiles} /> ))} </div> )) )} </div> {/* Footer */} <div className="shrink-0 px-3 py-3 border-t border-border space-y-0.5 pb-safe"> <NavLink href="/journal" icon={<Heart className="h-4 w-4" />} label="Journal" showDot={today != null && !journaledToday} /> <NavLink href="/goals" icon={<Target className="h-4 w-4" />} label="Goals" /> <NavLink href="/calendar" icon={<CalendarDays className="h-4 w-4" />} label="Calendar" badge={calendarAlertCount} /> <NavLink href="/people" icon={<Users className="h-4 w-4" />} label="People" /> <NavLink href="/identity" icon={<User className="h-4 w-4" />} label="Identity" /> <NavLink href="/memories" icon={<Sparkles className="h-4 w-4" />} label="Memories" badge={memoryNeedsReview} /> <NavLink href="/settings" icon={<Settings className="h-4 w-4" />} label="Settings" /> <button onClick={handleSignOut} className="group w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-fg-soft dark:text-zinc-200 active:bg-fg/10 transition-colors hover:bg-slate-900/[0.06] hover:text-slate-950 dark:hover:bg-white/[0.14] dark:hover:text-white" > <LogOut className="h-4 w-4 text-fg-muted dark:text-zinc-300 transition-colors group-hover:text-slate-950 dark:group-hover:text-white" /> Sign out </button> </div> </> ); return ( <> {/* Mobile topbar */} <div className="md:hidden fixed top-0 left-0 right-0 z-30 glass border-b border-border pt-safe"> <div className="flex items-center gap-2 px-3 py-2"> <button onClick={() => setOpen(true)} className="h-10 w-10 grid place-items-center rounded-lg text-fg active:bg-fg/10" aria-label="Open menu" > <Menu className="h-5 w-5" /> </button> <Link href="/chat" aria-label="Go to chat home" className="flex items-center gap-2 text-fg no-underline outline-none focus-visible:ring-2 focus-visible:ring-ring/60"> <div className="h-6 w-6 rounded-md bg-accent grid place-items-center"> <Sparkles className="h-3 w-3 text-on-accent" strokeWidth={2.5} /> </div> <span className="text-sm font-semibold text-fg tracking-tighter"> {visibleAssistantName} </span> </Link> </div> </div> {/* Mobile drawer */} {open && ( <> <div className="md:hidden fixed inset-0 z-40 bg-black/40 drawer-backdrop-enter" onClick={() => setOpen(false)} aria-hidden /> <aside className="app-sidebar md:hidden glass-strong fixed left-0 top-0 bottom-0 z-50 w-[85vw] max-w-[300px] flex flex-col drawer-enter" role="dialog" aria-label="Navigation" > {sidebarBody} </aside> </> )} {/* Desktop sidebar — explicit height accounting for m-2 (= 0.5rem each side) */} <aside className="app-sidebar hidden md:flex glass-strong w-64 shrink-0 flex-col h-[calc(100dvh-1rem)] sticky top-2 m-2 mr-0 rounded-2xl overflow-hidden"> {sidebarBody} </aside> </> );
 } // =============================================================================
 // Individual conversation row — owns its rename / menu state.
 // =============================================================================

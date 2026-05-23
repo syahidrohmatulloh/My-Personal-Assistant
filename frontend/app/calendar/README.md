@@ -14,3 +14,5 @@ Timeline UX features:
 - wrapped event titles on mobile so locations/details are readable
 - minimal mobile Google link
 - Calendar header reuses the same identity-owned label hook used by Journal, Goals, and People
+
+- Calendar appears in the main sidebar navigation with a contextual badge for pending scheduling actions or tight/overlapping events.
