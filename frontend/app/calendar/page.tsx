@@ -373,27 +373,32 @@ export default function CalendarPage() {
             <div className="space-y-8">
               {groupedEvents.map(([date, items]) => (
                 <div key={date} className="space-y-3">
-                  <div className="sticky top-0 z-10 -mx-1 rounded-2xl bg-bg/90 px-1 py-2 backdrop-blur">
-                    <h3 className="text-sm font-semibold text-fg-muted">{formatDate(date)}</h3>
+                  <div className="px-1 py-1">
+                    <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-500 dark:text-indigo-300">
+                      {formatDate(date)}
+                    </h3>
                   </div>
 
-                  <div className="overflow-hidden rounded-2xl border border-border bg-bg">
-                    {buildTimelineRows(items).map((row, index) => {
+                  <div className="ml-2 border-l border-border/70 pl-4 sm:ml-3 sm:pl-5">
+                    {buildTimelineRows(items).map((row) => {
                       if (row.type === "free") {
                         return (
                           <div
                             key={row.id}
-                            className="grid grid-cols-[72px_1fr] border-b border-border/70 bg-fg/[0.018] last:border-b-0 sm:grid-cols-[96px_1fr]"
+                            className="relative my-1 flex items-center rounded-r-2xl border-y border-dashed border-border/50 bg-fg/[0.018] px-2 py-2.5"
                           >
-                            <div className="border-r border-border/70 px-3 py-3 text-xs text-fg-muted sm:px-4">
+                            <span className="absolute -left-[21px] top-1/2 h-2 w-2 -translate-y-1/2 rounded-full border border-border bg-bg sm:-left-[25px]" />
+
+                            <div className="w-20 shrink-0 font-mono text-[11px] leading-5 text-fg-muted/80 sm:w-24">
                               <div>{formatTime(row.startAt)}</div>
                               <div>{formatTime(row.endAt)}</div>
                             </div>
-                            <div className="flex items-center gap-3 px-3 py-3 text-xs text-fg-muted sm:px-4">
-                              <span className="rounded-full border border-border bg-bg px-2 py-1">
+
+                            <div className="flex min-w-0 items-center gap-2 text-xs italic text-fg-muted">
+                              <span className="rounded-md border border-border/70 bg-bg/60 px-2 py-0.5 not-italic">
                                 💤 Free time
                               </span>
-                              <span>{durationLabel(row.minutes)} kosong</span>
+                              <span className="truncate">{durationLabel(row.minutes)} kosong</span>
                             </div>
                           </div>
                         )
@@ -405,41 +410,56 @@ export default function CalendarPage() {
                       return (
                         <article
                           key={event.id}
-                          className="grid grid-cols-[72px_1fr] border-b border-border/70 last:border-b-0 sm:grid-cols-[96px_1fr]"
+                          className="group relative rounded-r-2xl border-b border-border/60 px-2 py-3 transition hover:bg-fg/[0.025]"
                         >
-                          <div className="border-r border-border/70 px-3 py-4 text-xs sm:px-4">
-                            <div className="font-semibold tabular-nums">{time.start}</div>
-                            {time.end ? (
-                              <div className="mt-1 text-fg-muted tabular-nums">{time.end}</div>
-                            ) : null}
-                          </div>
+                          <span className="absolute -left-[22px] top-5 sm:-left-[26px]">
+                            <StatusDot status={event.status} />
+                          </span>
 
-                          <div className="min-w-0 px-3 py-4 sm:px-4">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex min-w-0 gap-3">
-                                <StatusDot status={event.status} />
+                          <div className="flex items-start gap-3">
+                            <div className="w-20 shrink-0 font-mono text-[11px] leading-5 text-fg-muted/80 sm:w-24">
+                              <div className="font-semibold text-fg/80 tabular-nums">{time.start}</div>
+                              {time.end ? (
+                                <div className="text-fg-muted/70 tabular-nums">{time.end}</div>
+                              ) : null}
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
                                   <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                    <h4 className="truncate text-sm font-semibold sm:text-base">
+                                    <h4 className="truncate text-sm font-medium text-fg/90 transition group-hover:text-fg sm:text-[15px]">
                                       {event.title}
                                     </h4>
-                                    <span className="text-xs text-fg-muted">
+                                    <span className="font-mono text-[10px] uppercase tracking-wide text-fg-muted/75">
                                       {event.status === "synced_google" ? "Google" : "Local"}
                                     </span>
                                   </div>
 
                                   {event.syncError ? (
-                                    <p className="mt-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                                    <p className="mt-2 inline-flex rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300">
                                       Sync note: {event.syncError}
                                     </p>
                                   ) : null}
 
                                   {warning ? (
-                                    <p className="mt-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                                      ⚠️ {warning}
+                                    <p className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300">
+                                      <span>⚠️</span>
+                                      <span>{warning}</span>
                                     </p>
                                   ) : null}
                                 </div>
+
+                                {event.googleLink ? (
+                                  <a
+                                    href={event.googleLink}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="hidden h-8 shrink-0 items-center justify-center rounded-lg border border-border bg-fg/[0.035] px-3 text-xs font-medium text-fg-muted shadow-sm transition hover:bg-fg/5 hover:text-fg sm:inline-flex"
+                                  >
+                                    Open Google
+                                  </a>
+                                ) : null}
                               </div>
 
                               {event.googleLink ? (
@@ -447,23 +467,12 @@ export default function CalendarPage() {
                                   href={event.googleLink}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="hidden h-8 shrink-0 items-center justify-center rounded-full border border-border bg-fg/[0.035] px-3 text-xs font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg sm:inline-flex"
+                                  className="mt-3 inline-flex h-8 items-center justify-center rounded-lg border border-border bg-fg/[0.035] px-3 text-xs font-medium text-fg-muted shadow-sm transition hover:bg-fg/5 hover:text-fg sm:hidden"
                                 >
                                   Open Google
                                 </a>
                               ) : null}
                             </div>
-
-                            {event.googleLink ? (
-                              <a
-                                href={event.googleLink}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="mt-3 inline-flex h-8 items-center justify-center rounded-full border border-border bg-fg/[0.035] px-3 text-xs font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg sm:hidden"
-                              >
-                                Open Google
-                              </a>
-                            ) : null}
                           </div>
                         </article>
                       )
