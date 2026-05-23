@@ -71,6 +71,11 @@ _EXPLICIT_CALENDAR_COMMANDS = (
 
 _DATE_SIGNALS = (
     "hari ini",
+    "pagi ini",
+    "siang ini",
+    "sore ini",
+    "malam ini",
+    "nanti",
     "today",
     "besok",
     "tomorrow",
@@ -312,7 +317,18 @@ async def _find_existing_candidate(*, user_id: str, title: str, event_date: str)
 
 
 def _resolve_event_date(text: str, base: date) -> date | None:
-    if "hari ini" in text or "today" in text:
+    if any(
+        phrase in text
+        for phrase in (
+            "hari ini",
+            "pagi ini",
+            "siang ini",
+            "sore ini",
+            "malam ini",
+            "nanti",
+            "today",
+        )
+    ):
         return base
     if "besok" in text or "tomorrow" in text:
         return base + timedelta(days=1)
@@ -387,6 +403,12 @@ def _extract_time_range(text: str) -> tuple[time, time] | None:
     end_hour = int(match.group(3))
     end_minute = int(match.group(4) or 0)
     suffix = (match.group(5) or "").casefold()
+    if not suffix:
+        prefix = text[max(0, match.start() - 24):match.start()].casefold()
+        for period in ("pagi", "siang", "sore", "malam"):
+            if period in prefix:
+                suffix = period
+                break
 
     start_hour = _apply_period(start_hour, suffix)
     end_hour = _apply_period(end_hour, suffix)
