@@ -45,6 +45,7 @@ type LocalMessage =
   | { id: string; role: "assistant"; content: string; pending: true; created_at?: string };
 
 const STICK_THRESHOLD = 120;
+const EMPTY_INITIAL_MESSAGES: Message[] = [];
 
 const CHAT_MESSAGES_CACHE_PREFIX = "app:chat-messages-cache:";
 
@@ -137,7 +138,7 @@ function scrollContainerToBottom(el: HTMLDivElement | null, smooth = false) {
 
 export function ConversationPageClient({
   conversationId,
-  initialMessages = [],
+  initialMessages = EMPTY_INITIAL_MESSAGES,
 }: {
   conversationId: string
   initialMessages?: Message[]
@@ -257,16 +258,19 @@ export function ConversationPageClient({
     let cancelled = false;
 
     const cachedMessages = readCachedMessages(conversationId);
+    const hasCachedMessages = cachedMessages.length > 0;
 
     setLoading(initialMessages.length === 0);
     setHistorySettled(false);
-    stickToBottomRef.current = true;
+    stickToBottomRef.current = !hasCachedMessages;
 
-    const settleAfterPaint = () => {
+    const settleAfterPaint = (scrollToBottom: boolean) => {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           if (cancelled) return;
-          scrollContainerToBottom(scrollRef.current);
+          if (scrollToBottom) {
+            scrollContainerToBottom(scrollRef.current);
+          }
           setHistorySettled(true);
         });
       });
@@ -276,26 +280,28 @@ export function ConversationPageClient({
       setMessages(initialMessages);
       writeCachedMessages(conversationId, initialMessages);
       setLoading(false);
-      settleAfterPaint();
+      settleAfterPaint(true);
 
       return () => {
         cancelled = true;
       };
     }
 
-    if (cachedMessages.length > 0) {
+    if (hasCachedMessages) {
       setMessages(cachedMessages);
-      settleAfterPaint();
+      setHistorySettled(true);
     }
 
     listMessages(conversationId)
       .then((msgs) => {
         if (cancelled) return;
 
+        const shouldStayAtBottom = !hasCachedMessages || stickToBottomRef.current;
+
         setMessages(msgs);
         writeCachedMessages(conversationId, msgs);
         setLoading(false);
-        settleAfterPaint();
+        settleAfterPaint(shouldStayAtBottom);
       })
       .catch((err) => {
         console.error(err);
@@ -308,7 +314,10 @@ export function ConversationPageClient({
     return () => {
       cancelled = true;
     };
-  }, [conversationId, initialMessages]);
+    // Intentionally depend only on conversationId.
+    // initialMessages is only used for server-hydrated first render; after the
+    // cache-first route change it is normally the stable EMPTY_INITIAL_MESSAGES.
+  }, [conversationId]);
 
   // Detect whether user is near the bottom — affects auto-follow during stream.
   useEffect(() => {
