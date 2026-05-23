@@ -46,6 +46,83 @@ type LocalMessage =
 
 const STICK_THRESHOLD = 120;
 
+const CHAT_MESSAGES_CACHE_PREFIX = "app:chat-messages-cache:";
+
+type CachedChatPayload = {
+  version: 1;
+  savedAt: string;
+  messages: Message[];
+};
+
+function chatCacheKey(conversationId: string): string {
+  return `${CHAT_MESSAGES_CACHE_PREFIX}${conversationId}`;
+}
+
+function isCacheableMessage(value: unknown): value is Message {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const item = value as Partial<Message>;
+
+  return (
+    typeof item.id === "string" &&
+    (item.role === "user" || item.role === "assistant") &&
+    typeof item.content === "string"
+  );
+}
+
+function readCachedMessages(conversationId: string): Message[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const raw = window.localStorage.getItem(chatCacheKey(conversationId));
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<CachedChatPayload>;
+    return Array.isArray(parsed.messages)
+      ? parsed.messages.filter(isCacheableMessage)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedMessages(conversationId: string, messages: LocalMessage[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const cacheable = messages.filter((message): message is Message => {
+    if ("pending" in message && message.pending === true) {
+      return false;
+    }
+
+    return (
+      typeof message.id === "string" &&
+      (message.role === "user" || message.role === "assistant") &&
+      typeof message.content === "string"
+    );
+  });
+
+  const payload: CachedChatPayload = {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    messages: cacheable.slice(-120),
+  };
+
+  try {
+    window.localStorage.setItem(chatCacheKey(conversationId), JSON.stringify(payload));
+  } catch {
+    // Ignore storage quota or privacy-mode failures.
+  }
+}
+
+
 // Helper — scroll the *specific* container to bottom deterministically.
 // Using element.scrollTop avoids scrollIntoView's quirks where it can
 // scroll the wrong ancestor when overflow-hidden is in the chain.
@@ -69,7 +146,9 @@ export function ConversationPageClient({
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [messages, setMessages] = useState<LocalMessage[]>(initialMessages);
+  const [messages, setMessages] = useState<LocalMessage[]>(() =>
+    initialMessages.length > 0 ? initialMessages : readCachedMessages(conversationId),
+  );
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(initialMessages.length === 0);
@@ -177,6 +256,8 @@ export function ConversationPageClient({
   useEffect(() => {
     let cancelled = false;
 
+    const cachedMessages = readCachedMessages(conversationId);
+
     setLoading(initialMessages.length === 0);
     setHistorySettled(false);
     stickToBottomRef.current = true;
@@ -193,6 +274,7 @@ export function ConversationPageClient({
 
     if (initialMessages.length > 0) {
       setMessages(initialMessages);
+      writeCachedMessages(conversationId, initialMessages);
       setLoading(false);
       settleAfterPaint();
 
@@ -201,11 +283,17 @@ export function ConversationPageClient({
       };
     }
 
+    if (cachedMessages.length > 0) {
+      setMessages(cachedMessages);
+      settleAfterPaint();
+    }
+
     listMessages(conversationId)
       .then((msgs) => {
         if (cancelled) return;
 
         setMessages(msgs);
+        writeCachedMessages(conversationId, msgs);
         setLoading(false);
         settleAfterPaint();
       })
@@ -277,11 +365,15 @@ const handleSend = useCallback(
         created_at: new Date().toISOString(),
       };
     const assistantId = `local-asst-${Date.now()}`;
-    setMessages((prev) => [
-      ...prev,
-      userMsg,
-      { id: assistantId, role: "assistant", content: "", pending: true },
-    ]);
+    setMessages((prev) => {
+      const next: LocalMessage[] = [
+        ...prev,
+        userMsg,
+        { id: assistantId, role: "assistant", content: "", pending: true },
+      ];
+      writeCachedMessages(conversationId, next);
+      return next;
+    });
 
     if (wasFirstMessage) {
       const title = messageText.slice(0, 40) + (messageText.length > 40 ? "…" : "");
@@ -352,8 +444,8 @@ const handleSend = useCallback(
       if (rafId != null) cancelAnimationFrame(rafId);
       flush();
 
-      setMessages((prev) =>
-        prev.map((m) =>
+      setMessages((prev) => {
+        const next: LocalMessage[] = prev.map((m) =>
           m.id === assistantId
             ? {
                 id: assistantId,
@@ -362,8 +454,10 @@ const handleSend = useCallback(
                 created_at: new Date().toISOString(),
               }
             : m,
-        ),
-      );
+        );
+        writeCachedMessages(conversationId, next);
+        return next;
+      });
 
       applyAssistantMoodAfterLatestMessagePaint(assistantText);
 
@@ -374,8 +468,8 @@ const handleSend = useCallback(
       }, 4000);
     } catch (err) {
       console.error(err);
-      setMessages((prev) =>
-        prev.map((m) =>
+      setMessages((prev) => {
+        const next: LocalMessage[] = prev.map((m) =>
           m.id === assistantId
             ? {
                 id: assistantId,
@@ -384,8 +478,10 @@ const handleSend = useCallback(
                 created_at: new Date().toISOString(),
               }
             : m,
-        ),
-      );
+        );
+        writeCachedMessages(conversationId, next);
+        return next;
+      });
     } finally {
       setSending(false);
       setStreamMeta(null);
@@ -451,7 +547,13 @@ const handleSend = useCallback(
             !loading && messages.length > 0 && !historySettled ? "opacity-0" : "opacity-100",
           ].join(" ")}
         >
-          {loading ? (
+          {loading && messages.length > 0 ? (
+            <div className="mx-auto mb-2 w-fit rounded-full border border-border bg-bg/80 px-3 py-1 text-[11px] text-fg-muted shadow-sm">
+              Showing cached chat while refreshing…
+            </div>
+          ) : null}
+
+          {loading && messages.length === 0 ? (
             <>
               <Skeleton className="h-12 w-3/4 ml-auto rounded-2xl" />
               <Skeleton className="h-20 w-4/5 rounded-2xl" />
