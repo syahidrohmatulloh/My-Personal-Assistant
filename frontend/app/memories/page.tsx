@@ -817,7 +817,7 @@ export default function MemoriesPage() {
               )
             }
           />
-        ) : loading ? (
+        ) : loading && Object.keys(filteredGroups).length === 0 ? (
           <LoadingState />
         ) : Object.keys(filteredGroups).length === 0 ? (
           <EmptyState tab={tab} query={query} />
