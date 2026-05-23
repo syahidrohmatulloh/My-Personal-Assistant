@@ -41,6 +41,26 @@ _UPDATE_TERMS = (
     "pindahkan",
 )
 
+_SOFT_UPDATE_TERMS = (
+    "lebih detail",
+    "lebih detil",
+    "lebih spesifik",
+    "dibuat lebih detail",
+    "dibuat lebih detil",
+    "dibikin lebih detail",
+    "dibikin lebih detil",
+    "buat lebih detail",
+    "buat lebih detil",
+    "bikin lebih detail",
+    "bikin lebih detil",
+    "perjelas",
+    "perinci",
+    "detailin",
+    "detilin",
+    "lebih jelas",
+)
+
+
 _DELETE_TERMS = (
     "hapus",
     "delete",
@@ -100,10 +120,10 @@ Schema:
 Rules:
 - You are acting on local Calendar drafts shown in Memories → Calendar.
 - Pick exactly one target from the provided calendar_records.
-- action="update" when the user asks to change time/date/title/location.
+- action="update" when the user asks to change time/date/title/location, or asks to make an event more detailed/specific/jelas/detil.
 - action="delete" when the user asks to remove, cancel, hapus, batalin, delete, or archive an agenda/event.
 - Return action="none" and confidence below 0.6 if the target is ambiguous.
-- Preserve any field not changed by the user by returning null for that field.
+- Preserve any field not changed by the user by returning null for that field. If the user asks for a more detailed event title/description, improve title/location using recent context and the target record.
 - If changing start_at but end_at is not specified, infer a 1-hour duration unless the original record has a duration.
 - Use browser local time context and recent chat context for relative times like "jam 3", "besok", "nanti", "yang tadi".
 - Never claim to update or delete Google Calendar. This system only updates local Calendar drafts.
@@ -117,14 +137,15 @@ def is_calendar_draft_action_request(text: str | None) -> bool:
 
     has_update = any(term in normalized for term in _UPDATE_TERMS)
     has_delete = any(term in normalized for term in _DELETE_TERMS)
-    if not (has_update or has_delete):
+    has_soft_update = any(term in normalized for term in _SOFT_UPDATE_TERMS)
+    if not (has_update or has_delete or has_soft_update):
         return False
 
     has_calendar = any(term in normalized for term in _CALENDAR_TERMS)
     has_target_hint = any(term in normalized for term in _TARGET_HINTS)
     has_time_update = bool(re.search(r"\b(jam|pukul)\s*\d{1,2}", normalized))
 
-    return has_calendar or has_target_hint or has_time_update
+    return has_calendar or has_target_hint or has_time_update or has_soft_update
 
 
 

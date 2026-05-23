@@ -738,6 +738,12 @@ async def chat(
         volatile_context += "\n\n" + chronology_context
     volatile_context += "\n\n" + capability_registry.render_capability_registry()
     volatile_context += (
+        "\n\nCalendar user-facing language rule — strict:"
+        "\n- Never use the phrases 'Calendar event draft', 'calendar event draft', 'event Calendar', or 'event Calendar' in user-facing replies."
+        "\n- Use natural product wording: Calendar, event, agenda, jadwal, aku catat, aku update, aku hapus."
+        "\n- If an event is prepared, updated, synced, or deleted, summarize it naturally with Acara, Tanggal, Waktu, and Lokasi when available."
+    )
+    volatile_context += (
         "\\n\\nGoal feature capability state — authoritative:"
         "\\n- The app has a background Goal Intelligence system that can prepare pending goal suggestions from chat."
         "\\n- If the user explicitly asks to track/save something as a goal, say you will prepare it as a trackable goal candidate in Goals."
@@ -750,7 +756,7 @@ async def chat(
             "\\n\\nCalendar event draft capability state — authoritative:"
             "\\n- The user message appears to contain a schedule/calendar event request."
             "\\n- The app can automatically prepare a calendar event draft from chat and show it in Memories → Calendar."
-            "\\n- Internally this may be stored as a calendar candidate, but do NOT use the phrase 'Calendar Candidate' in user-facing replies."
+            "\\n- Internally this may be stored as a calendar event draft, but do NOT use the phrase 'Calendar event draft' in user-facing replies."
             "\\n- Use natural wording like: Aku catat ke Calendar ya, or Aku siapin event ini di Calendar."
             "\\n- Do not say you cannot help with calendar handling."
             "\\n- Do not claim the event is already created in Google Calendar unless a direct Google Calendar sync action has explicitly succeeded in the current request."
@@ -766,7 +772,7 @@ async def chat(
             "\n- You may say the Google Calendar event will be updated/deleted when the user's request clearly targets a synced Google Calendar event."
             "\n- If the event is already synced to Google Calendar, say changes/deletion may require confirmation from Memories → Calendar."
             "\n- Use natural wording like: Aku update di Calendar ya, or Aku hapus dari Calendar ya."
-            "\n- Do not use the phrase 'Calendar Candidate' in user-facing replies."
+            "\n- Do not use the phrase 'Calendar event draft' in user-facing replies."
         )
 
     temporal_grounding_block = temporal_grounding.render_temporal_grounding_block(

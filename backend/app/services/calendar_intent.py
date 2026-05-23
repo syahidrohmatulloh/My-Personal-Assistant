@@ -40,7 +40,7 @@ Schema:
 
 Rules:
 - Extract only if the user is asking to add/schedule/catat/masukin something to a calendar, or clearly states a scheduled event.
-- The app is review-first: you are only preparing a Calendar Candidate, not creating a Google Calendar event.
+- The app is review-first: you are only preparing a Calendar event draft, not creating a Google Calendar event unless the caller explicitly uses the Google Calendar create flow.
 - Use the browser/client local time context as the source of truth.
 - Use recent conversation context when the user says things like "setelah dari agora", "habis itu", "same event", "yang tadi", or omits the date but clearly refers to the current day/context.
 - If the user explicitly asks to add to calendar, provides a time, and no date is stated, default to the client local date when it is available.
@@ -266,7 +266,7 @@ async def extract_calendar_intent_draft(
     }
 
     prompt = (
-        "Extract a review-first calendar candidate from this conversation payload.\n\n"
+        "Extract a review-first calendar event draft from this conversation payload.\n\n"
         + json.dumps(payload, ensure_ascii=False, indent=2)
     )
 
