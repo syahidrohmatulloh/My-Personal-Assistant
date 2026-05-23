@@ -40,6 +40,7 @@ type TimelineRow =
       type: "event"
       event: CalendarEvent
       warning?: string
+      previousEvent?: CalendarEvent
     }
   | {
       type: "free"
@@ -224,7 +225,7 @@ function buildTimelineRows(events: CalendarEvent[]): TimelineRow[] {
       }
     }
 
-    rows.push({ type: "event", event, warning })
+    rows.push({ type: "event", event, warning, previousEvent: warning ? previous : undefined })
   })
 
   return rows
@@ -240,6 +241,44 @@ function timeRangeColumn(event: CalendarEvent): { start: string; end: string } {
     end: formatTime(event.endAt) || "",
   }
 }
+
+
+const CALENDAR_CHAT_HANDOFF_DRAFT_KEY = "app:calendar-chat-handoff-draft"
+const LAST_CHAT_PATH_KEY = "app:last-chat-path"
+
+function buildRescheduleHandoffDraft(event: CalendarEvent, warning: string, previousEvent?: CalendarEvent): string {
+  const previousText = previousEvent
+    ? `Acara sebelumnya: ${previousEvent.title} (${eventTimeLabel(previousEvent)}). `
+    : ""
+
+  return [
+    "Beb, tolong bantu atur ulang jadwalku yang mepet di Calendar.",
+    previousText,
+    `Acara yang bermasalah: ${event.title} (${eventTimeLabel(event)}).`,
+    `Warning: ${warning}`,
+    "Tolong bantu carikan opsi waktu yang lebih masuk akal dan kalau perlu bantu update event-nya.",
+  ]
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function handoffCalendarWarningToChat(event: CalendarEvent, warning: string, previousEvent?: CalendarEvent) {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  const draft = buildRescheduleHandoffDraft(event, warning, previousEvent)
+  window.localStorage.setItem(CALENDAR_CHAT_HANDOFF_DRAFT_KEY, draft)
+
+  const lastChatPath = window.localStorage.getItem(LAST_CHAT_PATH_KEY)
+  const target = lastChatPath && lastChatPath.startsWith("/chat/")
+    ? lastChatPath
+    : "/chat"
+
+  window.location.assign(target)
+}
+
 
 function StatusDot({ status }: { status: CalendarEvent["status"] }) {
   const className =
@@ -404,7 +443,7 @@ export default function CalendarPage() {
                         )
                       }
 
-                      const { event, warning } = row
+                      const { event, warning, previousEvent } = row
                       const time = timeRangeColumn(event)
 
                       return (
@@ -443,10 +482,20 @@ export default function CalendarPage() {
                                   ) : null}
 
                                   {warning ? (
-                                    <p className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300">
-                                      <span>⚠️</span>
-                                      <span>{warning}</span>
-                                    </p>
+                                    <div className="mt-2 flex flex-col items-start gap-1.5">
+                                      <p className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300">
+                                        <span>⚠️</span>
+                                        <span>{warning}</span>
+                                      </p>
+                                      <button
+                                        type="button"
+                                        onClick={() => handoffCalendarWarningToChat(event, warning, previousEvent)}
+                                        className="inline-flex items-center gap-1 rounded-md border border-border bg-fg/[0.035] px-2 py-1 text-[11px] font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg"
+                                      >
+                                        <span>🤖</span>
+                                        <span>Bantu Atur Ulang</span>
+                                      </button>
+                                    </div>
                                   ) : null}
                                 </div>
 

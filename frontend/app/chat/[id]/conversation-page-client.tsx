@@ -392,6 +392,22 @@ const handleSend = useCallback(
     }
   }, [conversationId, input, messages.length, qc, sending]);
 
+
+  // Calendar handoff: fill the composer with a scheduling-help draft from /calendar.
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (loading || sending) return
+    if (input.trim().length > 0) return
+
+    const key = "app:calendar-chat-handoff-draft"
+    const draft = window.localStorage.getItem(key)?.trim()
+
+    if (!draft) return
+
+    window.localStorage.removeItem(key)
+    setInput(draft)
+  }, [input, loading, sending])
+
   // Auto-send a landing-page prefill once when a new conversation is opened.
   useEffect(() => {
     const prefill = searchParams.get("prefill")?.trim();

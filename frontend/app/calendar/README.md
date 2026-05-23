@@ -18,3 +18,5 @@ Timeline UX features:
 - Calendar appears in the main sidebar navigation with a contextual badge for pending scheduling actions or tight/overlapping events.
 
 - Back to chat uses the shared BackToLastChat behavior, so it returns to the last active chat instead of always opening /chat.
+
+- Tight/overlapping schedule warnings include a “Bantu Atur Ulang” handoff that opens the last chat and pre-fills a scheduling-help draft.
