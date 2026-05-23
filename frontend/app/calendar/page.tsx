@@ -1,7 +1,8 @@
 "use client"
 
-import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
+import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
+
 import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label"
 
 type RawCalendarItem = {
@@ -317,12 +318,9 @@ export default function CalendarPage() {
               >
                 {isLoading ? "Refreshing..." : "Refresh"}
               </button>
-              <Link
-                href="/chat"
-                className="inline-flex h-10 items-center justify-center rounded-full border border-border bg-fg px-4 text-sm font-medium text-bg shadow-sm transition hover:opacity-90"
-              >
+              <BackToLastChat className="inline-flex h-10 items-center justify-center rounded-full border border-border bg-fg px-4 text-sm font-medium text-bg shadow-sm transition hover:opacity-90">
                 Back to chat
-              </Link>
+              </BackToLastChat>
             </div>
           </div>
         </header>

@@ -16,3 +16,5 @@ Timeline UX features:
 - Calendar header reuses the same identity-owned label hook used by Journal, Goals, and People
 
 - Calendar appears in the main sidebar navigation with a contextual badge for pending scheduling actions or tight/overlapping events.
+
+- Back to chat uses the shared BackToLastChat behavior, so it returns to the last active chat instead of always opening /chat.
