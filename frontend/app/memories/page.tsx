@@ -618,7 +618,6 @@ export default function MemoriesPage() {
   async function calendarCandidateAction(
     candidate: CalendarCandidateItem,
     actionName: "dismiss" | "archive" | "confirm-local" | "sync-google" | "update-draft",
-    pin: string,
     payload: Record<string, unknown> = {},
   ) {
     setSavingId(`calendar-${candidate.id}`)
@@ -628,7 +627,7 @@ export default function MemoriesPage() {
       const res = await fetch(`/api/memory-review/calendar-candidates/${candidate.id}/${actionName}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin, ...payload }),
+        body: JSON.stringify(payload),
       })
 
       if (!res.ok) {
@@ -826,42 +825,24 @@ export default function MemoriesPage() {
                 end_at: candidate.calendar_event_end_at || "",
               })
             }}
-            onSyncGoogle={(candidate) =>
-              requireMemoryPin(
-                "Create Google Calendar event",
-                "This will create a real all-day event in your connected Google Calendar.",
-                async (pin) => {
-                  await calendarCandidateAction(candidate, "sync-google", pin)
-                },
-              )
-            }
-            onConfirmLocal={(candidate) =>
-              requireMemoryPin(
-                "Mark ready",
-                "This marks the candidate as ready before creating a Google Calendar event.",
-                async (pin) => {
-                  await calendarCandidateAction(candidate, "confirm-local", pin)
-                },
-              )
-            }
-            onDismiss={(candidate) =>
-              requireMemoryPin(
-                "Remove calendar candidate",
-                "This keeps the memory, but removes it from the Calendar Candidates tab.",
-                async (pin) => {
-                  await calendarCandidateAction(candidate, "dismiss", pin)
-                },
-              )
-            }
-            onArchive={(candidate) =>
-              requireMemoryPin(
-                "Archive calendar candidate",
-                "This archives the selected memory-backed calendar candidate.",
-                async (pin) => {
-                  await calendarCandidateAction(candidate, "archive", pin)
-                },
-              )
-            }
+            onSyncGoogle={(candidate) => {
+              if (window.confirm("Create this event in Google Calendar?")) {
+                void calendarCandidateAction(candidate, "sync-google")
+              }
+            }}
+            onConfirmLocal={(candidate) => {
+              void calendarCandidateAction(candidate, "confirm-local")
+            }}
+            onDismiss={(candidate) => {
+              if (window.confirm("Remove this item from Calendar?")) {
+                void calendarCandidateAction(candidate, "dismiss")
+              }
+            }}
+            onArchive={(candidate) => {
+              if (window.confirm("Archive this Calendar item?")) {
+                void calendarCandidateAction(candidate, "archive")
+              }
+            }}
           />
         ) : tab === "review" ? (
           <MemoryQualityPanel
@@ -972,13 +953,7 @@ export default function MemoriesPage() {
           onSave={(payload) => {
             const candidate = calendarDraftEdit.candidate
             setCalendarDraftEdit(null)
-            requireMemoryPin(
-              "Edit calendar draft",
-              "This updates the local calendar draft before syncing to Google Calendar.",
-              async (pin) => {
-                await calendarCandidateAction(candidate, "update-draft", pin, payload)
-              },
-            )
+            void calendarCandidateAction(candidate, "update-draft", payload)
           }}
         />
       ) : null}

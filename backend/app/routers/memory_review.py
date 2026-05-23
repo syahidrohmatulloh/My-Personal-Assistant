@@ -99,7 +99,11 @@ class MemoryManualIn(BaseModel):
     pin: str = Field(min_length=6, max_length=6)
 
 
-class CalendarDraftUpdateIn(MemoryPinIn):
+class CalendarActionIn(BaseModel):
+    pass
+
+
+class CalendarDraftUpdateIn(BaseModel):
     title: str | None = Field(default=None, max_length=160)
     event_date: str | None = Field(default=None, max_length=10)
     start_at: str | None = Field(default=None, max_length=80)
@@ -300,11 +304,10 @@ async def list_calendar_candidates(
 @router.post("/calendar-candidates/{memory_id}/dismiss")
 async def dismiss_calendar_candidate(
     memory_id: str,
-    body: MemoryPinIn,
+    body: CalendarActionIn | None = None,
     user_id: str = Depends(get_current_user_id),
 ) -> dict[str, Any]:
     """Keep the memory, but remove it from calendar candidate review."""
-    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
     await _assert_memory_owner(memory_id=memory_id, user_id=user_id)
 
     now = _now_iso()
@@ -335,7 +338,7 @@ async def dismiss_calendar_candidate(
 @router.post("/calendar-candidates/{memory_id}/confirm-local")
 async def confirm_calendar_candidate_local_event(
     memory_id: str,
-    body: MemoryPinIn,
+    body: CalendarActionIn | None = None,
     user_id: str = Depends(get_current_user_id),
 ) -> dict[str, Any]:
     """Confirm a memory-backed calendar candidate as a local event draft.
@@ -343,8 +346,6 @@ async def confirm_calendar_candidate_local_event(
     This does not call Google Calendar. It only records a local event draft on
     the memory row so a later Google Calendar sync/approval flow can use it.
     """
-    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
-
     candidate = await _assert_memory_owner(memory_id=memory_id, user_id=user_id)
     if not bool(candidate.get("calendar_candidate")):
         # _assert_memory_owner currently selects a small field set; fetch full row.
@@ -413,8 +414,6 @@ async def update_calendar_candidate_draft(
     user_id: str = Depends(get_current_user_id),
 ) -> dict[str, Any]:
     """Edit a local calendar draft before syncing to Google Calendar."""
-    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
-
     candidate = await _load_memory_for_calendar_candidate(memory_id=memory_id, user_id=user_id)
 
     title = _clean_optional(body.title) or _event_title_from_candidate(candidate)
@@ -565,12 +564,10 @@ async def update_calendar_candidate_draft(
 @router.post("/calendar-candidates/{memory_id}/sync-google")
 async def sync_calendar_candidate_to_google(
     memory_id: str,
-    body: MemoryPinIn,
+    body: CalendarActionIn | None = None,
     user_id: str = Depends(get_current_user_id),
 ) -> dict[str, Any]:
     """Create a real Google Calendar event from a confirmed local event draft."""
-    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
-
     candidate = await _load_memory_for_calendar_candidate(memory_id=memory_id, user_id=user_id)
 
     if candidate.get("google_calendar_event_id"):
@@ -866,11 +863,10 @@ def _google_event_description(row: dict[str, Any]) -> str:
 @router.post("/calendar-candidates/{memory_id}/archive")
 async def archive_calendar_candidate(
     memory_id: str,
-    body: MemoryPinIn,
+    body: CalendarActionIn | None = None,
     user_id: str = Depends(get_current_user_id),
 ) -> dict[str, Any]:
     """Archive a calendar candidate memory."""
-    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
     await _assert_memory_owner(memory_id=memory_id, user_id=user_id)
 
     now = _now_iso()
