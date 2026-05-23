@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { Message } from "@/lib/api";
 import { ConversationPageClient } from "./conversation-page-client";
 
 export default async function Page({
@@ -30,16 +29,9 @@ export default async function Page({
     redirect("/chat");
   }
 
-  const messages = await supabase
-    .from("messages")
-    .select("id, role, content, created_at")
-    .eq("conversation_id", id)
-    .order("created_at", { ascending: true });
-
-  return (
-    <ConversationPageClient
-      conversationId={id}
-      initialMessages={(messages.data ?? []) as Message[]}
-    />
-  );
+  // Cache-first chat UX:
+  // Do not block the route render by fetching the full message history here.
+  // ConversationPageClient reads the localStorage snapshot immediately, then
+  // refreshes the latest messages in the background.
+  return <ConversationPageClient conversationId={id} />;
 }

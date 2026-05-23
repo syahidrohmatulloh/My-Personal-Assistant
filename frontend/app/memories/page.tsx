@@ -1,16 +1,16 @@
 "use client"
 
-// Calendar UI shows confirmed/synced events only. Pending suggestions are handled in chat.;
+// Calendar has moved to /calendar. Memories no longer exposes Calendar UI.;
 
 
 import { useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
 import Link from "next/link"
 import {
+  CalendarDays,
   Archive,
   AlertTriangle,
   Brain,
-  CalendarDays,
   CheckCircle2,
   ClipboardCheck,
   Pencil,
@@ -246,7 +246,7 @@ export default function MemoriesPage() {
   const [savingId, setSavingId] = useState<string | null>(null)
   const [consolidating, setConsolidating] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState<"active" | "archived" | "review" | "calendar">("active")
+  const [tab, setTab] = useState<"active" | "archived" | "review">("active")
   const [query, setQuery] = useState("")
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
   const [edit, setEdit] = useState<EditState | null>(null)
@@ -289,7 +289,6 @@ export default function MemoriesPage() {
       setOpenGroups((prev) => ({ ...nextOpen, ...prev }))
       await loadQuality()
       await loadMemoryHealthStatus()
-      await loadCalendarCandidates()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load memories")
     } finally {
@@ -386,10 +385,9 @@ export default function MemoriesPage() {
     void load()
     void loadPinStatus()
     void loadMemoryHealthStatus()
-    void loadCalendarCandidates()
   }, [])
 
-  const currentGroups = tab === "review" || tab === "calendar" ? {} : data?.[tab] || {}
+  const currentGroups = tab === "review" ? {} : data?.[tab as "active" | "archived"] || {}
 
   const filteredGroups = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -638,7 +636,6 @@ export default function MemoriesPage() {
       }
 
       await load()
-      await loadCalendarCandidates()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update calendar event")
     } finally {
@@ -673,7 +670,7 @@ export default function MemoriesPage() {
   const activeCount = data?.counts?.active ?? 0
   const archivedCount = data?.counts?.archived ?? 0
   const reviewCount = quality?.summary?.needs_review ?? 0
-  const calendarCandidateCount = calendarCandidates?.count ?? 0
+  const calendarCandidateCount = 0
 
   return (
     <main className="min-h-screen px-4 py-6 text-slate-950 dark:text-slate-900 dark:text-zinc-100 sm:px-6 lg:px-8">
@@ -758,7 +755,6 @@ export default function MemoriesPage() {
             <StatCard label="Active" value={activeCount} />
             <StatCard label="Archived" value={archivedCount} />
             <StatCard label="Needs Review" value={reviewCount} />
-            <StatCard label="Calendar" value={calendarCandidateCount} />
             <StatCard label="Total" value={data?.counts?.total ?? 0} />
           </div>
 
@@ -788,11 +784,6 @@ export default function MemoriesPage() {
               onClick={() => setTab("review")}
               label={`Needs Review (${reviewCount})`}
             />
-            <TabButton
-              active={tab === "calendar"}
-              onClick={() => setTab("calendar")}
-              label={`Calendar (${calendarCandidateCount})`}
-            />
           </div>
 
           <div className="relative w-full md:max-w-md">
@@ -812,7 +803,7 @@ export default function MemoriesPage() {
           </div>
         ) : null}
 
-        {tab === "calendar" ? (
+        {false ? (
           <CalendarCandidatePanel
             candidates={calendarCandidates?.items || []}
             loading={loading}
