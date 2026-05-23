@@ -1,0 +1,330 @@
+"use client"
+
+import Link from "next/link"
+import { useEffect, useMemo, useState } from "react"
+
+type RawCalendarItem = {
+  id?: string
+  title?: string
+  content?: string
+  structured_value?: string
+  due_date?: string
+  calendar_candidate?: boolean
+  calendar_event_status?: string | null
+  calendar_event_title?: string | null
+  calendar_event_date?: string | null
+  calendar_event_start_at?: string | null
+  calendar_event_end_at?: string | null
+  calendar_event_all_day?: boolean | null
+  google_calendar_event_id?: string | null
+  google_calendar_event_link?: string | null
+  calendar_sync_error?: string | null
+}
+
+type CalendarEvent = {
+  id: string
+  title: string
+  date: string
+  startAt: string | null
+  endAt: string | null
+  allDay: boolean
+  status: "confirmed_local" | "synced_google"
+  googleLink: string | null
+  syncError: string | null
+}
+
+function normalizeTitle(item: RawCalendarItem): string {
+  const raw =
+    item.calendar_event_title ||
+    item.title ||
+    item.structured_value ||
+    item.content ||
+    "Untitled event"
+
+  return String(raw)
+    .replace(/\s*\|\s*due_date=.*$/i, "")
+    .replace(/^User has a scheduled event:\s*/i, "")
+    .replace(/\s+on\s+\d{4}-\d{2}-\d{2}.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function normalizeEvent(item: RawCalendarItem): CalendarEvent | null {
+  const status = item.calendar_event_status
+
+  if (status !== "confirmed_local" && status !== "synced_google") {
+    return null
+  }
+
+  const id = String(item.id || "").trim()
+  const date = String(item.calendar_event_date || item.due_date || "").trim()
+
+  if (!id || !date) {
+    return null
+  }
+
+  return {
+    id,
+    title: normalizeTitle(item),
+    date,
+    startAt: item.calendar_event_start_at || null,
+    endAt: item.calendar_event_end_at || null,
+    allDay: Boolean(item.calendar_event_all_day),
+    status,
+    googleLink: item.google_calendar_event_link || null,
+    syncError: item.calendar_sync_error || null,
+  }
+}
+
+function formatDate(date: string): string {
+  const parsed = new Date(`${date}T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) {
+    return date
+  }
+
+  return new Intl.DateTimeFormat("id-ID", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(parsed)
+}
+
+function formatTime(value: string | null): string | null {
+  if (!value) {
+    return null
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+
+  return new Intl.DateTimeFormat("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parsed)
+}
+
+function eventTimeLabel(event: CalendarEvent): string {
+  if (event.allDay || (!event.startAt && !event.endAt)) {
+    return "Sepanjang hari"
+  }
+
+  const start = formatTime(event.startAt)
+  const end = formatTime(event.endAt)
+
+  if (start && end) {
+    return `${start}–${end}`
+  }
+
+  return start || end || "Waktu belum tersedia"
+}
+
+function sortEvents(a: CalendarEvent, b: CalendarEvent): number {
+  const aKey = `${a.date} ${a.startAt || ""} ${a.title}`
+  const bKey = `${b.date} ${b.startAt || ""} ${b.title}`
+  return aKey.localeCompare(bKey)
+}
+
+function groupByDate(events: CalendarEvent[]): Array<[string, CalendarEvent[]]> {
+  const grouped = new Map<string, CalendarEvent[]>()
+
+  for (const event of events) {
+    const existing = grouped.get(event.date) || []
+    existing.push(event)
+    grouped.set(event.date, existing)
+  }
+
+  return Array.from(grouped.entries()).map(([date, items]) => [
+    date,
+    items.sort(sortEvents),
+  ])
+}
+
+export default function CalendarPage() {
+  const [events, setEvents] = useState<CalendarEvent[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  async function loadCalendarEvents() {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch("/api/memory-review/calendar-candidates", {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      })
+
+      if (!response.ok) {
+        throw new Error(`Calendar request failed: ${response.status}`)
+      }
+
+      const data = await response.json()
+      const items = Array.isArray(data?.items) ? data.items : []
+      const normalized = items
+        .map((item: RawCalendarItem) => normalizeEvent(item))
+        .filter(Boolean) as CalendarEvent[]
+
+      setEvents(normalized.sort(sortEvents))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to load Calendar"
+      setError(message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadCalendarEvents()
+  }, [])
+
+  const groupedEvents = useMemo(() => groupByDate(events), [events])
+
+  return (
+    <main className="min-h-screen bg-bg px-4 py-6 text-fg sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+        <header className="rounded-3xl border border-border bg-fg/[0.035] p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-fg-muted">
+                Aliyya Calendar
+              </p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
+                Calendar
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-fg-muted">
+                Jadwal yang sudah terkonfirmasi secara lokal dan event yang sudah tersinkron ke Google Calendar.
+                Saran jadwal yang belum kamu konfirmasi tetap diproses lewat chat, bukan ditampilkan di sini.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void loadCalendarEvents()}
+                className="inline-flex h-10 items-center justify-center rounded-full border border-border bg-bg px-4 text-sm font-medium text-fg shadow-sm transition hover:bg-fg/5 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isLoading}
+              >
+                {isLoading ? "Refreshing..." : "Refresh"}
+              </button>
+              <Link
+                href="/chat"
+                className="inline-flex h-10 items-center justify-center rounded-full border border-border bg-fg px-4 text-sm font-medium text-bg shadow-sm transition hover:opacity-90"
+              >
+                Back to chat
+              </Link>
+            </div>
+          </div>
+        </header>
+
+        <section className="grid gap-4 sm:grid-cols-3">
+          <div className="rounded-3xl border border-border bg-fg/[0.035] p-5">
+            <p className="text-sm text-fg-muted">Total events</p>
+            <p className="mt-2 text-3xl font-semibold">{events.length}</p>
+          </div>
+          <div className="rounded-3xl border border-border bg-fg/[0.035] p-5">
+            <p className="text-sm text-fg-muted">Google synced</p>
+            <p className="mt-2 text-3xl font-semibold">
+              {events.filter((event) => event.status === "synced_google").length}
+            </p>
+          </div>
+          <div className="rounded-3xl border border-border bg-fg/[0.035] p-5">
+            <p className="text-sm text-fg-muted">Local only</p>
+            <p className="mt-2 text-3xl font-semibold">
+              {events.filter((event) => event.status === "confirmed_local").length}
+            </p>
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-border bg-fg/[0.035] p-4 shadow-sm sm:p-6">
+          <div className="mb-5 flex flex-col gap-1">
+            <h2 className="text-xl font-semibold">Agenda terjadwal</h2>
+            <p className="text-sm text-fg-muted">
+              Pending suggestion tidak ditampilkan di halaman ini. Aliyya akan meminta konfirmasi lewat chat.
+            </p>
+          </div>
+
+          {error ? (
+            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-300">
+              {error}
+            </div>
+          ) : null}
+
+          {isLoading ? (
+            <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-fg-muted">
+              Loading Calendar...
+            </div>
+          ) : !error && groupedEvents.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-border p-10 text-center">
+              <p className="text-base font-medium">Belum ada event terkonfirmasi.</p>
+              <p className="mt-2 text-sm text-fg-muted">
+                Coba sebutkan agenda di chat. Aliyya akan tanya dulu sebelum memasukkannya ke Calendar.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {groupedEvents.map(([date, items]) => (
+                <div key={date} className="space-y-3">
+                  <div className="sticky top-0 z-10 -mx-1 rounded-2xl bg-bg/90 px-1 py-2 backdrop-blur">
+                    <h3 className="text-sm font-semibold text-fg-muted">{formatDate(date)}</h3>
+                  </div>
+
+                  <div className="space-y-3">
+                    {items.map((event) => (
+                      <article
+                        key={event.id}
+                        className="rounded-2xl border border-border bg-bg p-4 shadow-sm transition hover:bg-fg/[0.025]"
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h4 className="truncate text-base font-semibold">{event.title}</h4>
+                              <span
+                                className={
+                                  event.status === "synced_google"
+                                    ? "rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300"
+                                    : "rounded-full border border-blue-500/25 bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-700 dark:text-blue-300"
+                                }
+                              >
+                                {event.status === "synced_google" ? "Google synced" : "Local"}
+                              </span>
+                            </div>
+
+                            <p className="mt-2 text-sm text-fg-muted">
+                              {eventTimeLabel(event)}
+                            </p>
+
+                            {event.syncError ? (
+                              <p className="mt-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                                Sync note: {event.syncError}
+                              </p>
+                            ) : null}
+                          </div>
+
+                          {event.googleLink ? (
+                            <a
+                              href={event.googleLink}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex h-9 shrink-0 items-center justify-center rounded-full border border-border bg-fg/[0.035] px-3 text-xs font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg"
+                            >
+                              Open Google
+                            </a>
+                          ) : null}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+    </main>
+  )
+}
