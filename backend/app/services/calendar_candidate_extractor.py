@@ -288,10 +288,12 @@ async def extract_and_persist(
         return {"candidate": False, "saved": False}
 
     # Avoid duplicate candidate from repeated sends.
-    existing = await _find_existing_candidate(
+    existing = await _find_existing_calendar_item(
         user_id=user_id,
         title=candidate.title,
         event_date=candidate.event_date,
+        start_at=candidate.start_at,
+        end_at=candidate.end_at,
     )
     if existing:
         return {"candidate": True, "saved": False, "duplicate": True, "id": existing}
@@ -376,6 +378,71 @@ def _candidate_from_intent_draft(draft: dict[str, Any], source_text: str) -> Cal
         confidence=max(0.62, min(confidence, 0.94)),
         reason=reason or "haiku_calendar_intent",
     )
+
+
+
+async def _find_existing_calendar_item(
+    *,
+    user_id: str,
+    title: str,
+    event_date: str,
+    start_at: str | None = None,
+    end_at: str | None = None,
+) -> str | None:
+    """Avoid duplicate hidden suggestions/events from repeated chat sends.
+
+    We check pending suggestions, confirmed local events, and synced Google events
+    for the same date/title/time before inserting a new hidden suggestion.
+    """
+    normalized_title = _normalise_title_for_dedupe(title)
+    try:
+        result = safe_execute(
+            lambda sb: sb.table("memories")
+            .select(
+                "id, calendar_event_title, structured_value, content, due_date, "
+                "calendar_event_date, calendar_event_start_at, calendar_event_end_at, "
+                "calendar_candidate, calendar_event_status, archived, superseded"
+            )
+            .eq("user_id", user_id)
+            .eq("archived", False)
+            .eq("superseded", False)
+            .or_("calendar_candidate.eq.true,calendar_event_status.in.(confirmed_local,synced_google)")
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("calendar_candidate_extractor: broad duplicate check failed: %s", exc)
+        return None
+
+    for row in result.data or []:
+        row_date = str(row.get("calendar_event_date") or row.get("due_date") or "").strip()
+        if row_date != event_date:
+            continue
+
+        row_title = _normalise_title_for_dedupe(
+            str(row.get("calendar_event_title") or row.get("structured_value") or row.get("content") or "")
+        )
+        if not row_title:
+            continue
+
+        same_title = normalized_title == row_title or normalized_title in row_title or row_title in normalized_title
+        same_start = not start_at or not row.get("calendar_event_start_at") or str(row.get("calendar_event_start_at")) == str(start_at)
+        same_end = not end_at or not row.get("calendar_event_end_at") or str(row.get("calendar_event_end_at")) == str(end_at)
+
+        if same_title and same_start and same_end:
+            return str(row.get("id"))
+
+    return None
+
+
+def _normalise_title_for_dedupe(value: str) -> str:
+    import re
+
+    text = str(value or "").casefold()
+    text = re.sub(r"\s*\|\s*due_date=.*$", "", text)
+    text = re.sub(r"^user has a scheduled event:\s*", "", text)
+    text = re.sub(r"\s+on\s+\d{4}-\d{2}-\d{2}.*$", "", text)
+    text = re.sub(r"[^a-z0-9À-ÖØ-öø-ÿ]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 async def _find_existing_candidate(*, user_id: str, title: str, event_date: str) -> str | None:

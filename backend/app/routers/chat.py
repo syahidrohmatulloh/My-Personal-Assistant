@@ -738,6 +738,14 @@ async def chat(
     if chronology_context:
         volatile_context += "\n\n" + chronology_context
     volatile_context += "\n\n" + capability_registry.render_capability_registry()
+    volatile_context += (
+        "\n\nCalendar confirmation UX rule — strict:"
+        "\n- When the user mentions a possible schedule/event, do NOT say it has been prepared, added, saved, created, or inserted yet."
+        "\n- Ask for confirmation first: 'Beb, ini kayaknya agenda kalender. Mau aku masukin ke Calendar?'"
+        "\n- Summarize Acara, Tanggal, Waktu, and Lokasi if available."
+        "\n- Never use user-facing terms like 'agenda kalender', 'agenda kalender', 'Calendar event', or 'calendar event'."
+        "\n- Only say the event was added/synced/updated/deleted after the user clearly confirms and the backend action is expected to run."
+    )
     pending_calendar_confirmation_context = await calendar_confirmation_actions.render_pending_calendar_confirmation_context(
         user_id=user_id,
         conversation_id=getattr(body, "conversation_id", None),
@@ -747,7 +755,7 @@ async def chat(
 
     volatile_context += (
         "\n\nCalendar user-facing language rule — strict:"
-        "\n- Never use the phrases 'Calendar event draft', 'calendar event draft', 'event Calendar', or 'event Calendar' in user-facing replies."
+        "\n- Never use the phrases 'Calendar event', 'calendar event', 'event Calendar', or 'event Calendar' in user-facing replies."
         "\n- Use natural product wording: Calendar, event, agenda, jadwal, aku catat, aku update, aku hapus."
         "\n- If an event is prepared, updated, synced, or deleted, summarize it naturally with Acara, Tanggal, Waktu, and Lokasi when available."
     )
@@ -761,10 +769,10 @@ async def chat(
     )
     if calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(body.message):
         volatile_context += (
-            "\\n\\nCalendar event draft capability state — authoritative:"
+            "\\n\\nCalendar event capability state — authoritative:"
             "\\n- The user message appears to contain a schedule/calendar event request."
-            "\\n- The app can automatically prepare a calendar event draft from chat and show it in Memories → Calendar."
-            "\\n- Internally this may be stored as a calendar event draft, but do NOT use the phrase 'Calendar event draft' in user-facing replies."
+            "\\n- The app can detect a possible Calendar event from chat, but user confirmation is required before it should be treated as added."
+            "\\n- Internally this may be stored as a calendar event, but do NOT use the phrase 'Calendar event' in user-facing replies."
             "\\n- Use natural wording like: Ini kayaknya agenda kalender. Mau aku masukin ke Calendar?"
             "\\n- Do not say you cannot help with calendar handling."
             "\\n- Do not claim the event is already created in Google Calendar unless a direct Google Calendar sync action has explicitly succeeded in the current request."
@@ -780,7 +788,7 @@ async def chat(
             "\n- You may say the Google Calendar event will be updated/deleted when the user's request clearly targets a synced Google Calendar event."
             "\n- If the event is already synced to Google Calendar, say changes/deletion may require confirmation from Memories → Calendar."
             "\n- Use natural wording like: Aku update di Calendar ya, or Aku hapus dari Calendar ya."
-            "\n- Do not use the phrase 'Calendar event draft' in user-facing replies."
+            "\n- Do not use the phrase 'Calendar event' in user-facing replies."
         )
 
     temporal_grounding_block = temporal_grounding.render_temporal_grounding_block(
