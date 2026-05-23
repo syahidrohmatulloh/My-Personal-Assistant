@@ -55,12 +55,20 @@ function normalizeTitle(item: RawCalendarItem): string {
     item.content ||
     "Untitled event"
 
-  return String(raw)
+  const cleaned = String(raw)
     .replace(/\s*\|\s*due_date=.*$/i, "")
     .replace(/^User has a scheduled event:\s*/i, "")
     .replace(/\s+on\s+\d{4}-\d{2}-\d{2}.*$/i, "")
+    .replace(/^(beb|sayang|yang|aku|saya|gue|gw|gua)\s+/i, "")
+    .replace(/^(sekarang|nanti|besok|lusa|hari ini|pagi ini|siang ini|sore ini|malam ini)\s+/i, "")
+    .replace(/^(ini\s+)?(mau|akan|bakal|hendak)\s+/i, "")
+    .replace(/^(ada\s+)?(acara|agenda|jadwal)\s+/i, "")
+    .replace(/^ke\s+/i, "")
+    .replace(/\s+(ya|yah|dong|deh|nih|sih|ah|hehe|beb)$/i, "")
     .replace(/\s+/g, " ")
     .trim()
+
+  return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : "Calendar event"
 }
 
 function normalizeEvent(item: RawCalendarItem): CalendarEvent | null {

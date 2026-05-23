@@ -338,7 +338,7 @@ async def extract_and_persist(
 
 
 def _candidate_from_intent_draft(draft: dict[str, Any], source_text: str) -> CalendarCandidate | None:
-    title = str(draft.get("title") or "").strip()
+    title = _clean_calendar_event_title(draft.get("title"))
     event_date = str(draft.get("event_date") or "").strip()
     start_at = draft.get("start_at")
     end_at = draft.get("end_at")
@@ -459,6 +459,64 @@ def _same_calendar_time_for_dedupe(
         return False
     return True
 
+
+
+
+def _clean_calendar_event_title(value: str | None) -> str:
+    """Clean user-message fragments into agenda-like event titles.
+
+    Examples:
+    - "sekarang padel di Parta Kuningan" -> "Padel di Parta Kuningan"
+    - "nanti mau ke Epiwalk Mall" -> "Epiwalk Mall"
+    - "ini mau Bowling sama Mandiri Club" -> "Bowling sama Mandiri Club"
+    - "Ke FX Sudirman" -> "FX Sudirman"
+    """
+    import re
+
+    text = str(value or "").strip()
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"\s*\|\s*due_date=.*$", "", text, flags=re.I)
+    text = re.sub(r"^user has a scheduled event:\s*", "", text, flags=re.I)
+    text = re.sub(r"\s+on\s+\d{4}-\d{2}-\d{2}.*$", "", text, flags=re.I)
+
+    # Remove common conversational lead-ins.
+    text = re.sub(
+        r"^(?:beb|sayang|yang|aku|saya|gue|gw|gua)\s+",
+        "",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(
+        r"^(?:sekarang|nanti|besok|lusa|hari ini|pagi ini|siang ini|sore ini|malam ini)\s+",
+        "",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(
+        r"^(?:ini\s+)?(?:mau|akan|bakal|hendak)\s+",
+        "",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(
+        r"^(?:ada\s+)?(?:acara|agenda|jadwal)\s+",
+        "",
+        text,
+        flags=re.I,
+    )
+
+    # "ke FX", "ke dentist", "ke Epiwalk" is usually a destination title.
+    text = re.sub(r"^ke\s+", "", text, flags=re.I)
+
+    # Remove casual trailing filler.
+    text = re.sub(r"\s+(?:ya|yah|dong|deh|nih|sih|ah|hehe|beb)$", "", text, flags=re.I)
+
+    text = re.sub(r"\s+", " ", text).strip(" ,.;:-")
+    if not text:
+        return "Calendar event"
+
+    # Preserve acronyms like FX/SCBD reasonably by only uppercasing first char.
+    return text[:1].upper() + text[1:]
 
 def _normalise_title_for_dedupe(value: str) -> str:
     import re
@@ -635,7 +693,7 @@ def _build_title(text: str) -> str:
     if len(cleaned) > 120:
         cleaned = cleaned[:117].rstrip() + "..."
 
-    return cleaned[0].upper() + cleaned[1:]
+    return _clean_calendar_event_title(cleaned)
 
 
 def _base_date_from_client_context(client_context: dict[str, Any] | None) -> date | None:
