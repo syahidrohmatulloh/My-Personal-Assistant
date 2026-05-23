@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
+import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label"
 
 type RawCalendarItem = {
   id?: string
@@ -46,209 +47,6 @@ type TimelineRow =
       startAt: string
       endAt: string
     }
-
-
-type UnknownRecord = Record<string, unknown>
-
-const ASSISTANT_NAME_VALUES = new Set([
-  "aliyya",
-  "assistant",
-  "asisten",
-  "beb",
-  "bebe",
-  "sayang",
-])
-
-const USER_NAME_KEYS = new Set([
-  "user_name",
-  "userName",
-  "preferred_user_name",
-  "preferredUserName",
-  "preferred_name",
-  "preferredName",
-  "display_name",
-  "displayName",
-  "full_name",
-  "fullName",
-  "name",
-])
-
-const ASSISTANT_NAME_KEYS = new Set([
-  "assistant_name",
-  "assistantName",
-  "assistant_display_name",
-  "assistantDisplayName",
-  "bot_name",
-  "botName",
-  "ai_name",
-  "aiName",
-])
-
-function asRecord(value: unknown): UnknownRecord | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as UnknownRecord)
-    : null
-}
-
-function pickString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null
-}
-
-function firstName(value: string): string {
-  return value.trim().split(/\s+/)[0] || value.trim()
-}
-
-function isLikelyAssistantName(value: string): boolean {
-  return ASSISTANT_NAME_VALUES.has(value.trim().toLowerCase())
-}
-
-function findUserNameDeep(value: unknown, depth = 0): string | null {
-  if (depth > 5) {
-    return null
-  }
-
-  const record = asRecord(value)
-  if (!record) {
-    return null
-  }
-
-  // Prefer explicit user-ish keys first.
-  for (const [key, raw] of Object.entries(record)) {
-    if (ASSISTANT_NAME_KEYS.has(key)) {
-      continue
-    }
-
-    if (USER_NAME_KEYS.has(key)) {
-      const candidate = pickString(raw)
-      if (candidate && !isLikelyAssistantName(candidate)) {
-        return firstName(candidate)
-      }
-    }
-  }
-
-  // Then scan nested objects.
-  for (const [key, raw] of Object.entries(record)) {
-    if (ASSISTANT_NAME_KEYS.has(key)) {
-      continue
-    }
-
-    const nested = asRecord(raw)
-    if (!nested) {
-      continue
-    }
-
-    const candidate = findUserNameDeep(nested, depth + 1)
-    if (candidate) {
-      return candidate
-    }
-  }
-
-  return null
-}
-
-function pickUserDisplayNameFromPayload(payload: unknown): string | null {
-  return findUserNameDeep(payload)
-}
-
-function pickUserDisplayNameFromStorage(): string | null {
-  if (typeof window === "undefined") {
-    return null
-  }
-
-  const directKeys = [
-    "app:user-name",
-    "app:userName",
-    "user_name",
-    "userName",
-    "profile:user_name",
-    "identity:user_name",
-    "app:profile:user_name",
-  ]
-
-  for (const key of directKeys) {
-    const value = pickString(window.localStorage.getItem(key))
-    if (value && !isLikelyAssistantName(value)) {
-      return firstName(value)
-    }
-  }
-
-  const jsonKeys = [
-    "app:identity",
-    "identity",
-    "profile",
-    "user",
-    "app:user",
-    "app:user-context",
-    "user-context",
-    "memory-review:identity",
-  ]
-
-  for (const key of jsonKeys) {
-    const raw = window.localStorage.getItem(key)
-    if (!raw) {
-      continue
-    }
-
-    try {
-      const parsed = JSON.parse(raw)
-      const value = pickUserDisplayNameFromPayload(parsed)
-      if (value) {
-        return value
-      }
-    } catch {
-      // Ignore non-JSON cache values.
-    }
-  }
-
-  return null
-}
-
-async function loadCalendarOwnerName(): Promise<string> {
-  const cached = pickUserDisplayNameFromStorage()
-  if (cached) {
-    return cached
-  }
-
-  const endpoints = [
-    "/api/memory-review/identity",
-    "/api/memory-review/profile",
-    "/api/memory-review/context",
-    "/api/memory-review",
-    "/api/identity",
-    "/api/profile",
-    "/api/me",
-    "/api/user-context",
-    "/api/context",
-  ]
-
-  for (const endpoint of endpoints) {
-    try {
-      const response = await fetch(endpoint, {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
-      })
-
-      if (!response.ok) {
-        continue
-      }
-
-      const payload = await response.json()
-      const value = pickUserDisplayNameFromPayload(payload)
-
-      if (value) {
-        if (typeof window !== "undefined") {
-          window.localStorage.setItem("app:user-name", value)
-        }
-        return value
-      }
-    } catch {
-      // Try the next optional endpoint.
-    }
-  }
-
-  return "My"
-}
 
 
 function normalizeTitle(item: RawCalendarItem): string {
@@ -452,10 +250,10 @@ function StatusDot({ status }: { status: CalendarEvent["status"] }) {
 }
 
 export default function CalendarPage() {
+  const calendarEyebrow = useUserOwnedLabel("Calendar")
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [calendarOwnerName, setCalendarOwnerName] = useState("My")
 
   async function loadCalendarEvents() {
     setIsLoading(true)
@@ -491,20 +289,6 @@ export default function CalendarPage() {
     void loadCalendarEvents()
   }, [])
 
-  useEffect(() => {
-    let mounted = true
-
-    void loadCalendarOwnerName().then((name) => {
-      if (mounted) {
-        setCalendarOwnerName(name)
-      }
-    })
-
-    return () => {
-      mounted = false
-    }
-  }, [])
-
   const groupedEvents = useMemo(() => groupByDate(events), [events])
 
   return (
@@ -514,7 +298,7 @@ export default function CalendarPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-fg-muted">
-                {calendarOwnerName} Calendar
+                {calendarEyebrow}
               </p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
                 Calendar

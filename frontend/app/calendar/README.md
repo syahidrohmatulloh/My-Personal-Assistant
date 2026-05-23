@@ -13,4 +13,4 @@ Timeline UX features:
 - compact micro-warning for tight or overlapping schedules
 - wrapped event titles on mobile so locations/details are readable
 - minimal mobile Google link
-- Calendar header uses the user's display name, not the assistant name
+- Calendar header reuses the same identity-owned label hook used by Journal, Goals, and People
