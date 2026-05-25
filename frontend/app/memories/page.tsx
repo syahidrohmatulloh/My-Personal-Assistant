@@ -29,7 +29,8 @@ import {
 import { useAssistantOwnedLabel } from "@/hooks/use-identity-owned-label";
 import { useAssistantDisplayName } from "@/hooks/use-identity-owned-label";
 import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
-import { readSnapshot, SNAPSHOT_MAX_AGE_MS, writeSnapshot } from "@/lib/snapshot-cache";
+import { createClient } from "@/lib/supabase/client";
+import { readSnapshot, SNAPSHOT_MAX_AGE_MS, userScopedSnapshotKey, writeSnapshot } from "@/lib/snapshot-cache";
 
 type MemoryItem = {
   id: string
@@ -203,15 +204,25 @@ type MemoriesSnapshotData = {
   memoryHealthStatus: MemoryHealthSchedulerStatus | null
 }
 
-const MEMORIES_SNAPSHOT_KEY = "app:memories-snapshot:v1"
+const LEGACY_MEMORIES_SNAPSHOT_KEY = "app:memories-snapshot:v1"
+const MEMORIES_SNAPSHOT_AREA = "memories"
+
+function memoriesSnapshotKeyForUser(userId: string): string {
+  return userScopedSnapshotKey({
+    userId,
+    area: MEMORIES_SNAPSHOT_AREA,
+  })
+}
 
 function isMemoriesSnapshotData(value: unknown): value is MemoriesSnapshotData {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)
 }
 
-function readMemoriesSnapshot(): MemoriesSnapshotData | null {
+function readMemoriesSnapshot(
+  key = LEGACY_MEMORIES_SNAPSHOT_KEY,
+): MemoriesSnapshotData | null {
   const snapshot = readSnapshot<MemoriesSnapshotData>(
-    MEMORIES_SNAPSHOT_KEY,
+    key,
     {
       data: null,
       quality: null,
@@ -224,14 +235,18 @@ function readMemoriesSnapshot(): MemoriesSnapshotData | null {
   return snapshot?.data ?? null
 }
 
-function writeMemoriesSnapshot(payload: MemoriesSnapshotData) {
-  writeSnapshot(MEMORIES_SNAPSHOT_KEY, payload)
+function writeMemoriesSnapshot(
+  payload: MemoriesSnapshotData,
+  key = LEGACY_MEMORIES_SNAPSHOT_KEY,
+) {
+  writeSnapshot(key, payload)
 }
 
 export default function MemoriesPage() {
   const assistantName = useAssistantDisplayName();
   const memoriesEyebrow = useAssistantOwnedLabel("Memories");
   const initialSnapshot = useMemo(() => readMemoriesSnapshot(), [])
+  const [snapshotKey, setSnapshotKey] = useState(LEGACY_MEMORIES_SNAPSHOT_KEY)
   const [data, setData] = useState<MemoryReviewPayload | null>(initialSnapshot?.data ?? null)
   const [quality, setQuality] = useState<MemoryQualityPayload | null>(initialSnapshot?.quality ?? null)
   const [memoryHealthStatus, setMemoryHealthStatus] = useState<MemoryHealthSchedulerStatus | null>(initialSnapshot?.memoryHealthStatus ?? null)
@@ -285,11 +300,14 @@ export default function MemoriesPage() {
         loadMemoryHealthStatus(),
       ])
 
-      writeMemoriesSnapshot({
-        data: json,
-        quality: nextQuality,
-        memoryHealthStatus: nextHealthStatus,
-      })
+      writeMemoriesSnapshot(
+        {
+          data: json,
+          quality: nextQuality,
+          memoryHealthStatus: nextHealthStatus,
+        },
+        snapshotKey,
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load memories")
     } finally {
@@ -373,7 +391,52 @@ export default function MemoriesPage() {
   }
 
   useEffect(() => {
+    let cancelled = false
+
+    async function resolveUserScopedSnapshotKey() {
+      const supabase = createClient()
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (cancelled) return
+
+      const userId = session?.user?.id
+      if (!userId) return
+
+      const scopedKey = memoriesSnapshotKeyForUser(userId)
+      const scopedSnapshot = readMemoriesSnapshot(scopedKey)
+
+      if (scopedSnapshot) {
+        setData(scopedSnapshot.data)
+        setQuality(scopedSnapshot.quality)
+        setMemoryHealthStatus(scopedSnapshot.memoryHealthStatus)
+      } else if (data) {
+        writeMemoriesSnapshot(
+          {
+            data,
+            quality,
+            memoryHealthStatus,
+          },
+          scopedKey,
+        )
+      }
+
+      setSnapshotKey(scopedKey)
+    }
+
+    void resolveUserScopedSnapshotKey()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
     void load()
+  }, [snapshotKey])
+
+  useEffect(() => {
     void loadPinStatus()
   }, [])
 
