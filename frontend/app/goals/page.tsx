@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { AppPageShell, AppPanel, AppToolbar } from "@/components/ui/app-page-shell";
 import { useAssistantDisplayName, useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
 import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
+import { readSnapshot, writeSnapshot } from "@/lib/snapshot-cache";
 
 const HORIZONS: Goal["horizon"][] = ["week", "month", "quarter", "year", "multi_year", "life"];
 
@@ -42,9 +43,7 @@ const STATUS_LABELS: Record<Goal["status"] | "all", string> = {
   all: "All",
 };
 
-type GoalsSnapshotPayload = {
-  version: 1;
-  savedAt: string;
+type GoalsSnapshotData = {
   filter: Goal["status"] | "all";
   goals: Goal[];
   suggestions: GoalSuggestion[];
@@ -57,32 +56,42 @@ function goalsSnapshotKey(filter: Goal["status"] | "all"): string {
   return `${GOALS_SNAPSHOT_PREFIX}${filter}`;
 }
 
-function readGoalsSnapshot(filter: Goal["status"] | "all"): GoalsSnapshotPayload | null {
-  if (typeof window === "undefined") return null;
+function isGoalsSnapshotData(value: unknown): value is GoalsSnapshotData {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
 
-  const raw = window.localStorage.getItem(goalsSnapshotKey(filter));
-  if (!raw) return null;
+  const item = value as Partial<GoalsSnapshotData>;
 
-  try {
-    const parsed = JSON.parse(raw) as Partial<GoalsSnapshotPayload>;
+  return (
+    (item.filter === "active" ||
+      item.filter === "paused" ||
+      item.filter === "achieved" ||
+      item.filter === "abandoned" ||
+      item.filter === "all") &&
+    Array.isArray(item.goals) &&
+    Array.isArray(item.suggestions) &&
+    Array.isArray(item.actionProposals)
+  );
+}
 
-    if (parsed.version !== 1 || parsed.filter !== filter) {
-      return null;
-    }
-
-    return {
-      version: 1,
-      savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : new Date(0).toISOString(),
+function readGoalsSnapshot(filter: Goal["status"] | "all"): GoalsSnapshotData | null {
+  const snapshot = readSnapshot<GoalsSnapshotData>(
+    goalsSnapshotKey(filter),
+    {
       filter,
-      goals: Array.isArray(parsed.goals) ? (parsed.goals as Goal[]) : [],
-      suggestions: Array.isArray(parsed.suggestions) ? (parsed.suggestions as GoalSuggestion[]) : [],
-      actionProposals: Array.isArray(parsed.actionProposals)
-        ? (parsed.actionProposals as GoalActionProposal[])
-        : [],
-    };
-  } catch {
+      goals: [],
+      suggestions: [],
+      actionProposals: [],
+    },
+    isGoalsSnapshotData,
+  );
+
+  if (!snapshot || snapshot.data.filter !== filter) {
     return null;
   }
+
+  return snapshot.data;
 }
 
 function writeGoalsSnapshot(
@@ -93,22 +102,12 @@ function writeGoalsSnapshot(
     actionProposals: GoalActionProposal[];
   },
 ) {
-  if (typeof window === "undefined") return;
-
-  const snapshot: GoalsSnapshotPayload = {
-    version: 1,
-    savedAt: new Date().toISOString(),
+  writeSnapshot(goalsSnapshotKey(filter), {
     filter,
     goals: payload.goals,
     suggestions: payload.suggestions,
     actionProposals: payload.actionProposals,
-  };
-
-  try {
-    window.localStorage.setItem(goalsSnapshotKey(filter), JSON.stringify(snapshot));
-  } catch {
-    // Ignore storage quota or private-mode failures.
-  }
+  });
 }
 
 function goalActionLabel(proposal: GoalActionProposal): string {
