@@ -306,7 +306,7 @@ export default function PeoplePage() {
         </div>
       ) : null}
 
-      {loading ? (
+      {loading && people.length === 0 ? (
         <AppPanel>
           <div className="p-6 text-sm text-slate-600 dark:text-zinc-300">Loading…</div>
         </AppPanel>
