@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 
 import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label"
+import { readSnapshot, writeSnapshot } from "@/lib/snapshot-cache"
 
 type RawCalendarItem = {
   id?: string
@@ -35,11 +36,6 @@ type CalendarEvent = {
   syncError: string | null
 }
 
-type CachedCalendarPayload = {
-  version: 1
-  savedAt: string
-  events: CalendarEvent[]
-}
 
 const CALENDAR_EVENTS_CACHE_KEY = "app:calendar-events-cache:v1"
 
@@ -208,41 +204,22 @@ function isCalendarEvent(value: unknown): value is CalendarEvent {
   )
 }
 
+function isCalendarEventArray(value: unknown): value is CalendarEvent[] {
+  return Array.isArray(value) && value.every(isCalendarEvent)
+}
+
 function readCachedCalendarEvents(): CalendarEvent[] {
-  if (typeof window === "undefined") {
-    return []
-  }
+  const snapshot = readSnapshot<CalendarEvent[]>(
+    CALENDAR_EVENTS_CACHE_KEY,
+    [],
+    isCalendarEventArray,
+  )
 
-  const raw = window.localStorage.getItem(CALENDAR_EVENTS_CACHE_KEY)
-  if (!raw) {
-    return []
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Partial<CachedCalendarPayload>
-    const events = Array.isArray(parsed.events) ? parsed.events.filter(isCalendarEvent) : []
-    return events.sort(sortEvents)
-  } catch {
-    return []
-  }
+  return snapshot?.data.sort(sortEvents) ?? []
 }
 
 function writeCachedCalendarEvents(events: CalendarEvent[]) {
-  if (typeof window === "undefined") {
-    return
-  }
-
-  const payload: CachedCalendarPayload = {
-    version: 1,
-    savedAt: new Date().toISOString(),
-    events,
-  }
-
-  try {
-    window.localStorage.setItem(CALENDAR_EVENTS_CACHE_KEY, JSON.stringify(payload))
-  } catch {
-    // Ignore storage quota or privacy-mode failures.
-  }
+  writeSnapshot(CALENDAR_EVENTS_CACHE_KEY, events)
 }
 
 function groupByDate(events: CalendarEvent[]): Array<[string, CalendarEvent[]]> {
