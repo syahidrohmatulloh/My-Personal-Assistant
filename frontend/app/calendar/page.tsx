@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react"
 import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 
 import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label"
-import { readSnapshot, SNAPSHOT_MAX_AGE_MS, writeSnapshot } from "@/lib/snapshot-cache"
+import { createClient } from "@/lib/supabase/client"
+import { readSnapshot, SNAPSHOT_MAX_AGE_MS, userScopedSnapshotKey, writeSnapshot } from "@/lib/snapshot-cache"
 
 type RawCalendarItem = {
   id?: string
@@ -37,7 +38,15 @@ type CalendarEvent = {
 }
 
 
-const CALENDAR_EVENTS_CACHE_KEY = "app:calendar-events-cache:v1"
+const LEGACY_CALENDAR_EVENTS_CACHE_KEY = "app:calendar-events-cache:v1"
+const CALENDAR_SNAPSHOT_AREA = "calendar"
+
+function calendarSnapshotKeyForUser(userId: string): string {
+  return userScopedSnapshotKey({
+    userId,
+    area: CALENDAR_SNAPSHOT_AREA,
+  })
+}
 
 
 type TimelineRow =
@@ -208,9 +217,11 @@ function isCalendarEventArray(value: unknown): value is CalendarEvent[] {
   return Array.isArray(value) && value.every(isCalendarEvent)
 }
 
-function readCachedCalendarEvents(): CalendarEvent[] {
+function readCachedCalendarEvents(
+  key = LEGACY_CALENDAR_EVENTS_CACHE_KEY,
+): CalendarEvent[] {
   const snapshot = readSnapshot<CalendarEvent[]>(
-    CALENDAR_EVENTS_CACHE_KEY,
+    key,
     [],
     isCalendarEventArray,
     { maxAgeMs: SNAPSHOT_MAX_AGE_MS.calendar },
@@ -219,8 +230,11 @@ function readCachedCalendarEvents(): CalendarEvent[] {
   return snapshot?.data.sort(sortEvents) ?? []
 }
 
-function writeCachedCalendarEvents(events: CalendarEvent[]) {
-  writeSnapshot(CALENDAR_EVENTS_CACHE_KEY, events)
+function writeCachedCalendarEvents(
+  events: CalendarEvent[],
+  key = LEGACY_CALENDAR_EVENTS_CACHE_KEY,
+) {
+  writeSnapshot(key, events)
 }
 
 function groupByDate(events: CalendarEvent[]): Array<[string, CalendarEvent[]]> {
@@ -330,6 +344,7 @@ function StatusDot({ status }: { status: CalendarEvent["status"] }) {
 
 export default function CalendarPage() {
   const calendarEyebrow = useUserOwnedLabel("Calendar")
+  const [snapshotKey, setSnapshotKey] = useState(LEGACY_CALENDAR_EVENTS_CACHE_KEY)
   const [events, setEvents] = useState<CalendarEvent[]>(() => readCachedCalendarEvents())
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -357,7 +372,7 @@ export default function CalendarPage() {
 
       const sortedEvents = normalized.sort(sortEvents)
       setEvents(sortedEvents)
-      writeCachedCalendarEvents(sortedEvents)
+      writeCachedCalendarEvents(sortedEvents, snapshotKey)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load Calendar"
       setError(message)
@@ -367,8 +382,41 @@ export default function CalendarPage() {
   }
 
   useEffect(() => {
-    void loadCalendarEvents()
+    let cancelled = false
+
+    async function resolveUserScopedSnapshotKey() {
+      const supabase = createClient()
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (cancelled) return
+
+      const userId = session?.user?.id
+      if (!userId) return
+
+      const scopedKey = calendarSnapshotKeyForUser(userId)
+      const scopedEvents = readCachedCalendarEvents(scopedKey)
+
+      if (scopedEvents.length > 0) {
+        setEvents(scopedEvents)
+      } else if (events.length > 0) {
+        writeCachedCalendarEvents(events, scopedKey)
+      }
+
+      setSnapshotKey(scopedKey)
+    }
+
+    void resolveUserScopedSnapshotKey()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
+
+  useEffect(() => {
+    void loadCalendarEvents()
+  }, [snapshotKey])
 
   const groupedEvents = useMemo(() => groupByDate(events), [events])
 
