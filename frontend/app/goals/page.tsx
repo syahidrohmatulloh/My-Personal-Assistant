@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 import { AppPageShell, AppPanel, AppToolbar } from "@/components/ui/app-page-shell";
 import { useAssistantDisplayName, useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
 import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
-import { readSnapshot, writeSnapshot } from "@/lib/snapshot-cache";
+import { readSnapshot, SNAPSHOT_MAX_AGE_MS, writeSnapshot } from "@/lib/snapshot-cache";
 
 const HORIZONS: Goal["horizon"][] = ["week", "month", "quarter", "year", "multi_year", "life"];
 
@@ -85,6 +85,7 @@ function readGoalsSnapshot(filter: Goal["status"] | "all"): GoalsSnapshotData | 
       actionProposals: [],
     },
     isGoalsSnapshotData,
+    { maxAgeMs: SNAPSHOT_MAX_AGE_MS.goals },
   );
 
   if (!snapshot || snapshot.data.filter !== filter) {

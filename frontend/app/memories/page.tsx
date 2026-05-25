@@ -29,7 +29,7 @@ import {
 import { useAssistantOwnedLabel } from "@/hooks/use-identity-owned-label";
 import { useAssistantDisplayName } from "@/hooks/use-identity-owned-label";
 import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
-import { readSnapshot, writeSnapshot } from "@/lib/snapshot-cache";
+import { readSnapshot, SNAPSHOT_MAX_AGE_MS, writeSnapshot } from "@/lib/snapshot-cache";
 
 type MemoryItem = {
   id: string
@@ -218,6 +218,7 @@ function readMemoriesSnapshot(): MemoriesSnapshotData | null {
       memoryHealthStatus: null,
     },
     isMemoriesSnapshotData,
+    { maxAgeMs: SNAPSHOT_MAX_AGE_MS.memories },
   )
 
   return snapshot?.data ?? null

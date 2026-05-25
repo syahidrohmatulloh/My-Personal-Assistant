@@ -20,7 +20,7 @@ import {
 import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
 import { useAssistantDisplayName } from "@/hooks/use-identity-owned-label";
 import { BackToChatButton } from "@/components/settings/back-to-chat-button";
-import { readSnapshot, writeSnapshot } from "@/lib/snapshot-cache";
+import { readSnapshot, SNAPSHOT_MAX_AGE_MS, writeSnapshot } from "@/lib/snapshot-cache";
 
 const inputCls =
   "mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
@@ -34,7 +34,12 @@ function isPeopleArray(value: unknown): value is Person[] {
 export default function PeoplePage() {
   const assistantName = useAssistantDisplayName();
   const peopleEyebrow = useUserOwnedLabel("People");
-  const initialSnapshot = readSnapshot<Person[]>(PEOPLE_SNAPSHOT_KEY, [], isPeopleArray)
+  const initialSnapshot = readSnapshot<Person[]>(
+    PEOPLE_SNAPSHOT_KEY,
+    [],
+    isPeopleArray,
+    { maxAgeMs: SNAPSHOT_MAX_AGE_MS.people },
+  )
   const [people, setPeople] = useState<Person[]>(initialSnapshot?.data ?? [])
   const [loading, setLoading] = useState(() => !initialSnapshot)
   const [showForm, setShowForm] = useState(false)
