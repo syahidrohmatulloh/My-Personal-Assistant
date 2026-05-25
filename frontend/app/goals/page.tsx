@@ -22,7 +22,8 @@ import { cn } from "@/lib/utils";
 import { AppPageShell, AppPanel, AppToolbar } from "@/components/ui/app-page-shell";
 import { useAssistantDisplayName, useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
 import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
-import { readSnapshot, SNAPSHOT_MAX_AGE_MS, writeSnapshot } from "@/lib/snapshot-cache";
+import { createClient } from "@/lib/supabase/client";
+import { readSnapshot, SNAPSHOT_MAX_AGE_MS, userScopedSnapshotKey, writeSnapshot } from "@/lib/snapshot-cache";
 
 const HORIZONS: Goal["horizon"][] = ["week", "month", "quarter", "year", "multi_year", "life"];
 
@@ -50,10 +51,21 @@ type GoalsSnapshotData = {
   actionProposals: GoalActionProposal[];
 };
 
-const GOALS_SNAPSHOT_PREFIX = "app:goals-snapshot:v1:";
+const LEGACY_GOALS_SNAPSHOT_PREFIX = "app:goals-snapshot:v1:";
+const GOALS_SNAPSHOT_AREA = "goals";
 
-function goalsSnapshotKey(filter: Goal["status"] | "all"): string {
-  return `${GOALS_SNAPSHOT_PREFIX}${filter}`;
+function goalsSnapshotKey(
+  keyPrefix: string,
+  filter: Goal["status"] | "all",
+): string {
+  return `${keyPrefix}${filter}`;
+}
+
+function goalsSnapshotPrefixForUser(userId: string): string {
+  return `${userScopedSnapshotKey({
+    userId,
+    area: GOALS_SNAPSHOT_AREA,
+  })}:`;
 }
 
 function isGoalsSnapshotData(value: unknown): value is GoalsSnapshotData {
@@ -75,9 +87,12 @@ function isGoalsSnapshotData(value: unknown): value is GoalsSnapshotData {
   );
 }
 
-function readGoalsSnapshot(filter: Goal["status"] | "all"): GoalsSnapshotData | null {
+function readGoalsSnapshot(
+  filter: Goal["status"] | "all",
+  keyPrefix = LEGACY_GOALS_SNAPSHOT_PREFIX,
+): GoalsSnapshotData | null {
   const snapshot = readSnapshot<GoalsSnapshotData>(
-    goalsSnapshotKey(filter),
+    goalsSnapshotKey(keyPrefix, filter),
     {
       filter,
       goals: [],
@@ -102,8 +117,9 @@ function writeGoalsSnapshot(
     suggestions: GoalSuggestion[];
     actionProposals: GoalActionProposal[];
   },
+  keyPrefix = LEGACY_GOALS_SNAPSHOT_PREFIX,
 ) {
-  writeSnapshot(goalsSnapshotKey(filter), {
+  writeSnapshot(goalsSnapshotKey(keyPrefix, filter), {
     filter,
     goals: payload.goals,
     suggestions: payload.suggestions,
@@ -143,6 +159,7 @@ export default function GoalsPage() {
   const goalsEyebrow = useUserOwnedLabel("Goals");
 
   const [filter, setFilter] = useState<Goal["status"] | "all">("active");
+  const [snapshotKeyPrefix, setSnapshotKeyPrefix] = useState(LEGACY_GOALS_SNAPSHOT_PREFIX);
   const [goals, setGoals] = useState<Goal[]>(() => readGoalsSnapshot("active")?.goals ?? []);
   const [suggestions, setSuggestions] = useState<GoalSuggestion[]>(
     () => readGoalsSnapshot("active")?.suggestions ?? [],
@@ -165,7 +182,7 @@ export default function GoalsPage() {
   const [actionProposalError, setActionProposalError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const snapshot = readGoalsSnapshot(filter);
+    const snapshot = readGoalsSnapshot(filter, snapshotKeyPrefix);
 
     if (snapshot) {
       setGoals(snapshot.goals);
@@ -216,15 +233,62 @@ export default function GoalsPage() {
       suggestionsResult.status === "fulfilled" ||
       actionsResult.status === "fulfilled"
     ) {
-      writeGoalsSnapshot(filter, {
-        goals: nextGoals,
-        suggestions: nextSuggestions,
-        actionProposals: nextActionProposals,
-      });
+      writeGoalsSnapshot(
+        filter,
+        {
+          goals: nextGoals,
+          suggestions: nextSuggestions,
+          actionProposals: nextActionProposals,
+        },
+        snapshotKeyPrefix,
+      );
     }
 
     setLoading(false);
-  }, [filter]);
+  }, [filter, snapshotKeyPrefix]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveUserScopedSnapshotPrefix() {
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (cancelled) return;
+
+      const userId = session?.user?.id;
+      if (!userId) return;
+
+      const scopedPrefix = goalsSnapshotPrefixForUser(userId);
+      const scopedSnapshot = readGoalsSnapshot(filter, scopedPrefix);
+
+      if (scopedSnapshot) {
+        setGoals(scopedSnapshot.goals);
+        setSuggestions(scopedSnapshot.suggestions);
+        setActionProposals(scopedSnapshot.actionProposals);
+      } else if (goals.length > 0 || suggestions.length > 0 || actionProposals.length > 0) {
+        writeGoalsSnapshot(
+          filter,
+          {
+            goals,
+            suggestions,
+            actionProposals,
+          },
+          scopedPrefix,
+        );
+      }
+
+      setSnapshotKeyPrefix(scopedPrefix);
+    }
+
+    void resolveUserScopedSnapshotPrefix();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     void load();
@@ -233,12 +297,16 @@ export default function GoalsPage() {
   useEffect(() => {
     if (loading) return;
 
-    writeGoalsSnapshot(filter, {
-      goals,
-      suggestions,
-      actionProposals,
-    });
-  }, [actionProposals, filter, goals, loading, suggestions]);
+    writeGoalsSnapshot(
+      filter,
+      {
+        goals,
+        suggestions,
+        actionProposals,
+      },
+      snapshotKeyPrefix,
+    );
+  }, [actionProposals, filter, goals, loading, snapshotKeyPrefix, suggestions]);
 
   async function handleCreate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
