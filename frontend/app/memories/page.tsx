@@ -29,6 +29,7 @@ import {
 import { useAssistantOwnedLabel } from "@/hooks/use-identity-owned-label";
 import { useAssistantDisplayName } from "@/hooks/use-identity-owned-label";
 import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
+import { readSnapshot, writeSnapshot } from "@/lib/snapshot-cache";
 
 type MemoryItem = {
   id: string
@@ -196,9 +197,7 @@ const GROUP_ORDER = [
   "Other",
 ]
 
-type MemoriesSnapshotPayload = {
-  version: 1
-  savedAt: string
+type MemoriesSnapshotData = {
   data: MemoryReviewPayload | null
   quality: MemoryQualityPayload | null
   memoryHealthStatus: MemoryHealthSchedulerStatus | null
@@ -206,59 +205,27 @@ type MemoriesSnapshotPayload = {
 
 const MEMORIES_SNAPSHOT_KEY = "app:memories-snapshot:v1"
 
-function readMemoriesSnapshot(): MemoriesSnapshotPayload | null {
-  if (typeof window === "undefined") {
-    return null
-  }
-
-  const raw = window.localStorage.getItem(MEMORIES_SNAPSHOT_KEY)
-  if (!raw) {
-    return null
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Partial<MemoriesSnapshotPayload>
-
-    if (parsed.version !== 1) {
-      return null
-    }
-
-    return {
-      version: 1,
-      savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : new Date(0).toISOString(),
-      data: parsed.data ?? null,
-      quality: parsed.quality ?? null,
-      memoryHealthStatus: parsed.memoryHealthStatus ?? null,
-    }
-  } catch {
-    return null
-  }
+function isMemoriesSnapshotData(value: unknown): value is MemoriesSnapshotData {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
 }
 
-function writeMemoriesSnapshot(payload: {
-  data: MemoryReviewPayload | null
-  quality: MemoryQualityPayload | null
-  memoryHealthStatus: MemoryHealthSchedulerStatus | null
-}) {
-  if (typeof window === "undefined") {
-    return
-  }
+function readMemoriesSnapshot(): MemoriesSnapshotData | null {
+  const snapshot = readSnapshot<MemoriesSnapshotData>(
+    MEMORIES_SNAPSHOT_KEY,
+    {
+      data: null,
+      quality: null,
+      memoryHealthStatus: null,
+    },
+    isMemoriesSnapshotData,
+  )
 
-  const snapshot: MemoriesSnapshotPayload = {
-    version: 1,
-    savedAt: new Date().toISOString(),
-    data: payload.data,
-    quality: payload.quality,
-    memoryHealthStatus: payload.memoryHealthStatus,
-  }
-
-  try {
-    window.localStorage.setItem(MEMORIES_SNAPSHOT_KEY, JSON.stringify(snapshot))
-  } catch {
-    // Ignore storage quota or private-mode failures.
-  }
+  return snapshot?.data ?? null
 }
 
+function writeMemoriesSnapshot(payload: MemoriesSnapshotData) {
+  writeSnapshot(MEMORIES_SNAPSHOT_KEY, payload)
+}
 
 export default function MemoriesPage() {
   const assistantName = useAssistantDisplayName();
