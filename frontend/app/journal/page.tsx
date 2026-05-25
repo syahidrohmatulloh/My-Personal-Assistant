@@ -17,16 +17,76 @@ import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 
 type Scale = { value: number | null; set: (n: number | null) => void };
 
+type JournalSnapshotPayload = {
+  version: 1;
+  savedAt: string;
+  todayEntry: JournalEntry | null;
+  history: JournalEntry[];
+};
+
+const JOURNAL_SNAPSHOT_KEY = "app:journal-snapshot:v1";
+
+function readJournalSnapshot(): JournalSnapshotPayload | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const raw = window.localStorage.getItem(JOURNAL_SNAPSHOT_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<JournalSnapshotPayload>;
+
+    if (parsed.version !== 1) {
+      return null;
+    }
+
+    return {
+      version: 1,
+      savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : new Date(0).toISOString(),
+      todayEntry: parsed.todayEntry ?? null,
+      history: Array.isArray(parsed.history) ? (parsed.history as JournalEntry[]) : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeJournalSnapshot(payload: {
+  todayEntry: JournalEntry | null;
+  history: JournalEntry[];
+}) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const snapshot: JournalSnapshotPayload = {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    todayEntry: payload.todayEntry,
+    history: payload.history,
+  };
+
+  try {
+    window.localStorage.setItem(JOURNAL_SNAPSHOT_KEY, JSON.stringify(snapshot));
+  } catch {
+    // Ignore storage quota or private-mode failures.
+  }
+}
+
 export default function JournalPage() {
   const journalEyebrow = useUserOwnedLabel("Journal");
-  const [todayEntry, setTodayEntry] = useState<JournalEntry | null>(null);
-  const [history, setHistory] = useState<JournalEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const initialSnapshot = readJournalSnapshot();
+  const [todayEntry, setTodayEntry] = useState<JournalEntry | null>(initialSnapshot?.todayEntry ?? null);
+  const [history, setHistory] = useState<JournalEntry[]>(initialSnapshot?.history ?? []);
+  const [loading, setLoading] = useState(() => !initialSnapshot);
 
-  const [mood, setMood] = useState<number | null>(null);
-  const [energy, setEnergy] = useState<number | null>(null);
-  const [stress, setStress] = useState<number | null>(null);
-  const [note, setNote] = useState("");
+  const [mood, setMood] = useState<number | null>(initialSnapshot?.todayEntry?.mood ?? null);
+  const [energy, setEnergy] = useState<number | null>(initialSnapshot?.todayEntry?.energy ?? null);
+  const [stress, setStress] = useState<number | null>(initialSnapshot?.todayEntry?.stress ?? null);
+  const [note, setNote] = useState(initialSnapshot?.todayEntry?.note ?? "");
 
   const [saving, setSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
@@ -34,11 +94,20 @@ export default function JournalPage() {
 
   useEffect(() => {
     let cancelled = false;
+
+    setLoading(true);
+
     Promise.all([getTodaysJournal(), getRecentJournal()])
       .then(([today, recent]) => {
         if (cancelled) return;
+
         setTodayEntry(today.entry);
         setHistory(recent);
+        writeJournalSnapshot({
+          todayEntry: today.entry,
+          history: recent,
+        });
+
         if (today.entry) {
           setMood(today.entry.mood);
           setEnergy(today.entry.energy);
@@ -48,6 +117,7 @@ export default function JournalPage() {
       })
       .catch((e) => !cancelled && setError(String(e)))
       .finally(() => !cancelled && setLoading(false));
+
     return () => {
       cancelled = true;
     };
@@ -71,6 +141,10 @@ export default function JournalPage() {
       setTodayEntry(saved);
       const recent = await getRecentJournal();
       setHistory(recent);
+      writeJournalSnapshot({
+        todayEntry: saved,
+        history: recent,
+      });
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 2000);
     } catch (e) {
@@ -92,7 +166,13 @@ export default function JournalPage() {
       maxWidthClassName="max-w-4xl"
       actions={<BackToChatButton />}
     >
-      {loading ? (
+      {loading && (todayEntry || history.length > 0) ? (
+        <div className="mb-3 rounded-2xl border border-border bg-fg/[0.025] px-4 py-2 text-xs text-fg-muted">
+          Showing saved Journal snapshot while refreshing latest data…
+        </div>
+      ) : null}
+
+      {loading && !todayEntry && history.length === 0 ? (
         <AppPanel>
           <div className="p-6 text-sm text-slate-600 dark:text-zinc-300">
             Loading…
