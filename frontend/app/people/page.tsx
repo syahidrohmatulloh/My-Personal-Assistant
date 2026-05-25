@@ -20,12 +20,21 @@ import {
 import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
 import { useAssistantDisplayName } from "@/hooks/use-identity-owned-label";
 import { BackToChatButton } from "@/components/settings/back-to-chat-button";
-import { readSnapshot, SNAPSHOT_MAX_AGE_MS, writeSnapshot } from "@/lib/snapshot-cache";
+import { createClient } from "@/lib/supabase/client";
+import { readSnapshot, SNAPSHOT_MAX_AGE_MS, userScopedSnapshotKey, writeSnapshot } from "@/lib/snapshot-cache";
 
 const inputCls =
   "mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
 
-const PEOPLE_SNAPSHOT_KEY = "app:people-snapshot:v1"
+const LEGACY_PEOPLE_SNAPSHOT_KEY = "app:people-snapshot:v1"
+const PEOPLE_SNAPSHOT_AREA = "people"
+
+function peopleSnapshotKeyForUser(userId: string): string {
+  return userScopedSnapshotKey({
+    userId,
+    area: PEOPLE_SNAPSHOT_AREA,
+  })
+}
 
 function isPeopleArray(value: unknown): value is Person[] {
   return Array.isArray(value)
@@ -35,11 +44,12 @@ export default function PeoplePage() {
   const assistantName = useAssistantDisplayName();
   const peopleEyebrow = useUserOwnedLabel("People");
   const initialSnapshot = readSnapshot<Person[]>(
-    PEOPLE_SNAPSHOT_KEY,
+    LEGACY_PEOPLE_SNAPSHOT_KEY,
     [],
     isPeopleArray,
     { maxAgeMs: SNAPSHOT_MAX_AGE_MS.people },
   )
+  const [snapshotKey, setSnapshotKey] = useState(LEGACY_PEOPLE_SNAPSHOT_KEY)
   const [people, setPeople] = useState<Person[]>(initialSnapshot?.data ?? [])
   const [loading, setLoading] = useState(() => !initialSnapshot)
   const [showForm, setShowForm] = useState(false)
@@ -55,13 +65,51 @@ export default function PeoplePage() {
   useEffect(() => {
     let cancelled = false
 
+    async function resolveUserScopedSnapshot() {
+      const supabase = createClient()
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (cancelled) return
+
+      const userId = session?.user?.id
+      if (!userId) return
+
+      const scopedKey = peopleSnapshotKeyForUser(userId)
+      const scopedSnapshot = readSnapshot<Person[]>(
+        scopedKey,
+        [],
+        isPeopleArray,
+        { maxAgeMs: SNAPSHOT_MAX_AGE_MS.people },
+      )
+
+      if (scopedSnapshot) {
+        setPeople(scopedSnapshot.data)
+      } else if (people.length > 0) {
+        writeSnapshot(scopedKey, people)
+      }
+
+      setSnapshotKey(scopedKey)
+    }
+
+    void resolveUserScopedSnapshot()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
     setLoading(true)
 
     listPeople()
       .then((data) => {
         if (cancelled) return
         setPeople(data)
-        writeSnapshot(PEOPLE_SNAPSHOT_KEY, data)
+        writeSnapshot(snapshotKey, data)
       })
       .catch((e) => {
         if (!cancelled) {
@@ -94,7 +142,7 @@ export default function PeoplePage() {
       const created = await createPerson(input)
       setPeople((prev) => {
         const next = [...prev, created].sort((a, b) => b.importance - a.importance)
-        writeSnapshot(PEOPLE_SNAPSHOT_KEY, next)
+        writeSnapshot(snapshotKey, next)
         return next
       })
       setName("")
@@ -116,13 +164,13 @@ export default function PeoplePage() {
     const prev = people
     const next = people.filter((x) => x.id !== id)
     setPeople(next)
-    writeSnapshot(PEOPLE_SNAPSHOT_KEY, next)
+    writeSnapshot(snapshotKey, next)
 
     try {
       await deletePerson(id)
     } catch (e) {
       setPeople(prev)
-      writeSnapshot(PEOPLE_SNAPSHOT_KEY, prev)
+      writeSnapshot(snapshotKey, prev)
       setError(String(e))
     }
   }
