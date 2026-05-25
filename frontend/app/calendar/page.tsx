@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 
 import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label"
-import { readSnapshot, writeSnapshot } from "@/lib/snapshot-cache"
+import { readSnapshot, SNAPSHOT_MAX_AGE_MS, writeSnapshot } from "@/lib/snapshot-cache"
 
 type RawCalendarItem = {
   id?: string
@@ -213,6 +213,7 @@ function readCachedCalendarEvents(): CalendarEvent[] {
     CALENDAR_EVENTS_CACHE_KEY,
     [],
     isCalendarEventArray,
+    { maxAgeMs: SNAPSHOT_MAX_AGE_MS.calendar },
   )
 
   return snapshot?.data.sort(sortEvents) ?? []
