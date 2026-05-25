@@ -20,68 +20,22 @@ import {
 import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
 import { useAssistantDisplayName } from "@/hooks/use-identity-owned-label";
 import { BackToChatButton } from "@/components/settings/back-to-chat-button";
+import { readSnapshot, writeSnapshot } from "@/lib/snapshot-cache";
 
 const inputCls =
   "mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
 
-type PeopleSnapshotPayload = {
-  version: 1
-  savedAt: string
-  people: Person[]
-}
-
 const PEOPLE_SNAPSHOT_KEY = "app:people-snapshot:v1"
 
-function readPeopleSnapshot(): PeopleSnapshotPayload | null {
-  if (typeof window === "undefined") {
-    return null
-  }
-
-  const raw = window.localStorage.getItem(PEOPLE_SNAPSHOT_KEY)
-  if (!raw) {
-    return null
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Partial<PeopleSnapshotPayload>
-
-    if (parsed.version !== 1) {
-      return null
-    }
-
-    return {
-      version: 1,
-      savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : new Date(0).toISOString(),
-      people: Array.isArray(parsed.people) ? (parsed.people as Person[]) : [],
-    }
-  } catch {
-    return null
-  }
-}
-
-function writePeopleSnapshot(people: Person[]) {
-  if (typeof window === "undefined") {
-    return
-  }
-
-  const snapshot: PeopleSnapshotPayload = {
-    version: 1,
-    savedAt: new Date().toISOString(),
-    people,
-  }
-
-  try {
-    window.localStorage.setItem(PEOPLE_SNAPSHOT_KEY, JSON.stringify(snapshot))
-  } catch {
-    // Ignore storage quota or private-mode failures.
-  }
+function isPeopleArray(value: unknown): value is Person[] {
+  return Array.isArray(value)
 }
 
 export default function PeoplePage() {
   const assistantName = useAssistantDisplayName();
   const peopleEyebrow = useUserOwnedLabel("People");
-  const initialSnapshot = readPeopleSnapshot()
-  const [people, setPeople] = useState<Person[]>(initialSnapshot?.people ?? [])
+  const initialSnapshot = readSnapshot<Person[]>(PEOPLE_SNAPSHOT_KEY, [], isPeopleArray)
+  const [people, setPeople] = useState<Person[]>(initialSnapshot?.data ?? [])
   const [loading, setLoading] = useState(() => !initialSnapshot)
   const [showForm, setShowForm] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -102,7 +56,7 @@ export default function PeoplePage() {
       .then((data) => {
         if (cancelled) return
         setPeople(data)
-        writePeopleSnapshot(data)
+        writeSnapshot(PEOPLE_SNAPSHOT_KEY, data)
       })
       .catch((e) => {
         if (!cancelled) {
@@ -135,7 +89,7 @@ export default function PeoplePage() {
       const created = await createPerson(input)
       setPeople((prev) => {
         const next = [...prev, created].sort((a, b) => b.importance - a.importance)
-        writePeopleSnapshot(next)
+        writeSnapshot(PEOPLE_SNAPSHOT_KEY, next)
         return next
       })
       setName("")
@@ -157,13 +111,13 @@ export default function PeoplePage() {
     const prev = people
     const next = people.filter((x) => x.id !== id)
     setPeople(next)
-    writePeopleSnapshot(next)
+    writeSnapshot(PEOPLE_SNAPSHOT_KEY, next)
 
     try {
       await deletePerson(id)
     } catch (e) {
       setPeople(prev)
-      writePeopleSnapshot(prev)
+      writeSnapshot(PEOPLE_SNAPSHOT_KEY, prev)
       setError(String(e))
     }
   }
