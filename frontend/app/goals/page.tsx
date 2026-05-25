@@ -42,6 +42,75 @@ const STATUS_LABELS: Record<Goal["status"] | "all", string> = {
   all: "All",
 };
 
+type GoalsSnapshotPayload = {
+  version: 1;
+  savedAt: string;
+  filter: Goal["status"] | "all";
+  goals: Goal[];
+  suggestions: GoalSuggestion[];
+  actionProposals: GoalActionProposal[];
+};
+
+const GOALS_SNAPSHOT_PREFIX = "app:goals-snapshot:v1:";
+
+function goalsSnapshotKey(filter: Goal["status"] | "all"): string {
+  return `${GOALS_SNAPSHOT_PREFIX}${filter}`;
+}
+
+function readGoalsSnapshot(filter: Goal["status"] | "all"): GoalsSnapshotPayload | null {
+  if (typeof window === "undefined") return null;
+
+  const raw = window.localStorage.getItem(goalsSnapshotKey(filter));
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<GoalsSnapshotPayload>;
+
+    if (parsed.version !== 1 || parsed.filter !== filter) {
+      return null;
+    }
+
+    return {
+      version: 1,
+      savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : new Date(0).toISOString(),
+      filter,
+      goals: Array.isArray(parsed.goals) ? (parsed.goals as Goal[]) : [],
+      suggestions: Array.isArray(parsed.suggestions) ? (parsed.suggestions as GoalSuggestion[]) : [],
+      actionProposals: Array.isArray(parsed.actionProposals)
+        ? (parsed.actionProposals as GoalActionProposal[])
+        : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeGoalsSnapshot(
+  filter: Goal["status"] | "all",
+  payload: {
+    goals: Goal[];
+    suggestions: GoalSuggestion[];
+    actionProposals: GoalActionProposal[];
+  },
+) {
+  if (typeof window === "undefined") return;
+
+  const snapshot: GoalsSnapshotPayload = {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    filter,
+    goals: payload.goals,
+    suggestions: payload.suggestions,
+    actionProposals: payload.actionProposals,
+  };
+
+  try {
+    window.localStorage.setItem(goalsSnapshotKey(filter), JSON.stringify(snapshot));
+  } catch {
+    // Ignore storage quota or private-mode failures.
+  }
+}
+
 function goalActionLabel(proposal: GoalActionProposal): string {
   const goalTitle = proposal.goals?.title || "this goal";
 
@@ -73,12 +142,16 @@ export default function GoalsPage() {
   const assistantName = useAssistantDisplayName();
   const goalsEyebrow = useUserOwnedLabel("Goals");
 
-  const [goals, setGoals] = useState<Goal[]>([]);
-  const [suggestions, setSuggestions] = useState<GoalSuggestion[]>([]);
-  const [actionProposals, setActionProposals] = useState<GoalActionProposal[]>([]);
-
   const [filter, setFilter] = useState<Goal["status"] | "all">("active");
-  const [loading, setLoading] = useState(true);
+  const [goals, setGoals] = useState<Goal[]>(() => readGoalsSnapshot("active")?.goals ?? []);
+  const [suggestions, setSuggestions] = useState<GoalSuggestion[]>(
+    () => readGoalsSnapshot("active")?.suggestions ?? [],
+  );
+  const [actionProposals, setActionProposals] = useState<GoalActionProposal[]>(
+    () => readGoalsSnapshot("active")?.actionProposals ?? [],
+  );
+
+  const [loading, setLoading] = useState(() => !readGoalsSnapshot("active"));
   const [error, setError] = useState<string | null>(null);
 
   const [showForm, setShowForm] = useState(false);
@@ -92,6 +165,14 @@ export default function GoalsPage() {
   const [actionProposalError, setActionProposalError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    const snapshot = readGoalsSnapshot(filter);
+
+    if (snapshot) {
+      setGoals(snapshot.goals);
+      setSuggestions(snapshot.suggestions);
+      setActionProposals(snapshot.actionProposals);
+    }
+
     setLoading(true);
     setError(null);
 
@@ -101,27 +182,45 @@ export default function GoalsPage() {
       listGoalActionProposals("pending"),
     ]);
 
+    const nextGoals = goalsResult.status === "fulfilled" ? goalsResult.value : snapshot?.goals ?? [];
+    const nextSuggestions =
+      suggestionsResult.status === "fulfilled" ? suggestionsResult.value : snapshot?.suggestions ?? [];
+    const nextActionProposals =
+      actionsResult.status === "fulfilled" ? actionsResult.value : snapshot?.actionProposals ?? [];
+
     if (goalsResult.status === "fulfilled") {
-      setGoals(goalsResult.value);
+      setGoals(nextGoals);
     } else {
-      setGoals([]);
+      setGoals(nextGoals);
       setError(String(goalsResult.reason));
     }
 
     if (suggestionsResult.status === "fulfilled") {
-      setSuggestions(suggestionsResult.value);
+      setSuggestions(nextSuggestions);
     } else {
-      setSuggestions([]);
+      setSuggestions(nextSuggestions);
       console.warn("Goal suggestions failed to load", suggestionsResult.reason);
     }
 
     if (actionsResult.status === "fulfilled") {
-      setActionProposals(actionsResult.value);
+      setActionProposals(nextActionProposals);
       setActionProposalError(null);
     } else {
-      setActionProposals([]);
+      setActionProposals(nextActionProposals);
       setActionProposalError("Failed to load suggested goal updates.");
       console.warn("Goal action proposals failed to load", actionsResult.reason);
+    }
+
+    if (
+      goalsResult.status === "fulfilled" ||
+      suggestionsResult.status === "fulfilled" ||
+      actionsResult.status === "fulfilled"
+    ) {
+      writeGoalsSnapshot(filter, {
+        goals: nextGoals,
+        suggestions: nextSuggestions,
+        actionProposals: nextActionProposals,
+      });
     }
 
     setLoading(false);
@@ -130,6 +229,16 @@ export default function GoalsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (loading) return;
+
+    writeGoalsSnapshot(filter, {
+      goals,
+      suggestions,
+      actionProposals,
+    });
+  }, [actionProposals, filter, goals, loading, suggestions]);
 
   async function handleCreate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -267,6 +376,12 @@ export default function GoalsPage() {
         </BackToLastChat>
       }
     >
+      {loading && (goals.length > 0 || suggestions.length > 0 || actionProposals.length > 0) ? (
+        <div className="mb-3 rounded-2xl border border-border bg-fg/[0.025] px-4 py-2 text-xs text-fg-muted">
+          Showing saved Goals snapshot while refreshing latest data…
+        </div>
+      ) : null}
+
       <div className="mb-4">
         <AppToolbar>
         <button
@@ -485,9 +600,9 @@ export default function GoalsPage() {
       ) : null}
 
       <AppPanel>
-        {loading ? (
+        {loading && goals.length === 0 && suggestions.length === 0 && actionProposals.length === 0 ? (
           <div className="p-8 text-center text-sm text-fg-muted">Loading goals...</div>
-        ) : error ? (
+        ) : error && goals.length === 0 ? (
           <div className="p-8 text-center text-sm text-red-600 dark:text-red-300">{error}</div>
         ) : goals.length === 0 ? (
           <div className="p-10 text-center">
