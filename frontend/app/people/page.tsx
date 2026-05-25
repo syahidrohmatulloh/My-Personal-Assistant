@@ -24,11 +24,65 @@ import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 const inputCls =
   "mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
 
+type PeopleSnapshotPayload = {
+  version: 1
+  savedAt: string
+  people: Person[]
+}
+
+const PEOPLE_SNAPSHOT_KEY = "app:people-snapshot:v1"
+
+function readPeopleSnapshot(): PeopleSnapshotPayload | null {
+  if (typeof window === "undefined") {
+    return null
+  }
+
+  const raw = window.localStorage.getItem(PEOPLE_SNAPSHOT_KEY)
+  if (!raw) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<PeopleSnapshotPayload>
+
+    if (parsed.version !== 1) {
+      return null
+    }
+
+    return {
+      version: 1,
+      savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : new Date(0).toISOString(),
+      people: Array.isArray(parsed.people) ? (parsed.people as Person[]) : [],
+    }
+  } catch {
+    return null
+  }
+}
+
+function writePeopleSnapshot(people: Person[]) {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  const snapshot: PeopleSnapshotPayload = {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    people,
+  }
+
+  try {
+    window.localStorage.setItem(PEOPLE_SNAPSHOT_KEY, JSON.stringify(snapshot))
+  } catch {
+    // Ignore storage quota or private-mode failures.
+  }
+}
+
 export default function PeoplePage() {
   const assistantName = useAssistantDisplayName();
   const peopleEyebrow = useUserOwnedLabel("People");
-  const [people, setPeople] = useState<Person[]>([])
-  const [loading, setLoading] = useState(true)
+  const initialSnapshot = readPeopleSnapshot()
+  const [people, setPeople] = useState<Person[]>(initialSnapshot?.people ?? [])
+  const [loading, setLoading] = useState(() => !initialSnapshot)
   const [showForm, setShowForm] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -41,10 +95,22 @@ export default function PeoplePage() {
 
   useEffect(() => {
     let cancelled = false
+
+    setLoading(true)
+
     listPeople()
-      .then((data) => !cancelled && setPeople(data))
-      .catch((e) => !cancelled && setError(String(e)))
+      .then((data) => {
+        if (cancelled) return
+        setPeople(data)
+        writePeopleSnapshot(data)
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setError(String(e))
+        }
+      })
       .finally(() => !cancelled && setLoading(false))
+
     return () => {
       cancelled = true
     }
@@ -67,9 +133,11 @@ export default function PeoplePage() {
       }
 
       const created = await createPerson(input)
-      setPeople((prev) =>
-        [...prev, created].sort((a, b) => b.importance - a.importance),
-      )
+      setPeople((prev) => {
+        const next = [...prev, created].sort((a, b) => b.importance - a.importance)
+        writePeopleSnapshot(next)
+        return next
+      })
       setName("")
       setRelationship("")
       setImportance(5)
@@ -87,12 +155,15 @@ export default function PeoplePage() {
     if (!confirm(`Remove this person from ${assistantName}\'s people list?`)) return
 
     const prev = people
-    setPeople((p) => p.filter((x) => x.id !== id))
+    const next = people.filter((x) => x.id !== id)
+    setPeople(next)
+    writePeopleSnapshot(next)
 
     try {
       await deletePerson(id)
     } catch (e) {
       setPeople(prev)
+      writePeopleSnapshot(prev)
       setError(String(e))
     }
   }
@@ -129,6 +200,12 @@ export default function PeoplePage() {
         </AppStatGrid>
       }
     >
+      {loading && people.length > 0 ? (
+        <div className="mb-3 rounded-2xl border border-border bg-fg/[0.025] px-4 py-2 text-xs text-fg-muted">
+          Showing saved People snapshot while refreshing latest data…
+        </div>
+      ) : null}
+
       {showForm ? (
         <form onSubmit={handleCreate} className="rounded-[1.5rem] border border-slate-200/70 bg-white/75 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04]">
           <div className="mb-4 grid gap-4 sm:grid-cols-2">
