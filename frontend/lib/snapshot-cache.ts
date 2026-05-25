@@ -18,6 +18,58 @@ export const SNAPSHOT_MAX_AGE_MS = {
   people: 6 * 60 * 60 * 1000,
 } as const
 
+
+export function sanitizeSnapshotKeyPart(value: string): string {
+  return value
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+}
+
+export function userScopedSnapshotKey({
+  userId,
+  area,
+  version = "v1",
+  detail,
+}: {
+  userId: string
+  area: string
+  version?: string
+  detail?: string
+}): string {
+  const safeUserId = sanitizeSnapshotKeyPart(userId)
+  const safeArea = sanitizeSnapshotKeyPart(area)
+  const safeVersion = sanitizeSnapshotKeyPart(version)
+  const safeDetail = detail ? sanitizeSnapshotKeyPart(detail) : null
+
+  if (!safeUserId) {
+    throw new Error("userScopedSnapshotKey requires a userId")
+  }
+
+  if (!safeArea) {
+    throw new Error("userScopedSnapshotKey requires an area")
+  }
+
+  return safeDetail
+    ? `app:snapshot:${safeUserId}:${safeArea}:${safeDetail}:${safeVersion}`
+    : `app:snapshot:${safeUserId}:${safeArea}:${safeVersion}`
+}
+
+export function userScopedSnapshotPrefix(userId: string): string {
+  const safeUserId = sanitizeSnapshotKeyPart(userId)
+
+  if (!safeUserId) {
+    throw new Error("userScopedSnapshotPrefix requires a userId")
+  }
+
+  return `app:snapshot:${safeUserId}:`
+}
+
+export function clearUserScopedSnapshots(userId: string): number {
+  return clearSnapshotsByPrefix(userScopedSnapshotPrefix(userId))
+}
+
+
 function nowMs(): number {
   return Date.now()
 }
@@ -210,6 +262,11 @@ export function clearKnownAppSnapshots(): number {
   }
 
   removed += clearSnapshotsByPrefix("app:goals-snapshot:v1:")
+
+  // Future user-scoped snapshots use app:snapshot:<userId>:...
+  // They should normally be cleared with clearUserScopedSnapshots(userId).
+  // This fallback is intentionally broad for legacy sign-out cleanup.
+  removed += clearSnapshotsByPrefix("app:snapshot:")
 
   return removed
 }
