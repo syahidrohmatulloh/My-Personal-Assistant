@@ -181,6 +181,22 @@ export default function GoalsPage() {
   const [actionProposalBusyId, setActionProposalBusyId] = useState<string | null>(null);
   const [actionProposalError, setActionProposalError] = useState<string | null>(null);
 
+  function writeCurrentGoalsSnapshot(next: {
+    goals?: Goal[];
+    suggestions?: GoalSuggestion[];
+    actionProposals?: GoalActionProposal[];
+  }) {
+    writeGoalsSnapshot(
+      filter,
+      {
+        goals: next.goals ?? goals,
+        suggestions: next.suggestions ?? suggestions,
+        actionProposals: next.actionProposals ?? actionProposals,
+      },
+      snapshotKeyPrefix,
+    );
+  }
+
   const load = useCallback(async () => {
     const snapshot = readGoalsSnapshot(filter, snapshotKeyPrefix);
 
@@ -327,7 +343,11 @@ export default function GoalsPage() {
 
     try {
       const created = await createGoal(input);
-      setGoals((current) => (filter === "all" || filter === created.status ? [created, ...current] : current));
+      setGoals((current) => {
+        const nextGoals = filter === "all" || filter === created.status ? [created, ...current] : current;
+        writeCurrentGoalsSnapshot({ goals: nextGoals });
+        return nextGoals;
+      });
       setTitle("");
       setDescription("");
       setHorizon("quarter");
@@ -343,17 +363,20 @@ export default function GoalsPage() {
 
   async function handleStatus(id: string, nextStatus: Goal["status"]) {
     const previous = goals;
-    setGoals((current) =>
-      current
+    setGoals((current) => {
+      const nextGoals = current
         .map((goal) => (goal.id === id ? { ...goal, status: nextStatus } : goal))
-        .filter((goal) => filter === "all" || goal.status === filter),
-    );
+        .filter((goal) => filter === "all" || goal.status === filter);
+      writeCurrentGoalsSnapshot({ goals: nextGoals });
+      return nextGoals;
+    });
 
     try {
       await updateGoalStatus(id, nextStatus);
     } catch (err) {
       console.error(err);
       setGoals(previous);
+      writeCurrentGoalsSnapshot({ goals: previous });
       setError("Failed to update goal status.");
     }
   }
@@ -363,13 +386,18 @@ export default function GoalsPage() {
     if (!confirmed) return;
 
     const previous = goals;
-    setGoals((current) => current.filter((goal) => goal.id !== id));
+    setGoals((current) => {
+      const nextGoals = current.filter((goal) => goal.id !== id);
+      writeCurrentGoalsSnapshot({ goals: nextGoals });
+      return nextGoals;
+    });
 
     try {
       await deleteGoal(id);
     } catch (err) {
       console.error(err);
       setGoals(previous);
+      writeCurrentGoalsSnapshot({ goals: previous });
       setError("Failed to delete goal.");
     }
   }
@@ -392,13 +420,18 @@ export default function GoalsPage() {
 
   async function handleDismissSuggestion(id: string) {
     const previousSuggestions = suggestions;
-    setSuggestions((current) => current.filter((item) => item.id !== id));
+    setSuggestions((current) => {
+      const nextSuggestions = current.filter((item) => item.id !== id);
+      writeCurrentGoalsSnapshot({ suggestions: nextSuggestions });
+      return nextSuggestions;
+    });
 
     try {
       await dismissGoalSuggestion(id);
     } catch (err) {
       console.error(err);
       setSuggestions(previousSuggestions);
+      writeCurrentGoalsSnapshot({ suggestions: previousSuggestions });
       setError("Failed to dismiss goal suggestion.");
     }
   }
@@ -423,7 +456,11 @@ export default function GoalsPage() {
       setActionProposalBusyId(id);
       setActionProposalError(null);
       await dismissGoalActionProposal(id);
-      setActionProposals((current) => current.filter((item) => item.id !== id));
+      setActionProposals((current) => {
+        const nextActionProposals = current.filter((item) => item.id !== id);
+        writeCurrentGoalsSnapshot({ actionProposals: nextActionProposals });
+        return nextActionProposals;
+      });
     } catch (err) {
       console.error(err);
       setActionProposalError("Failed to dismiss goal update.");
