@@ -9,6 +9,7 @@ import { Composer } from "@/components/chat/composer";
 import { MessageBubble } from "@/components/chat/message-bubble";
 import { ConversationStyleBadge } from "@/components/chat/conversation-style-badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useChatScroll } from "@/components/chat/use-chat-scroll";
 
 import {
   getIdentity,
@@ -44,8 +45,6 @@ import { clearCalendarEventsSnapshotsForCurrentUser } from "@/lib/calendar-snaps
 type LocalMessage =
   | Message
   | { id: string; role: "assistant"; content: string; pending: true; created_at?: string };
-
-const STICK_THRESHOLD = 120;
 
 function shouldInvalidateCalendarSnapshotAfterChat(userText: string, assistantText: string): boolean {
   const combined = `${userText}\n${assistantText}`.toLowerCase()
@@ -87,18 +86,6 @@ function shouldInvalidateCalendarSnapshotAfterChat(userText: string, assistantTe
   return calendarSignals.some((signal) => combined.includes(signal))
 }
 
-// Helper — scroll the *specific* container to bottom deterministically.
-// Using element.scrollTop avoids scrollIntoView's quirks where it can
-// scroll the wrong ancestor when overflow-hidden is in the chain.
-function scrollContainerToBottom(el: HTMLDivElement | null, smooth = false) {
-  if (!el) return;
-  if (smooth) {
-    el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
-  } else {
-    el.scrollTop = el.scrollHeight;
-  }
-}
-
 export function ConversationPageClient({
   conversationId,
   initialMessages = [],
@@ -115,7 +102,6 @@ export function ConversationPageClient({
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(initialMessages.length === 0);
   const [historySettled, setHistorySettled] = useState(initialMessages.length === 0);
-  const [showJumpBtn, setShowJumpBtn] = useState(false);
   const [streamMeta, setStreamMeta] = useState<ChatStreamMeta | null>(null);
 
   const { data: identity } = useQuery({
@@ -143,10 +129,19 @@ export function ConversationPageClient({
 
   const isMainChat = mainChat?.id === conversationId;
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const stickToBottomRef = useRef(true);
   const consumedPrefillRef = useRef<string | null>(null);
   const calendarSnapshotDirtyRef = useRef(false);
+  const {
+    scrollRef,
+    stickToBottomRef,
+    showJumpBtn,
+    jumpToBottom,
+    settleScrollAfterPaint,
+    markShouldStickToBottom,
+  } = useChatScroll({
+    messageCount: messages.length,
+    followSignal: messages,
+  });
 
   const applyAssistantMoodAfterLatestMessagePaint = useCallback(
     (assistantText: string) => {
@@ -221,16 +216,13 @@ export function ConversationPageClient({
 
     setLoading(initialMessages.length === 0);
     setHistorySettled(false);
-    stickToBottomRef.current = true;
+    markShouldStickToBottom();
 
     const settleAfterPaint = () => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (cancelled) return;
-          scrollContainerToBottom(scrollRef.current);
-          setHistorySettled(true);
-        });
-      });
+      settleScrollAfterPaint(
+        () => !cancelled,
+        () => setHistorySettled(true),
+      );
     };
 
     if (initialMessages.length > 0) {
@@ -262,33 +254,7 @@ export function ConversationPageClient({
     return () => {
       cancelled = true;
     };
-  }, [conversationId, initialMessages]);
-
-  // Detect whether user is near the bottom — affects auto-follow during stream.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    function onScroll() {
-      const distance = el!.scrollHeight - el!.scrollTop - el!.clientHeight;
-      const nearBottom = distance < STICK_THRESHOLD;
-      stickToBottomRef.current = nearBottom;
-      setShowJumpBtn(!nearBottom && messages.length > 0);
-    }
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, [messages.length]);
-
-  // Auto-follow new content only if user is near bottom.
-  useEffect(() => {
-    if (!stickToBottomRef.current) return;
-    scrollContainerToBottom(scrollRef.current);
-  }, [messages]);
-
-  function jumpToBottom() {
-    scrollContainerToBottom(scrollRef.current, true);
-    stickToBottomRef.current = true;
-    setShowJumpBtn(false);
-  }
+  }, [conversationId, initialMessages, markShouldStickToBottom, settleScrollAfterPaint]);
 
 const handleSend = useCallback(
     async (attachmentIds: string[] = [], overrideText?: string) => {
@@ -309,7 +275,7 @@ const handleSend = useCallback(
       setSending(true);
       setStreamMeta(null);
       calendarSnapshotDirtyRef.current = false;
-      stickToBottomRef.current = true;
+      markShouldStickToBottom();
 
       const wasFirstMessage = messages.length === 0;
 
@@ -444,7 +410,7 @@ const handleSend = useCallback(
       setSending(false);
       setStreamMeta(null);
     }
-  }, [conversationId, input, messages.length, qc, sending]);
+  }, [conversationId, input, markShouldStickToBottom, messages.length, qc, sending]);
 
 
   // Calendar handoff: fill the composer with a scheduling-help draft from /calendar.
