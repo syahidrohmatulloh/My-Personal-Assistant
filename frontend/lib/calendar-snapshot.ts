@@ -1,3 +1,4 @@
+import { createClient } from "@/lib/supabase/client"
 import { readSnapshot, SNAPSHOT_MAX_AGE_MS, userScopedSnapshotKey, writeSnapshot } from "@/lib/snapshot-cache"
 
 export type RawCalendarItem = {
@@ -145,5 +146,29 @@ export function clearCalendarEventsSnapshot(key = LEGACY_CALENDAR_EVENTS_CACHE_K
     window.localStorage.removeItem(key)
   } catch {
     // Ignore storage failures.
+  }
+}
+
+export async function clearCalendarEventsSnapshotsForCurrentUser() {
+  clearCalendarEventsSnapshot(LEGACY_CALENDAR_EVENTS_CACHE_KEY)
+
+  if (typeof window === "undefined") {
+    return
+  }
+
+  try {
+    const supabase = createClient()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    const userId = session?.user?.id
+    if (!userId) {
+      return
+    }
+
+    clearCalendarEventsSnapshot(calendarSnapshotKeyForUser(userId))
+  } catch {
+    // Ignore auth/storage failures. The Calendar page will fetch fresh if needed.
   }
 }

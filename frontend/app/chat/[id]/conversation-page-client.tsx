@@ -38,6 +38,7 @@ import {
   shouldRespectCompanionMoodOverride,
 } from "@/lib/companion-mood";
 import { subscribeCompanionMoodRealtime } from "@/lib/companion-mood-realtime";
+import { clearCalendarEventsSnapshotsForCurrentUser } from "@/lib/calendar-snapshot";
 
 
 type LocalMessage =
@@ -45,6 +46,46 @@ type LocalMessage =
   | { id: string; role: "assistant"; content: string; pending: true; created_at?: string };
 
 const STICK_THRESHOLD = 120;
+
+function shouldInvalidateCalendarSnapshotAfterChat(userText: string, assistantText: string): boolean {
+  const combined = `${userText}\n${assistantText}`.toLowerCase()
+
+  const calendarSignals = [
+    "calendar",
+    "kalender",
+    "google calendar",
+    "google kalender",
+    "jadwal",
+    "agenda",
+    "acara",
+    "event",
+    "meeting",
+    "rapat",
+    "pukul",
+    "jam ",
+    "besok",
+    "lusa",
+    "nanti",
+    "hari ini",
+    "minggu depan",
+    "bulan depan",
+    "masukin",
+    "masukkan",
+    "tambahkan",
+    "tambahin",
+    "catat",
+    "hapus",
+    "delete",
+    "reschedule",
+    "jadwal ulang",
+    "geser",
+    "pindahin",
+    "ubah",
+    "edit",
+  ]
+
+  return calendarSignals.some((signal) => combined.includes(signal))
+}
 
 // Helper — scroll the *specific* container to bottom deterministically.
 // Using element.scrollTop avoids scrollIntoView's quirks where it can
@@ -366,6 +407,10 @@ const handleSend = useCallback(
       );
 
       applyAssistantMoodAfterLatestMessagePaint(assistantText);
+
+      if (shouldInvalidateCalendarSnapshotAfterChat(messageText, assistantText)) {
+        void clearCalendarEventsSnapshotsForCurrentUser();
+      }
 
       // Background title generation on the server runs after the stream
       // closes. Wait a moment so the refetch picks up the real title.
