@@ -124,6 +124,7 @@ export type ChatStreamMeta = {
   mood?: string;
   background_palette_hint?: string;
   assistant_name?: string;
+  calendar_snapshot_dirty?: boolean;
 };
 
 export type ChatStreamEvent =

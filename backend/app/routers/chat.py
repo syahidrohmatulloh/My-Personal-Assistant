@@ -1242,6 +1242,14 @@ async def _stream_claude_response(
             ],
         )
 
+    calendar_snapshot_dirty = bool(
+        should_apply_calendar_draft_action
+        or should_create_google_calendar_event
+        or should_extract_calendar_candidate
+    )
+    if calendar_snapshot_dirty:
+        yield f"data: {json.dumps({'type': 'meta', 'calendar_snapshot_dirty': True})}\n\n"
+
 
     # Background conversation-summary update. Idempotent — only runs Haiku
     # if the conversation has grown ≥N messages since last summarize.

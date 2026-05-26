@@ -146,6 +146,7 @@ export function ConversationPageClient({
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const consumedPrefillRef = useRef<string | null>(null);
+  const calendarSnapshotDirtyRef = useRef(false);
 
   const applyAssistantMoodAfterLatestMessagePaint = useCallback(
     (assistantText: string) => {
@@ -307,6 +308,7 @@ const handleSend = useCallback(
       setInput("");
       setSending(true);
       setStreamMeta(null);
+      calendarSnapshotDirtyRef.current = false;
       stickToBottomRef.current = true;
 
       const wasFirstMessage = messages.length === 0;
@@ -358,6 +360,9 @@ const handleSend = useCallback(
       for await (const event of streamChat(conversationId, messageText, attachmentIds)) {
         if (event.type === "meta") {
           setStreamMeta(event);
+          if (event.calendar_snapshot_dirty) {
+            calendarSnapshotDirtyRef.current = true;
+          }
           if (event.assistant_name) {
             qc.setQueryData<Identity | undefined>(["identity"], (old) => ({
               profile: { ...(old?.profile ?? {}), assistant_name: event.assistant_name },
@@ -408,7 +413,11 @@ const handleSend = useCallback(
 
       applyAssistantMoodAfterLatestMessagePaint(assistantText);
 
-      if (shouldInvalidateCalendarSnapshotAfterChat(messageText, assistantText)) {
+      if (
+        calendarSnapshotDirtyRef.current ||
+        shouldInvalidateCalendarSnapshotAfterChat(messageText, assistantText)
+      ) {
+        calendarSnapshotDirtyRef.current = false;
         void clearCalendarEventsSnapshotsForCurrentUser();
       }
 
