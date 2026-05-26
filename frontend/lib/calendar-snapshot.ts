@@ -33,6 +33,7 @@ export type CalendarEvent = {
 
 export const LEGACY_CALENDAR_EVENTS_CACHE_KEY = "app:calendar-events-cache:v1"
 export const CALENDAR_SNAPSHOT_AREA = "calendar"
+export const CALENDAR_SNAPSHOT_INVALIDATED_EVENT = "app:calendar-snapshot-invalidated"
 
 export function calendarSnapshotKeyForUser(userId: string): string {
   return userScopedSnapshotKey({
@@ -137,6 +138,14 @@ export function writeCalendarEventsSnapshot(
   writeSnapshot(key, events)
 }
 
+export function dispatchCalendarSnapshotInvalidated() {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  window.dispatchEvent(new CustomEvent(CALENDAR_SNAPSHOT_INVALIDATED_EVENT))
+}
+
 export function clearCalendarEventsSnapshot(key = LEGACY_CALENDAR_EVENTS_CACHE_KEY) {
   if (typeof window === "undefined") {
     return
@@ -147,6 +156,8 @@ export function clearCalendarEventsSnapshot(key = LEGACY_CALENDAR_EVENTS_CACHE_K
   } catch {
     // Ignore storage failures.
   }
+
+  dispatchCalendarSnapshotInvalidated()
 }
 
 export async function clearCalendarEventsSnapshotsForCurrentUser() {

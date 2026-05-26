@@ -5,7 +5,7 @@ import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 
 import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label"
 import { createClient } from "@/lib/supabase/client"
-import { type CalendarEvent, type RawCalendarItem, calendarSnapshotKeyForUser, LEGACY_CALENDAR_EVENTS_CACHE_KEY, normalizeCalendarEvent, readCalendarEventsSnapshot, sortCalendarEvents as sortEvents, writeCalendarEventsSnapshot } from "@/lib/calendar-snapshot"
+import { type CalendarEvent, type RawCalendarItem, CALENDAR_SNAPSHOT_INVALIDATED_EVENT, calendarSnapshotKeyForUser, LEGACY_CALENDAR_EVENTS_CACHE_KEY, normalizeCalendarEvent, readCalendarEventsSnapshot, sortCalendarEvents as sortEvents, writeCalendarEventsSnapshot } from "@/lib/calendar-snapshot"
 
 
 
@@ -295,6 +295,18 @@ export default function CalendarPage() {
 
   useEffect(() => {
     void loadCalendarEvents()
+  }, [snapshotKey])
+
+  useEffect(() => {
+    function handleCalendarSnapshotInvalidated() {
+      void loadCalendarEvents()
+    }
+
+    window.addEventListener(CALENDAR_SNAPSHOT_INVALIDATED_EVENT, handleCalendarSnapshotInvalidated)
+
+    return () => {
+      window.removeEventListener(CALENDAR_SNAPSHOT_INVALIDATED_EVENT, handleCalendarSnapshotInvalidated)
+    }
   }, [snapshotKey])
 
   const groupedEvents = useMemo(() => groupByDate(events), [events])
