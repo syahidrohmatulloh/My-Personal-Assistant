@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { ChatShell } from "./chat-shell";
 import type { Conversation } from "@/lib/api";
+import { SnapshotPrewarmer } from "@/components/cache/snapshot-prewarmer";
 
 export default async function ChatLayout({
   children,
@@ -51,6 +52,7 @@ export default async function ChatLayout({
       initialConversations={(convos.data ?? []) as Conversation[]}
       initialJournaled={!!journal.data}
     >
+      <SnapshotPrewarmer userId={user.id} />
       {children}
     </ChatShell>
   );
