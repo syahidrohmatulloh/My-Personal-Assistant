@@ -98,6 +98,42 @@ type IdleWindow = Window & {
   cancelIdleCallback?: (handle: number) => void
 }
 
+const SNAPSHOT_PREWARM_INTERVAL_MS = 15 * 60 * 1000
+
+function prewarmMarkerKey(userId: string): string {
+  return `app:snapshot-prewarm:${userId}:last-run`
+}
+
+function shouldRunPrewarm(userId: string): boolean {
+  if (typeof window === "undefined") {
+    return false
+  }
+
+  const raw = window.localStorage.getItem(prewarmMarkerKey(userId))
+  if (!raw) {
+    return true
+  }
+
+  const lastRun = Number(raw)
+  if (!Number.isFinite(lastRun)) {
+    return true
+  }
+
+  return Date.now() - lastRun > SNAPSHOT_PREWARM_INTERVAL_MS
+}
+
+function markPrewarmStarted(userId: string) {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(prewarmMarkerKey(userId), String(Date.now()))
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
 function normalizeCalendarTitle(item: RawCalendarItem): string {
   const raw =
     item.calendar_event_title ||
@@ -294,6 +330,11 @@ export function SnapshotPrewarmer({ userId }: { userId: string }) {
         return
       }
 
+      if (!shouldRunPrewarm(userId)) {
+        return
+      }
+
+      markPrewarmStarted(userId)
       void runPrewarmQueue(userId)
     }
 
