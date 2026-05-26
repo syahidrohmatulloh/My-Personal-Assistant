@@ -205,9 +205,16 @@ async function prewarmGoals(userId: string) {
     listGoalActionProposals("pending"),
   ])
 
+  // Non-destructive rule:
+  // goals are the primary payload. If they fail, do not overwrite a good
+  // existing snapshot with empty arrays from a partial prewarm failure.
+  if (goalsResult.status !== "fulfilled") {
+    return
+  }
+
   const payload: GoalsSnapshotData = {
     filter: "active",
-    goals: goalsResult.status === "fulfilled" ? goalsResult.value : [],
+    goals: goalsResult.value,
     suggestions: suggestionsResult.status === "fulfilled" ? suggestionsResult.value : [],
     actionProposals: actionsResult.status === "fulfilled" ? actionsResult.value : [],
   }
@@ -289,8 +296,15 @@ async function prewarmMemories(userId: string) {
     loadMemoryHealthStatus(),
   ])
 
+  // Non-destructive rule:
+  // memory-review is the primary payload. If it fails or returns null, do not
+  // overwrite a good existing Memories snapshot with empty/null data.
+  if (dataResult.status !== "fulfilled" || !dataResult.value) {
+    return
+  }
+
   const payload: MemoriesSnapshotData = {
-    data: dataResult.status === "fulfilled" ? dataResult.value : null,
+    data: dataResult.value,
     quality: qualityResult.status === "fulfilled" ? qualityResult.value : null,
     memoryHealthStatus: healthResult.status === "fulfilled" ? healthResult.value : null,
   }
