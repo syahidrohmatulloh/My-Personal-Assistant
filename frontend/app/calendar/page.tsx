@@ -5,48 +5,9 @@ import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 
 import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label"
 import { createClient } from "@/lib/supabase/client"
-import { readSnapshot, SNAPSHOT_MAX_AGE_MS, userScopedSnapshotKey, writeSnapshot } from "@/lib/snapshot-cache"
-
-type RawCalendarItem = {
-  id?: string
-  title?: string
-  content?: string
-  structured_value?: string
-  due_date?: string
-  calendar_candidate?: boolean
-  calendar_event_status?: string | null
-  calendar_event_title?: string | null
-  calendar_event_date?: string | null
-  calendar_event_start_at?: string | null
-  calendar_event_end_at?: string | null
-  calendar_event_all_day?: boolean | null
-  google_calendar_event_id?: string | null
-  google_calendar_event_link?: string | null
-  calendar_sync_error?: string | null
-}
-
-type CalendarEvent = {
-  id: string
-  title: string
-  date: string
-  startAt: string | null
-  endAt: string | null
-  allDay: boolean
-  status: "confirmed_local" | "synced_google"
-  googleLink: string | null
-  syncError: string | null
-}
+import { type CalendarEvent, type RawCalendarItem, calendarSnapshotKeyForUser, LEGACY_CALENDAR_EVENTS_CACHE_KEY, normalizeCalendarEvent, readCalendarEventsSnapshot, sortCalendarEvents as sortEvents, writeCalendarEventsSnapshot } from "@/lib/calendar-snapshot"
 
 
-const LEGACY_CALENDAR_EVENTS_CACHE_KEY = "app:calendar-events-cache:v1"
-const CALENDAR_SNAPSHOT_AREA = "calendar"
-
-function calendarSnapshotKeyForUser(userId: string): string {
-  return userScopedSnapshotKey({
-    userId,
-    area: CALENDAR_SNAPSHOT_AREA,
-  })
-}
 
 
 type TimelineRow =
@@ -65,56 +26,9 @@ type TimelineRow =
     }
 
 
-function normalizeTitle(item: RawCalendarItem): string {
-  const raw =
-    item.calendar_event_title ||
-    item.title ||
-    item.structured_value ||
-    item.content ||
-    "Untitled event"
 
-  const cleaned = String(raw)
-    .replace(/\s*\|\s*due_date=.*$/i, "")
-    .replace(/^User has a scheduled event:\s*/i, "")
-    .replace(/\s+on\s+\d{4}-\d{2}-\d{2}.*$/i, "")
-    .replace(/^(beb|sayang|yang|aku|saya|gue|gw|gua)\s+/i, "")
-    .replace(/^(sekarang|nanti|besok|lusa|hari ini|pagi ini|siang ini|sore ini|malam ini)\s+/i, "")
-    .replace(/^(ini\s+)?(mau|akan|bakal|hendak)\s+/i, "")
-    .replace(/^(ada\s+)?(acara|agenda|jadwal)\s+/i, "")
-    .replace(/^ke\s+/i, "")
-    .replace(/\s+(ya|yah|dong|deh|nih|sih|ah|hehe|beb)$/i, "")
-    .replace(/\s+/g, " ")
-    .trim()
 
-  return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : "Calendar event"
-}
 
-function normalizeEvent(item: RawCalendarItem): CalendarEvent | null {
-  const status = item.calendar_event_status
-
-  if (status !== "confirmed_local" && status !== "synced_google") {
-    return null
-  }
-
-  const id = String(item.id || "").trim()
-  const date = String(item.calendar_event_date || item.due_date || "").trim()
-
-  if (!id || !date) {
-    return null
-  }
-
-  return {
-    id,
-    title: normalizeTitle(item),
-    date,
-    startAt: item.calendar_event_start_at || null,
-    endAt: item.calendar_event_end_at || null,
-    allDay: Boolean(item.calendar_event_all_day),
-    status,
-    googleLink: item.google_calendar_event_link || null,
-    syncError: item.calendar_sync_error || null,
-  }
-}
 
 function formatDate(date: string): string {
   const parsed = new Date(`${date}T00:00:00`)
@@ -192,50 +106,15 @@ function eventTimeLabel(event: CalendarEvent): string {
   return start || end || "Waktu belum tersedia"
 }
 
-function sortEvents(a: CalendarEvent, b: CalendarEvent): number {
-  const aKey = `${a.date} ${a.startAt || "99:99"} ${a.title}`
-  const bKey = `${b.date} ${b.startAt || "99:99"} ${b.title}`
-  return aKey.localeCompare(bKey)
-}
 
-function isCalendarEvent(value: unknown): value is CalendarEvent {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false
-  }
 
-  const item = value as Partial<CalendarEvent>
 
-  return (
-    typeof item.id === "string" &&
-    typeof item.title === "string" &&
-    typeof item.date === "string" &&
-    (item.status === "confirmed_local" || item.status === "synced_google")
-  )
-}
 
-function isCalendarEventArray(value: unknown): value is CalendarEvent[] {
-  return Array.isArray(value) && value.every(isCalendarEvent)
-}
 
-function readCachedCalendarEvents(
-  key = LEGACY_CALENDAR_EVENTS_CACHE_KEY,
-): CalendarEvent[] {
-  const snapshot = readSnapshot<CalendarEvent[]>(
-    key,
-    [],
-    isCalendarEventArray,
-    { maxAgeMs: SNAPSHOT_MAX_AGE_MS.calendar },
-  )
 
-  return snapshot?.data.sort(sortEvents) ?? []
-}
 
-function writeCachedCalendarEvents(
-  events: CalendarEvent[],
-  key = LEGACY_CALENDAR_EVENTS_CACHE_KEY,
-) {
-  writeSnapshot(key, events)
-}
+
+
 
 function groupByDate(events: CalendarEvent[]): Array<[string, CalendarEvent[]]> {
   const grouped = new Map<string, CalendarEvent[]>()
@@ -345,7 +224,7 @@ function StatusDot({ status }: { status: CalendarEvent["status"] }) {
 export default function CalendarPage() {
   const calendarEyebrow = useUserOwnedLabel("Calendar")
   const [snapshotKey, setSnapshotKey] = useState(LEGACY_CALENDAR_EVENTS_CACHE_KEY)
-  const [events, setEvents] = useState<CalendarEvent[]>(() => readCachedCalendarEvents())
+  const [events, setEvents] = useState<CalendarEvent[]>(() => readCalendarEventsSnapshot())
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -367,12 +246,12 @@ export default function CalendarPage() {
       const data = await response.json()
       const items = Array.isArray(data?.items) ? data.items : []
       const normalized = items
-        .map((item: RawCalendarItem) => normalizeEvent(item))
+        .map((item: RawCalendarItem) => normalizeCalendarEvent(item))
         .filter(Boolean) as CalendarEvent[]
 
       const sortedEvents = normalized.sort(sortEvents)
       setEvents(sortedEvents)
-      writeCachedCalendarEvents(sortedEvents, snapshotKey)
+      writeCalendarEventsSnapshot(sortedEvents, snapshotKey)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load Calendar"
       setError(message)
@@ -396,12 +275,12 @@ export default function CalendarPage() {
       if (!userId) return
 
       const scopedKey = calendarSnapshotKeyForUser(userId)
-      const scopedEvents = readCachedCalendarEvents(scopedKey)
+      const scopedEvents = readCalendarEventsSnapshot(scopedKey)
 
       if (scopedEvents.length > 0) {
         setEvents(scopedEvents)
       } else if (events.length > 0) {
-        writeCachedCalendarEvents(events, scopedKey)
+        writeCalendarEventsSnapshot(events, scopedKey)
       }
 
       setSnapshotKey(scopedKey)
