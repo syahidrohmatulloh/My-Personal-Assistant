@@ -324,6 +324,7 @@ export default function MemoriesPage() {
   const [pinInput, setPinInput] = useState("")
   const [pinChecking, setPinChecking] = useState(false)
   const [verifiedMemoryPin, setVerifiedMemoryPin] = useState<string | null>(null)
+  const [memoryPinSessionNotice, setMemoryPinSessionNotice] = useState<string | null>(null)
   const [resolvedQualityIssueKeys, setResolvedQualityIssueKeys] = useState<Record<string, boolean>>({})
   const [memoryActionNotice, setMemoryActionNotice] = useState<string | null>(null)
 
@@ -553,6 +554,11 @@ export default function MemoriesPage() {
     }
   }
 
+  function clearVerifiedMemoryPinSession() {
+    setVerifiedMemoryPin(null)
+    setMemoryPinSessionNotice(null)
+  }
+
   async function verifyMemoryPinOnly(pin: string) {
     const res = await fetch("/api/memory-review/pin/verify", {
       method: "POST",
@@ -580,6 +586,21 @@ export default function MemoriesPage() {
         action: async () => {
           window.location.href = "/settings/security"
         },
+      })
+      return
+    }
+
+    if (verifiedMemoryPin) {
+      void action(verifiedMemoryPin).catch((err) => {
+        clearVerifiedMemoryPinSession()
+        setError(err instanceof Error ? err.message : "Memory PIN session failed")
+        setPinInput("")
+        setPinModal({
+          title,
+          description:
+            "Your Memory PIN session was rejected or expired. Please enter your 6-digit Memory PIN again.",
+          action,
+        })
       })
       return
     }
@@ -639,8 +660,7 @@ export default function MemoriesPage() {
 
       setManualContent("")
       setManualAddOpen(false)
-      setVerifiedMemoryPin(null)
-      await load()
+            await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add memory")
     } finally {
@@ -676,8 +696,7 @@ export default function MemoriesPage() {
       }
 
       setEdit(null)
-      setVerifiedMemoryPin(null)
-      await load()
+            await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to edit memory")
     } finally {
@@ -922,6 +941,19 @@ export default function MemoriesPage() {
           </div>
         ) : null}
 
+        {memoryPinSessionNotice ? (
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-cyan-200/70 bg-cyan-50/80 p-4 text-sm leading-6 text-cyan-800 shadow-sm shadow-cyan-900/5 dark:border-cyan-300/15 dark:bg-cyan-300/10 dark:text-cyan-100">
+            <span>{memoryPinSessionNotice}</span>
+            <button
+              type="button"
+              onClick={clearVerifiedMemoryPinSession}
+              className="rounded-full border border-cyan-200 bg-white/70 px-3 py-1 text-xs font-medium text-cyan-700 transition hover:bg-white dark:border-cyan-300/20 dark:bg-white/10 dark:text-cyan-100 dark:hover:bg-white/15"
+            >
+              Lock
+            </button>
+          </div>
+        ) : null}
+
         {tab === "review" ? (
           <MemoryQualityPanel
             quality={quality}
@@ -1039,9 +1071,14 @@ export default function MemoriesPage() {
             setError(null)
             try {
               await pinModal.action(pinInput)
+              if (pinStatus?.memory_pin_enabled !== false && pinInput.trim().length === 6) {
+                setVerifiedMemoryPin(pinInput)
+                setMemoryPinSessionNotice("Memory PIN verified for this page session.")
+              }
               setPinModal(null)
               setPinInput("")
             } catch (err) {
+              clearVerifiedMemoryPinSession()
               setError(err instanceof Error ? err.message : "Memory action failed")
             } finally {
               setPinChecking(false)
@@ -1057,8 +1094,7 @@ export default function MemoriesPage() {
           onContentChange={setManualContent}
           onCancel={() => {
             setManualAddOpen(false)
-            setVerifiedMemoryPin(null)
-          }}
+                      }}
           onSave={async () => {
             if (!verifiedMemoryPin) {
               setManualAddOpen(false)
@@ -1068,6 +1104,7 @@ export default function MemoriesPage() {
                 async (pin) => {
                   await verifyMemoryPinOnly(pin)
                   setVerifiedMemoryPin(pin)
+                  setMemoryPinSessionNotice("Memory PIN verified for this page session.")
                   setManualAddOpen(true)
                 },
               )
@@ -1075,8 +1112,7 @@ export default function MemoriesPage() {
             }
 
             await addManualMemory(verifiedMemoryPin)
-            setVerifiedMemoryPin(null)
-          }}
+                      }}
         />
       ) : null}
 
@@ -1087,8 +1123,7 @@ export default function MemoriesPage() {
           onChange={setEdit}
           onCancel={() => {
             setEdit(null)
-            setVerifiedMemoryPin(null)
-          }}
+                      }}
           onSave={() => void saveEdit()}
         />
       ) : null}
