@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowDown } from "lucide-react";
 
@@ -12,6 +11,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useChatScroll } from "@/components/chat/use-chat-scroll";
 import { useChatMessageLoader } from "@/components/chat/use-chat-message-loader";
 import { useChatStreamSender } from "@/components/chat/use-chat-stream-sender";
+import { useChatRuntimeEffects } from "@/components/chat/use-chat-runtime-effects";
+import { useChatPrefill } from "@/components/chat/use-chat-prefill";
 
 import {
   getIdentity,
@@ -20,17 +21,6 @@ import {
   type Message,
 } from "@/lib/api";
 
-import {
-  buildUiContextSnapshot,
-  coerceBackgroundSettings,
-  readBackgroundSettings,
-  saveBackgroundSettings,
-} from "@/lib/ambient-background";
-
-import {
-  hydrateCompanionMoodForConversation,
-} from "@/lib/companion-mood";
-import { subscribeCompanionMoodRealtime } from "@/lib/companion-mood-realtime";
 
 
 type LocalMessage =
@@ -44,8 +34,6 @@ export function ConversationPageClient({
   conversationId: string
   initialMessages?: Message[]
 }) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
 
   const [messages, setMessages] = useState<LocalMessage[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -79,7 +67,6 @@ export function ConversationPageClient({
 
   const isMainChat = mainChat?.id === conversationId;
 
-  const consumedPrefillRef = useRef<string | null>(null);
   const {
     scrollRef,
     stickToBottomRef,
@@ -102,56 +89,6 @@ export function ConversationPageClient({
     settleScrollAfterPaint,
   });
 
-  useEffect(() => {
-    let unsubscribe: (() => void) | null = null;
-    let cancelled = false;
-
-    void hydrateCompanionMoodForConversation(conversationId);
-
-    subscribeCompanionMoodRealtime(conversationId).then((fn) => {
-      if (cancelled) {
-        fn();
-        return;
-      }
-      unsubscribe = fn;
-    });
-
-    return () => {
-      cancelled = true;
-      if (unsubscribe) unsubscribe();
-    };
-  }, [conversationId]);
-
-  useEffect(() => {
-    const savedSettings = identity?.profile?.background_settings;
-
-    if (!savedSettings) return;
-
-    const mergedSettings = coerceBackgroundSettings(
-      savedSettings,
-      readBackgroundSettings(),
-    );
-
-    saveBackgroundSettings(mergedSettings);
-
-    window.dispatchEvent(
-      new CustomEvent("assistant.background.settings.changed", {
-        detail: { reason: "identity-background-sync" },
-      }),
-    );
-  }, [identity]);
-
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(
-        "assistant.lastChatPath",
-        window.location.pathname,
-      );
-    }
-  }, [conversationId]);
-
-
   const handleSend = useChatStreamSender({
     conversationId,
     input,
@@ -164,50 +101,20 @@ export function ConversationPageClient({
     markShouldStickToBottom,
   });
 
-  // Calendar handoff: fill the composer with a scheduling-help draft from /calendar.
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    if (loading || sending) return
-    if (input.trim().length > 0) return
-
-    const key = "app:calendar-chat-handoff-draft"
-    const draft = window.localStorage.getItem(key)?.trim()
-
-    if (!draft) return
-
-    window.localStorage.removeItem(key)
-    setInput(draft)
-  }, [input, loading, sending])
-
-  // Auto-send a landing-page prefill once when a new conversation is opened.
-  useEffect(() => {
-    const prefill = searchParams.get("prefill")?.trim();
-
-    if (!prefill) return;
-    if (loading || sending) return;
-    if (consumedPrefillRef.current === prefill) return;
-    if (messages.length > 0) return;
-
-    consumedPrefillRef.current = prefill;
-    setInput(prefill);
-
-    void handleSend([], prefill);
-
-    const nextParams = new URLSearchParams(searchParams.toString());
-    nextParams.delete("prefill");
-    const qs = nextParams.toString();
-    router.replace(qs ? `/chat/${conversationId}?${qs}` : `/chat/${conversationId}`, {
-      scroll: false,
-    });
-  }, [
+  useChatRuntimeEffects({
     conversationId,
-    handleSend,
+    identity,
+  });
+
+  useChatPrefill({
+    conversationId,
+    input,
+    setInput,
     loading,
-    messages.length,
-    router,
-    searchParams,
     sending,
-  ]);
+    messagesLength: messages.length,
+    handleSend,
+  });
 
   return (
     <main className="flex-1 flex flex-col min-w-0 min-h-0 relative">
