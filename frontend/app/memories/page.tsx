@@ -1099,10 +1099,10 @@ function MemoryQualityPanel({
             </div>
             <div>
               <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
-                Memories that may need review
+                Memory review console
               </h2>
               <p className="text-sm text-slate-500 dark:text-zinc-400">
-                These are read-only suggestions. Use Edit, Forget, or Restore from the Active/Archived tabs.
+                Review duplicates, conflicts, stale details, and unclear memories. Actions are protected by your Memory PIN.
               </p>
             </div>
           </div>
@@ -1175,6 +1175,34 @@ function MemoryQualityReasonBox({
   )
 }
 
+function memoryIssueActionLabel(item: MemoryQualityReviewItem) {
+  if (item.issue_type === "duplicate") {
+    return "Pick the clearest memory to keep, then archive the duplicates."
+  }
+
+  if (item.issue_type === "conflict") {
+    return "Pick the memory that is currently correct, then archive the conflicting version."
+  }
+
+  if (item.issue_type === "stale_memory") {
+    return "Confirm this is still true, or archive it if it is no longer relevant."
+  }
+
+  if (item.issue_type === "low_quality") {
+    return "Archive this if it is vague, incomplete, or not useful for future conversations."
+  }
+
+  return "Review this memory issue and choose the safest action."
+}
+
+function memoryIssuePrimaryAction(item: MemoryQualityReviewItem) {
+  if (item.issue_type === "duplicate") return "Choose source of truth"
+  if (item.issue_type === "conflict") return "Resolve conflict"
+  if (item.issue_type === "stale_memory") return "Confirm or archive"
+  if (item.issue_type === "low_quality") return "Clean up memory"
+  return "Review issue"
+}
+
 function MemoryQualityIssueCard({
   item,
   saving,
@@ -1220,6 +1248,9 @@ function MemoryQualityIssueCard({
     (item.issue_type === "low_quality" || item.issue_type === "stale_memory") &&
     memories.length === 1
 
+  const actionLabel = memoryIssueActionLabel(item)
+  const primaryAction = memoryIssuePrimaryAction(item)
+
   return (
     <article className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-black/20">
       <div className="flex flex-col gap-3">
@@ -1240,11 +1271,15 @@ function MemoryQualityIssueCard({
             <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-300">
               {item.explanation}
             </p>
-            <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-zinc-400">
-              Suggested action: {item.suggested_action}
-            </p>
+            <div className="mt-3 rounded-2xl border border-amber-200/70 bg-amber-50/70 p-3 text-sm leading-6 text-amber-950 dark:border-amber-300/15 dark:bg-amber-300/10 dark:text-amber-100">
+              <p className="font-medium">{primaryAction}</p>
+              <p className="mt-1">{actionLabel}</p>
+              <p className="mt-2 text-xs text-amber-900/75 dark:text-amber-100/75">
+                Aliyya suggestion: {item.suggested_action}
+              </p>
+            </div>
 
-          <MemoryQualityReasonBox reason={item.reason} />
+            <MemoryQualityReasonBox reason={item.reason} />
           </div>
 
           <div className="shrink-0 rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-white/[0.06] dark:text-zinc-400">
@@ -1266,7 +1301,7 @@ function MemoryQualityIssueCard({
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-zinc-500">
-                      Memory {index + 1}
+                      Option {index + 1}
                     </p>
                     <p className="mt-2 text-sm leading-6 text-slate-800 dark:text-zinc-100">
                       {memory.content}
@@ -1291,7 +1326,7 @@ function MemoryQualityIssueCard({
                       disabled={saving}
                       className="shrink-0 rounded-full border border-slate-200/70 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
                     >
-                      Keep this, archive others
+                      Keep this as source of truth
                     </button>
                   ) : null}
                 </div>
@@ -1307,7 +1342,7 @@ function MemoryQualityIssueCard({
               disabled={saving}
               className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20"
             >
-              Still true
+              Confirm still true
             </button>
           </div>
         ) : null}
@@ -1324,9 +1359,15 @@ function MemoryQualityIssueCard({
               disabled={saving}
               className="rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-400/20 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/20"
             >
-              Archive this memory
+              Archive as no longer useful
             </button>
           </div>
+        ) : null}
+
+        {(canKeepOne || canConfirmStale || canArchiveSingle) ? (
+          <p className="text-xs leading-5 text-slate-500 dark:text-zinc-500">
+            Safe action: this does not permanently delete memory rows. Changes are archived or confirmed after Memory PIN approval.
+          </p>
         ) : null}
       </div>
     </article>
