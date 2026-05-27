@@ -73,6 +73,52 @@ function countCalendarSidebarAlerts(items: CalendarSidebarItem[]): number {
   return pendingCount + tightOrOverlapCount;
 }
 
+type IdleWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
+function scheduleAfterFirstPaintIdle(callback: () => void): () => void {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+
+  let cancelled = false;
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  let idleHandle: number | null = null;
+
+  const run = () => {
+    if (cancelled) return;
+    callback();
+  };
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (cancelled) return;
+
+      const idleWindow = window as IdleWindow;
+      if (idleWindow.requestIdleCallback) {
+        idleHandle = idleWindow.requestIdleCallback(run, { timeout: 2500 });
+      } else {
+        timeoutHandle = setTimeout(run, 800);
+      }
+    });
+  });
+
+  return () => {
+    cancelled = true;
+
+    const idleWindow = window as IdleWindow;
+    if (idleHandle != null && idleWindow.cancelIdleCallback) {
+      idleWindow.cancelIdleCallback(idleHandle);
+    }
+
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  };
+}
+
 export function Sidebar({
   initialConversations = [],
   initialJournaled = false,
@@ -81,7 +127,7 @@ export function Sidebar({
   initialConversations?: Conversation[];
   initialJournaled?: boolean;
   initialIdentity?: Identity | null;
-}) { const router = useRouter(); const params = useParams<{ id?: string }>(); const activeId = params?.id; const qc = useQueryClient(); const [open, setOpen] = useState(false); const [assistantNameReady, setAssistantNameReady] = useState(false); const [cachedAssistantName, setCachedAssistantName] = useState<string | null>(() => { if (typeof window === "undefined") return null; const value = window.localStorage.getItem("app:assistant-name"); return value && value.trim().length > 0 ? value.trim() : null; }); useEffect(() => { setAssistantNameReady(true); }, []); const { data: identity } = useQuery({ queryKey: ["identity"], queryFn: getIdentity, initialData: initialIdentity ?? undefined, staleTime: 5 * 60 * 1000, gcTime: 30 * 60 * 1000, refetchOnMount: false, refetchOnWindowFocus: false, }); const assistantName = typeof identity?.profile?.assistant_name === "string" && identity.profile.assistant_name.trim().length > 0 ? identity.profile.assistant_name.trim() : cachedAssistantName ?? "Assistant"; const visibleAssistantName = assistantNameReady ? assistantName : "\u00A0"; useEffect(() => { if (typeof identity?.profile?.assistant_name !== "string") return; const value = identity.profile.assistant_name.trim(); if (!value || value === "Assistant") return; setCachedAssistantName(value); window.localStorage.setItem("app:assistant-name", value); }, [identity?.profile?.assistant_name]); const { data: conversations = [], isLoading } = useQuery({ queryKey: ["conversations"], queryFn: listConversations, staleTime: 5 * 60 * 1000, gcTime: 30 * 60 * 1000, refetchOnMount: false, refetchOnWindowFocus: false, refetchOnReconnect: false, initialData: initialConversations, }); const { data: today } = useQuery({ queryKey: ["journal", "today"], queryFn: getTodaysJournal, initialData: {
+}) { const router = useRouter(); const params = useParams<{ id?: string }>(); const activeId = params?.id; const qc = useQueryClient(); const [open, setOpen] = useState(false); const [secondaryQueriesEnabled, setSecondaryQueriesEnabled] = useState(false); const [assistantNameReady, setAssistantNameReady] = useState(false); const [cachedAssistantName, setCachedAssistantName] = useState<string | null>(() => { if (typeof window === "undefined") return null; const value = window.localStorage.getItem("app:assistant-name"); return value && value.trim().length > 0 ? value.trim() : null; }); useEffect(() => { setAssistantNameReady(true); }, []); const { data: identity } = useQuery({ queryKey: ["identity"], queryFn: getIdentity, initialData: initialIdentity ?? undefined, staleTime: 5 * 60 * 1000, gcTime: 30 * 60 * 1000, refetchOnMount: false, refetchOnWindowFocus: false, }); const assistantName = typeof identity?.profile?.assistant_name === "string" && identity.profile.assistant_name.trim().length > 0 ? identity.profile.assistant_name.trim() : cachedAssistantName ?? "Assistant"; const visibleAssistantName = assistantNameReady ? assistantName : "\u00A0"; useEffect(() => { if (typeof identity?.profile?.assistant_name !== "string") return; const value = identity.profile.assistant_name.trim(); if (!value || value === "Assistant") return; setCachedAssistantName(value); window.localStorage.setItem("app:assistant-name", value); }, [identity?.profile?.assistant_name]); const { data: conversations = [], isLoading } = useQuery({ queryKey: ["conversations"], queryFn: listConversations, staleTime: 5 * 60 * 1000, gcTime: 30 * 60 * 1000, refetchOnMount: false, refetchOnWindowFocus: false, refetchOnReconnect: false, initialData: initialConversations, }); const { data: today } = useQuery({ queryKey: ["journal", "today"], queryFn: getTodaysJournal, initialData: {
       entry: initialJournaled
         ? {
             id: "hydrated",
@@ -93,6 +139,12 @@ export function Sidebar({
           }
         : null,
     }, }); const journaledToday = today?.entry != null;
+
+  useEffect(() => {
+    return scheduleAfterFirstPaintIdle(() => {
+      setSecondaryQueriesEnabled(true);
+    });
+  }, []);
 
   const { data: memoryHealthStatus } = useQuery({
     queryKey: ["memory-health-status-live"],
@@ -131,6 +183,7 @@ export function Sidebar({
         source: "live" as const,
       }
     },
+    enabled: secondaryQueriesEnabled,
     staleTime: 60_000,
     gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
@@ -161,7 +214,7 @@ export function Sidebar({
     refetchOnWindowFocus: true,
   });
 
-  const { data: styleProfiles = [] } = useQuery({ queryKey: ["style-profiles"], queryFn: listStyleProfiles, staleTime: 60_000, }); const groups = useMemo(() => groupConversations(conversations), [conversations]); useEffect(() => { setOpen(false); }, [activeId]); useEffect(() => { if (open) { const prev = document.body.style.overflow; document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = prev; }; } }, [open]); const createMut = useMutation({ mutationFn: (styleProfileId: string | null = null) => createConversation("New chat", styleProfileId), onMutate: async () => { const optimistic: Conversation = { id: `temp-${Date.now()}`, title: "New chat", created_at: new Date().toISOString(), updated_at: new Date().toISOString(), }; await qc.cancelQueries({ queryKey: ["conversations"] }); qc.setQueryData<Conversation[]>(["conversations"], (old = []) => [ optimistic, ...old, ]); return { optimistic }; }, onSuccess: (real, _vars, ctx) => { qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.map((c) => (c.id === ctx?.optimistic.id ? real : c)), ); setOpen(false); router.push(`/chat/${real.id}`); }, onError: (_e, _v, ctx) => { qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.filter((c) => c.id !== ctx?.optimistic.id), ); }, }); const deleteMut = useMutation({ mutationFn: (id: string) => deleteConversation(id), onMutate: async (id) => { await qc.cancelQueries({ queryKey: ["conversations"] }); const prev = qc.getQueryData<Conversation[]>(["conversations"]); qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.filter((c) => c.id !== id), ); return { prev }; }, onError: (_e, _id, ctx) => { if (ctx?.prev) qc.setQueryData(["conversations"], ctx.prev); }, }); function handleDelete(id: string) { if (!confirm("Delete this conversation?")) return; deleteMut.mutate(id); if (activeId === id) router.push("/chat"); } async function handleSignOut() {
+  const { data: styleProfiles = [] } = useQuery({ queryKey: ["style-profiles"], queryFn: listStyleProfiles, enabled: secondaryQueriesEnabled, staleTime: 60_000, }); const groups = useMemo(() => groupConversations(conversations), [conversations]); useEffect(() => { setOpen(false); }, [activeId]); useEffect(() => { if (open) { const prev = document.body.style.overflow; document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = prev; }; } }, [open]); const createMut = useMutation({ mutationFn: (styleProfileId: string | null = null) => createConversation("New chat", styleProfileId), onMutate: async () => { const optimistic: Conversation = { id: `temp-${Date.now()}`, title: "New chat", created_at: new Date().toISOString(), updated_at: new Date().toISOString(), }; await qc.cancelQueries({ queryKey: ["conversations"] }); qc.setQueryData<Conversation[]>(["conversations"], (old = []) => [ optimistic, ...old, ]); return { optimistic }; }, onSuccess: (real, _vars, ctx) => { qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.map((c) => (c.id === ctx?.optimistic.id ? real : c)), ); setOpen(false); router.push(`/chat/${real.id}`); }, onError: (_e, _v, ctx) => { qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.filter((c) => c.id !== ctx?.optimistic.id), ); }, }); const deleteMut = useMutation({ mutationFn: (id: string) => deleteConversation(id), onMutate: async (id) => { await qc.cancelQueries({ queryKey: ["conversations"] }); const prev = qc.getQueryData<Conversation[]>(["conversations"]); qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.filter((c) => c.id !== id), ); return { prev }; }, onError: (_e, _id, ctx) => { if (ctx?.prev) qc.setQueryData(["conversations"], ctx.prev); }, }); function handleDelete(id: string) { if (!confirm("Delete this conversation?")) return; deleteMut.mutate(id); if (activeId === id) router.push("/chat"); } async function handleSignOut() {
     clearKnownAppSnapshots();
     const supabase = createClient();
     await supabase.auth.signOut();
