@@ -259,6 +259,126 @@ type MemoriesSnapshotData = {
   memoryHealthStatus: MemoryHealthSchedulerStatus | null
 }
 
+type MemoryInsightCard = {
+  key: string
+  title: string
+  count: number
+  description: string
+  sample: string[]
+  searchQuery?: string
+  targetTab?: "active" | "archived" | "review"
+}
+
+function flattenMemoryGroups(groups?: Record<string, MemoryItem[]> | null): MemoryItem[] {
+  if (!groups) return []
+  return Object.values(groups).flat()
+}
+
+function memoryCategoryIs(memory: MemoryItem, categories: string[]) {
+  const category = String(memory.category || "").toLowerCase()
+  const group = String(memory.group || "").toLowerCase()
+  return categories.some((item) => category === item || group.includes(item))
+}
+
+function memoryHasStructuredField(memory: MemoryItem, fields: string[]) {
+  const field = String(memory.structured_field || "").toLowerCase()
+  return fields.includes(field)
+}
+
+function pickMemorySamples(items: MemoryItem[], limit = 2) {
+  return items
+    .slice()
+    .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0))
+    .slice(0, limit)
+    .map((item) => item.structured_value || item.content)
+    .filter(Boolean)
+}
+
+function buildMemoryInsightCards(
+  data: MemoryReviewPayload | null,
+  quality: MemoryQualityPayload | null,
+  memoryHealthStatus: MemoryHealthSchedulerStatus | null,
+): MemoryInsightCard[] {
+  const active = flattenMemoryGroups(data?.active)
+  const identityItems = active.filter(
+    (item) =>
+      memoryCategoryIs(item, ["identity"]) ||
+      memoryHasStructuredField(item, ["name", "nickname", "assistant_name", "timezone", "location"]),
+  )
+  const preferenceItems = active.filter((item) => memoryCategoryIs(item, ["preferences"]))
+  const goalRoutineItems = active.filter((item) =>
+    memoryCategoryIs(item, ["goals", "routines"]),
+  )
+  const relationshipItems = active.filter((item) =>
+    memoryCategoryIs(item, ["relationships"]),
+  )
+  const constraintItems = active.filter((item) =>
+    memoryCategoryIs(item, ["constraints"]),
+  )
+
+  const needsReview =
+    Number(memoryHealthStatus?.user_summary?.needs_review ?? quality?.summary.needs_review ?? 0)
+
+  return [
+    {
+      key: "identity",
+      title: "Identity & profile",
+      count: identityItems.length,
+      description: "Names, timezone, assistant name, and other facts that keep conversations consistent.",
+      sample: pickMemorySamples(identityItems),
+      searchQuery: "identity name nickname timezone assistant_name",
+      targetTab: "active",
+    },
+    {
+      key: "preferences",
+      title: "Preferences",
+      count: preferenceItems.length,
+      description: "Things Aliyya should consider when giving suggestions or making choices for you.",
+      sample: pickMemorySamples(preferenceItems),
+      searchQuery: "preferences",
+      targetTab: "active",
+    },
+    {
+      key: "goals-routines",
+      title: "Goals & routines",
+      count: goalRoutineItems.length,
+      description: "Longer-running goals and repeated habits that should shape planning.",
+      sample: pickMemorySamples(goalRoutineItems),
+      searchQuery: "goals routines",
+      targetTab: "active",
+    },
+    {
+      key: "relationships",
+      title: "Important people",
+      count: relationshipItems.length,
+      description: "People and relationships Aliyya may use when helping with personal context.",
+      sample: pickMemorySamples(relationshipItems),
+      searchQuery: "relationships",
+      targetTab: "active",
+    },
+    {
+      key: "constraints",
+      title: "Constraints",
+      count: constraintItems.length,
+      description: "Limits, rules, and things to avoid when Aliyya gives recommendations.",
+      sample: pickMemorySamples(constraintItems),
+      searchQuery: "constraints",
+      targetTab: "active",
+    },
+    {
+      key: "needs-review",
+      title: "Needs review",
+      count: needsReview,
+      description: "Potential duplicates, conflicts, stale memories, or unclear memories waiting for cleanup.",
+      sample:
+        needsReview > 0
+          ? [`${needsReview} item${needsReview === 1 ? "" : "s"} need review`]
+          : ["No urgent memory cleanup needed"],
+      targetTab: "review",
+    },
+  ]
+}
+
 const LEGACY_MEMORIES_SNAPSHOT_KEY = "app:memories-snapshot:v1"
 const MEMORIES_SNAPSHOT_AREA = "memories"
 
@@ -499,6 +619,11 @@ export default function MemoriesPage() {
   }, [])
 
   const currentGroups = tab === "review" ? {} : data?.[tab as "active" | "archived"] || {}
+
+  const insightCards = useMemo(
+    () => buildMemoryInsightCards(data, quality, memoryHealthStatus),
+    [data, quality, memoryHealthStatus],
+  )
 
   const filteredGroups = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -929,6 +1054,16 @@ export default function MemoriesPage() {
           </div>
         </section>
 
+        <MemoryInsightSummary
+          cards={insightCards}
+          onFocus={(card) => {
+            if (card.targetTab) setTab(card.targetTab)
+            if (card.searchQuery) setQuery(card.searchQuery)
+            if (card.targetTab === "review") setQuery("")
+            setMemoryActionNotice(null)
+          }}
+        />
+
         {error ? (
           <div className="rounded-2xl border border-red-400/40 bg-red-50 p-4 text-sm text-red-700 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-100">
             {error}
@@ -1227,6 +1362,83 @@ function formatDateTime(value?: string | null) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString()
+}
+
+function MemoryInsightSummary({
+  cards,
+  onFocus,
+}: {
+  cards: MemoryInsightCard[]
+  onFocus: (card: MemoryInsightCard) => void
+}) {
+  return (
+    <section className="rounded-[1.75rem] border border-slate-200/70 bg-white/75 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.045]">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-zinc-500">
+            Memory intelligence
+          </p>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">
+            Aliyya’s understanding of you
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
+            A quick, transparent summary of the active memories that shape future answers.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {cards.map((card) => (
+          <button
+            key={card.key}
+            type="button"
+            onClick={() => onFocus(card)}
+            className="group rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-lg hover:shadow-slate-900/5 dark:border-white/10 dark:bg-white/[0.035] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-950 dark:text-white">
+                  {card.title}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-zinc-400">
+                  {card.description}
+                </p>
+              </div>
+              <span className={[
+                "rounded-full px-2.5 py-1 text-xs font-semibold",
+                card.key === "needs-review" && card.count > 0
+                  ? "bg-amber-100 text-amber-800 dark:bg-amber-300/15 dark:text-amber-100"
+                  : "bg-slate-200/80 text-slate-700 dark:bg-white/10 dark:text-zinc-200",
+              ].join(" ")}>
+                {card.count}
+              </span>
+            </div>
+
+            <div className="mt-3 space-y-1.5">
+              {card.sample.length > 0 ? (
+                card.sample.map((item, index) => (
+                  <p
+                    key={`${card.key}-sample-${index}`}
+                    className="line-clamp-1 text-xs text-slate-600 dark:text-zinc-300"
+                  >
+                    · {item}
+                  </p>
+                ))
+              ) : (
+                <p className="text-xs text-slate-400 dark:text-zinc-500">
+                  No active memory in this area yet.
+                </p>
+              )}
+            </div>
+
+            <p className="mt-3 text-xs font-medium text-slate-500 transition group-hover:text-slate-950 dark:text-zinc-500 dark:group-hover:text-white">
+              Review this area →
+            </p>
+          </button>
+        ))}
+      </div>
+    </section>
+  )
 }
 
 function MemoryQualityPanel({
