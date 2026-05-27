@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowDown } from "lucide-react";
 
 import { Composer } from "@/components/chat/composer";
@@ -11,14 +11,12 @@ import { ConversationStyleBadge } from "@/components/chat/conversation-style-bad
 import { Skeleton } from "@/components/ui/skeleton";
 import { useChatScroll } from "@/components/chat/use-chat-scroll";
 import { useChatMessageLoader } from "@/components/chat/use-chat-message-loader";
+import { useChatStreamSender } from "@/components/chat/use-chat-stream-sender";
 
 import {
   getIdentity,
   getMainConversation,
-  streamChat,
   type ChatStreamMeta,
-  type Identity,
-  type Conversation,
   type Message,
 } from "@/lib/api";
 
@@ -27,64 +25,17 @@ import {
   coerceBackgroundSettings,
   readBackgroundSettings,
   saveBackgroundSettings,
-  setBackgroundMoodHint,
 } from "@/lib/ambient-background";
 
 import {
   hydrateCompanionMoodForConversation,
-  updateCompanionMoodFromMessage,
-  shouldDeferCompanionMoodToAssistant,
-  setPendingCompanionMoodSimulation,
-  updateCompanionMoodFromAssistantText,
-  shouldRespectCompanionMoodOverride,
 } from "@/lib/companion-mood";
 import { subscribeCompanionMoodRealtime } from "@/lib/companion-mood-realtime";
-import { clearCalendarEventsSnapshotsForCurrentUser } from "@/lib/calendar-snapshot";
 
 
 type LocalMessage =
   | Message
   | { id: string; role: "assistant"; content: string; pending: true; created_at?: string };
-
-function shouldInvalidateCalendarSnapshotAfterChat(userText: string, assistantText: string): boolean {
-  const combined = `${userText}\n${assistantText}`.toLowerCase()
-
-  const calendarSignals = [
-    "calendar",
-    "kalender",
-    "google calendar",
-    "google kalender",
-    "jadwal",
-    "agenda",
-    "acara",
-    "event",
-    "meeting",
-    "rapat",
-    "pukul",
-    "jam ",
-    "besok",
-    "lusa",
-    "nanti",
-    "hari ini",
-    "minggu depan",
-    "bulan depan",
-    "masukin",
-    "masukkan",
-    "tambahkan",
-    "tambahin",
-    "catat",
-    "hapus",
-    "delete",
-    "reschedule",
-    "jadwal ulang",
-    "geser",
-    "pindahin",
-    "ubah",
-    "edit",
-  ]
-
-  return calendarSignals.some((signal) => combined.includes(signal))
-}
 
 export function ConversationPageClient({
   conversationId,
@@ -93,7 +44,6 @@ export function ConversationPageClient({
   conversationId: string
   initialMessages?: Message[]
 }) {
-  const qc = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -130,7 +80,6 @@ export function ConversationPageClient({
   const isMainChat = mainChat?.id === conversationId;
 
   const consumedPrefillRef = useRef<string | null>(null);
-  const calendarSnapshotDirtyRef = useRef(false);
   const {
     scrollRef,
     stickToBottomRef,
@@ -142,21 +91,6 @@ export function ConversationPageClient({
     messageCount: messages.length,
     followSignal: messages,
   });
-
-  const applyAssistantMoodAfterLatestMessagePaint = useCallback(
-    (assistantText: string) => {
-      // Let the final assistant bubble render first, then update ambience.
-      // This prevents the mood shift from feeling like it was triggered by the user's previous message.
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          window.setTimeout(() => {
-            updateCompanionMoodFromAssistantText(assistantText, conversationId);
-          }, 350);
-        });
-      });
-    },
-    [conversationId],
-  );
 
   useChatMessageLoader({
     conversationId,
@@ -218,162 +152,17 @@ export function ConversationPageClient({
   }, [conversationId]);
 
 
-const handleSend = useCallback(
-    async (attachmentIds: string[] = [], overrideText?: string) => {
-      const text = (overrideText ?? input).trim();
-      if (shouldDeferCompanionMoodToAssistant(text)) {
-        setPendingCompanionMoodSimulation(text, conversationId);
-      } else {
-        updateCompanionMoodFromMessage(text, conversationId);
-      }
-      const hasContent = text.length > 0 || attachmentIds.length > 0;
-      if (!hasContent || sending) return;
-
-      // If there are attachments but no text, send a neutral placeholder so the
-      // backend always has at least one text block in the user content array.
-      const messageText = text || (attachmentIds.length > 0 ? "(shared an attachment)" : "");
-
-      setInput("");
-      setSending(true);
-      setStreamMeta(null);
-      calendarSnapshotDirtyRef.current = false;
-      markShouldStickToBottom();
-
-      const wasFirstMessage = messages.length === 0;
-
-      const userMsg: LocalMessage = {
-        id: `local-user-${Date.now()}`,
-        role: "user",
-        content: messageText,
-        created_at: new Date().toISOString(),
-      };
-    const assistantId = `local-asst-${Date.now()}`;
-    setMessages((prev) => [
-      ...prev,
-      userMsg,
-      { id: assistantId, role: "assistant", content: "", pending: true },
-    ]);
-
-    if (wasFirstMessage) {
-      const title = messageText.slice(0, 40) + (messageText.length > 40 ? "…" : "");
-      qc.setQueryData<Conversation[]>(["conversations"], (old = []) =>
-        old.map((c) => (c.id === conversationId ? { ...c, title } : c)),
-      );
-    }
-
-    let assistantText = "";
-    let pending = "";
-    let rafId: number | null = null;
-    const minThinkingMs = 650;
-    const thinkingStartedAt = Date.now();
-    const flush = () => {
-      if (!pending) {
-        rafId = null;
-        return;
-      }
-      assistantText += pending;
-      pending = "";
-      const snapshot = assistantText;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? { id: assistantId, role: "assistant", content: snapshot, pending: true }
-            : m,
-        ),
-      );
-      rafId = null;
-    };
-
-    try {
-      for await (const event of streamChat(conversationId, messageText, attachmentIds)) {
-        if (event.type === "meta") {
-          setStreamMeta(event);
-          if (event.calendar_snapshot_dirty) {
-            calendarSnapshotDirtyRef.current = true;
-          }
-          if (event.assistant_name) {
-            qc.setQueryData<Identity | undefined>(["identity"], (old) => ({
-              profile: { ...(old?.profile ?? {}), assistant_name: event.assistant_name },
-              narrative: old?.narrative ?? null,
-              updated_at: old?.updated_at ?? null,
-            }));
-          }
-          if ((event.mood || event.background_palette_hint) && !shouldRespectCompanionMoodOverride(event.mood)) {
-            setBackgroundMoodHint({
-              mood: event.mood,
-              palette: event.background_palette_hint as any,
-            });
-          }
-          continue;
-        }
-        if (event.type === "done") continue;
-
-        pending += event.text;
-
-        if (Date.now() - thinkingStartedAt < minThinkingMs) {
-          continue;
-        }
-
-        if (rafId == null) {
-          rafId = requestAnimationFrame(flush);
-        }
-      }
-      const remainingThinkingMs = minThinkingMs - (Date.now() - thinkingStartedAt);
-      if (remainingThinkingMs > 0) {
-        await new Promise((resolve) => window.setTimeout(resolve, remainingThinkingMs));
-      }
-
-      if (rafId != null) cancelAnimationFrame(rafId);
-      flush();
-
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? {
-                id: assistantId,
-                role: "assistant",
-                content: assistantText,
-                created_at: new Date().toISOString(),
-              }
-            : m,
-        ),
-      );
-
-      applyAssistantMoodAfterLatestMessagePaint(assistantText);
-
-      if (
-        calendarSnapshotDirtyRef.current ||
-        shouldInvalidateCalendarSnapshotAfterChat(messageText, assistantText)
-      ) {
-        calendarSnapshotDirtyRef.current = false;
-        void clearCalendarEventsSnapshotsForCurrentUser();
-      }
-
-      // Background title generation on the server runs after the stream
-      // closes. Wait a moment so the refetch picks up the real title.
-      setTimeout(() => {
-        qc.invalidateQueries({ queryKey: ["conversations"] });
-      }, 4000);
-    } catch (err) {
-      console.error(err);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? {
-                id: assistantId,
-                role: "assistant",
-                content: `**Error:** ${err instanceof Error ? err.message : "unknown"}`,
-                created_at: new Date().toISOString(),
-              }
-            : m,
-        ),
-      );
-    } finally {
-      setSending(false);
-      setStreamMeta(null);
-    }
-  }, [conversationId, input, markShouldStickToBottom, messages.length, qc, sending]);
-
+  const handleSend = useChatStreamSender({
+    conversationId,
+    input,
+    setInput,
+    sending,
+    setSending,
+    messagesLength: messages.length,
+    setMessages,
+    setStreamMeta,
+    markShouldStickToBottom,
+  });
 
   // Calendar handoff: fill the composer with a scheduling-help draft from /calendar.
   useEffect(() => {
