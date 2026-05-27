@@ -1,13 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowDown } from "lucide-react";
 
 import { Composer } from "@/components/chat/composer";
 import { MessageBubble } from "@/components/chat/message-bubble";
-import { ConversationStyleBadge } from "@/components/chat/conversation-style-badge";
+import dynamic from "next/dynamic";
 import { Skeleton } from "@/components/ui/skeleton";
+
+const LazyConversationStyleBadge = dynamic(
+  () =>
+    import("@/components/chat/conversation-style-badge").then((mod) => ({
+      default: mod.ConversationStyleBadge,
+    })),
+  {
+    ssr: false,
+    loading: () => null,
+  },
+);
+
 import { useChatScroll } from "@/components/chat/use-chat-scroll";
 import { useChatMessageLoader } from "@/components/chat/use-chat-message-loader";
 import { useChatStreamSender } from "@/components/chat/use-chat-stream-sender";
@@ -41,6 +53,7 @@ export function ConversationPageClient({
   const [loading, setLoading] = useState(initialMessages.length === 0);
   const [historySettled, setHistorySettled] = useState(initialMessages.length === 0);
   const [streamMeta, setStreamMeta] = useState<ChatStreamMeta | null>(null);
+  const [showStyleBadge, setShowStyleBadge] = useState(false);
 
   const { data: identity } = useQuery({
     queryKey: ["identity"],
@@ -116,9 +129,33 @@ export function ConversationPageClient({
     handleSend,
   });
 
+  useEffect(() => {
+    let cancelled = false;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+
+        timeoutHandle = setTimeout(() => {
+          if (!cancelled) {
+            setShowStyleBadge(true);
+          }
+        }, 250);
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    };
+  }, []);
+
   return (
     <main className="flex-1 flex flex-col min-w-0 min-h-0 relative">
-      <ConversationStyleBadge conversationId={conversationId} />
+      {showStyleBadge ? <LazyConversationStyleBadge conversationId={conversationId} /> : null}
 <div
         ref={scrollRef}
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
