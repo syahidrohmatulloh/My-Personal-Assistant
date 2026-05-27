@@ -1139,6 +1139,54 @@ function memoryQualityIssueKey(item: MemoryQualityReviewItem) {
   ].join(":")
 }
 
+type MemoryReviewFilter =
+  | "all"
+  | "duplicate"
+  | "conflict"
+  | "low_quality"
+  | "stale"
+  | "high_priority"
+
+const MEMORY_REVIEW_FILTERS: Array<{
+  key: MemoryReviewFilter
+  label: string
+}> = [
+  { key: "all", label: "All" },
+  { key: "duplicate", label: "Duplicates" },
+  { key: "conflict", label: "Conflicts" },
+  { key: "low_quality", label: "Low quality" },
+  { key: "stale", label: "Stale" },
+  { key: "high_priority", label: "High priority" },
+]
+
+function memoryIssueSeverityRank(value?: string | null) {
+  if (value === "high") return 3
+  if (value === "medium") return 2
+  if (value === "low") return 1
+  return 0
+}
+
+function isStaleMemoryIssue(item: MemoryQualityReviewItem) {
+  return item.issue_type === "stale" || item.issue_type === "stale_memory"
+}
+
+function matchesMemoryReviewFilter(item: MemoryQualityReviewItem, filter: MemoryReviewFilter) {
+  if (filter === "all") return true
+  if (filter === "high_priority") return item.severity === "high"
+  if (filter === "stale") return isStaleMemoryIssue(item)
+  return item.issue_type === filter
+}
+
+function sortMemoryReviewIssues(a: MemoryQualityReviewItem, b: MemoryQualityReviewItem) {
+  const severityDelta = memoryIssueSeverityRank(b.severity) - memoryIssueSeverityRank(a.severity)
+  if (severityDelta !== 0) return severityDelta
+
+  const typeDelta = a.issue_type.localeCompare(b.issue_type)
+  if (typeDelta !== 0) return typeDelta
+
+  return a.title.localeCompare(b.title)
+}
+
 function formatDateTime(value?: string | null) {
   if (!value) return "—"
   const date = new Date(value)
@@ -1166,21 +1214,29 @@ function MemoryQualityPanel({
   }) => void
   onConfirmMemory: (memoryId: string, issueKey?: string) => void
 }) {
+  const [reviewFilter, setReviewFilter] = useState<MemoryReviewFilter>("all")
+
   if (loading) return <LoadingState />
 
-  const items = (quality?.review_items || []).filter(
+  const unresolvedItems = (quality?.review_items || []).filter(
     (item) => !resolvedIssueKeys[memoryQualityIssueKey(item)],
   )
+
+  const items = unresolvedItems
+    .filter((item) => matchesMemoryReviewFilter(item, reviewFilter))
+    .sort(sortMemoryReviewIssues)
 
   if (!quality || items.length === 0) {
     return (
       <div className="rounded-[1.5rem] border border-emerald-200/70 bg-emerald-50/70 p-8 text-center shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-emerald-300/15 dark:bg-emerald-300/10">
         <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-600 dark:text-emerald-300" />
         <h2 className="mt-3 text-lg font-semibold text-slate-950 dark:text-white">
-          No memory issues found
+          {unresolvedItems.length === 0 ? "No memory issues found" : "No issues in this filter"}
         </h2>
         <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600 dark:text-zinc-300">
-          The assistant did not find obvious duplicates, conflicts, or unclear memories.
+          {unresolvedItems.length === 0
+              ? "The assistant did not find obvious duplicates, conflicts, stale, or unclear memories."
+              : "Try another filter to review the remaining memory issues."}
         </p>
       </div>
     )
@@ -1211,6 +1267,32 @@ function MemoryQualityPanel({
             </div>
           </div>
         </div>
+
+            <div className="flex flex-wrap gap-2">
+              {MEMORY_REVIEW_FILTERS.map((filter) => {
+                const count = unresolvedItems.filter((item) =>
+                  matchesMemoryReviewFilter(item, filter.key),
+                ).length
+                const active = reviewFilter === filter.key
+
+                return (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    onClick={() => setReviewFilter(filter.key)}
+                    className={[
+                      "rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                      active
+                        ? "border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-950"
+                        : "border-slate-200 bg-white/70 text-slate-600 hover:border-slate-300 hover:text-slate-950 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:border-white/20 dark:hover:text-white",
+                    ].join(" ")}
+                  >
+                    {filter.label}
+                    <span className="ml-1.5 opacity-70">{count}</span>
+                  </button>
+                )
+              })}
+            </div>
 
         <div className="grid gap-3 p-4">
           {items.map((item, index) => (
