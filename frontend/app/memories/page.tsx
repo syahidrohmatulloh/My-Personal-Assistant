@@ -269,6 +269,8 @@ export default function MemoriesPage() {
   const [pinInput, setPinInput] = useState("")
   const [pinChecking, setPinChecking] = useState(false)
   const [verifiedMemoryPin, setVerifiedMemoryPin] = useState<string | null>(null)
+  const [resolvedQualityIssueKeys, setResolvedQualityIssueKeys] = useState<Record<string, boolean>>({})
+  const [memoryActionNotice, setMemoryActionNotice] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
@@ -632,11 +634,13 @@ export default function MemoriesPage() {
     actionName,
     keepMemoryId,
     archiveMemoryIds,
+    issueKey,
     pin,
   }: {
     actionName: "keep_one_archive_rest" | "archive_memory"
     keepMemoryId?: string | null
     archiveMemoryIds: string[]
+    issueKey?: string
     pin: string
   }) {
     setSavingId("quality-resolve")
@@ -659,6 +663,22 @@ export default function MemoriesPage() {
         throw new Error(detail || "Failed to resolve memory issue")
       }
 
+      if (issueKey) {
+        setResolvedQualityIssueKeys((prev) => ({ ...prev, [issueKey]: true }))
+      }
+
+      const archivedCount = archiveMemoryIds.length
+      setMemoryActionNotice(
+        actionName === "keep_one_archive_rest"
+          ? `Resolved memory issue. Kept one source of truth and archived ${archivedCount} duplicate/conflicting memor${archivedCount === 1 ? "y" : "ies"}.`
+          : `Archived ${archivedCount} memor${archivedCount === 1 ? "y" : "ies"} from review.`,
+      )
+
+      if (issueKey) {
+        setResolvedQualityIssueKeys((prev) => ({ ...prev, [issueKey]: true }))
+      }
+
+      setMemoryActionNotice("Confirmed this memory is still true.")
       await load()
       await loadQuality()
     } catch (err) {
@@ -668,7 +688,7 @@ export default function MemoriesPage() {
     }
   }
 
-  async function confirmMemoryFreshness(memoryId: string) {
+  async function confirmMemoryFreshness(memoryId: string, issueKey?: string) {
     setSavingId(memoryId)
     setError(null)
 
@@ -800,17 +820,26 @@ export default function MemoriesPage() {
           <div className="flex rounded-full border border-slate-200/70 dark:border-white/10 bg-slate-100/70 dark:bg-black/20 p-1">
             <TabButton
               active={tab === "active"}
-              onClick={() => setTab("active")}
+              onClick={() => {
+                setTab("active")
+                setMemoryActionNotice(null)
+              }}
               label={`Active Memories (${activeCount})`}
             />
             <TabButton
               active={tab === "archived"}
-              onClick={() => setTab("archived")}
+              onClick={() => {
+                setTab("archived")
+                setMemoryActionNotice(null)
+              }}
               label={`Archived (${archivedCount})`}
             />
             <TabButton
               active={tab === "review"}
-              onClick={() => setTab("review")}
+              onClick={() => {
+                setTab("review")
+                setMemoryActionNotice(null)
+              }}
               label={`Needs Review (${reviewCount})`}
             />
           </div>
@@ -832,12 +861,19 @@ export default function MemoriesPage() {
           </div>
         ) : null}
 
+        {memoryActionNotice ? (
+          <div className="rounded-2xl border border-emerald-200/70 bg-emerald-50/80 p-4 text-sm leading-6 text-emerald-800 shadow-sm shadow-emerald-900/5 dark:border-emerald-300/15 dark:bg-emerald-300/10 dark:text-emerald-100">
+            {memoryActionNotice}
+          </div>
+        ) : null}
+
         {tab === "review" ? (
           <MemoryQualityPanel
             quality={quality}
             loading={loading}
             saving={savingId === "quality-resolve"}
-            onConfirmMemory={(memoryId) => void confirmMemoryFreshness(memoryId)}
+            resolvedIssueKeys={resolvedQualityIssueKeys}
+            onConfirmMemory={(memoryId, issueKey) => void confirmMemoryFreshness(memoryId, issueKey)}
             onResolve={(params) =>
               requireMemoryPin(
                 "Resolve memory issue",
@@ -1040,6 +1076,14 @@ function TabButton({
   )
 }
 
+function memoryQualityIssueKey(item: MemoryQualityReviewItem) {
+  return [
+    item.issue_type,
+    item.severity,
+    ...item.memory_ids.slice().sort(),
+  ].join(":")
+}
+
 function formatDateTime(value?: string | null) {
   if (!value) return "—"
   const date = new Date(value)
@@ -1051,22 +1095,27 @@ function MemoryQualityPanel({
   quality,
   loading,
   saving,
+  resolvedIssueKeys,
   onResolve,
   onConfirmMemory,
 }: {
   quality: MemoryQualityPayload | null
   loading: boolean
   saving: boolean
+  resolvedIssueKeys: Record<string, boolean>
   onResolve: (params: {
     actionName: "keep_one_archive_rest" | "archive_memory"
     keepMemoryId?: string | null
     archiveMemoryIds: string[]
+    issueKey?: string
   }) => void
-  onConfirmMemory: (memoryId: string) => void
+  onConfirmMemory: (memoryId: string, issueKey?: string) => void
 }) {
   if (loading) return <LoadingState />
 
-  const items = quality?.review_items || []
+  const items = (quality?.review_items || []).filter(
+    (item) => !resolvedIssueKeys[memoryQualityIssueKey(item)],
+  )
 
   if (!quality || items.length === 0) {
     return (
@@ -1113,6 +1162,7 @@ function MemoryQualityPanel({
             <MemoryQualityIssueCard
               key={`${item.issue_type}-${index}`}
               item={item}
+              issueKey={memoryQualityIssueKey(item)}
               saving={saving}
               onResolve={onResolve}
               onConfirmMemory={onConfirmMemory}
@@ -1205,18 +1255,21 @@ function memoryIssuePrimaryAction(item: MemoryQualityReviewItem) {
 
 function MemoryQualityIssueCard({
   item,
+  issueKey,
   saving,
   onResolve,
   onConfirmMemory,
 }: {
   item: MemoryQualityReviewItem
+  issueKey: string
   saving: boolean
   onResolve: (params: {
     actionName: "keep_one_archive_rest" | "archive_memory"
     keepMemoryId?: string | null
     archiveMemoryIds: string[]
+    issueKey?: string
   }) => void
-  onConfirmMemory: (memoryId: string) => void
+  onConfirmMemory: (memoryId: string, issueKey?: string) => void
 }) {
   const severityClass =
     item.severity === "high"
@@ -1354,6 +1407,7 @@ function MemoryQualityIssueCard({
                 onResolve({
                   actionName: "archive_memory",
                   archiveMemoryIds: memories.map((memory) => memory.id),
+                  issueKey,
                 })
               }
               disabled={saving}
