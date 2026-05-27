@@ -1535,9 +1535,12 @@ function MemoryNarrativeSummaryPanel({
           type="button"
           onClick={onRegenerate}
           disabled={regenerating}
-          className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/10 dark:text-zinc-100 dark:hover:bg-white/15"
+          aria-busy={regenerating}
+          className="inline-flex h-10 w-[168px] shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70 dark:border-white/10 dark:bg-white/10 dark:text-zinc-100 dark:hover:bg-white/15"
         >
-          {regenerating ? "Regenerating..." : "Regenerate summary"}
+          <span className="block truncate">
+            {regenerating ? "Regenerating..." : "Regenerate summary"}
+          </span>
         </button>
       </div>
 
