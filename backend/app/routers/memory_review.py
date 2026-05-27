@@ -25,7 +25,7 @@ from app.core.auth import get_current_user_id
 from app.services.embeddings import embed_document
 from app.services.supabase_client import get_supabase, safe_execute
 from app.routers.calendar_oauth import get_active_google_calendar_access_token
-from app.services import memory_consolidation, memory_pin
+from app.services import memory_consolidation, memory_pin, memory_narrative_summary
 from app.services.memory_quality import assess_memory_quality
 from app.services.memory_quality_resolve import build_quality_resolve_plan
 from app.services.memory_health_scheduler import get_memory_health_scheduler_status
@@ -1010,6 +1010,29 @@ async def archive_calendar_candidate(
         ) from exc
 
     return {"ok": True, "action": "calendar_candidate_archived", "memory_id": memory_id}
+
+
+
+@router.get("/summary")
+async def get_memory_summary(
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    """Return a safe deterministic narrative summary of active memories."""
+    return await memory_narrative_summary.get_memory_narrative_summary(
+        user_id=user_id,
+        use_llm=False,
+    )
+
+
+@router.post("/summary/regenerate")
+async def regenerate_memory_summary(
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    """Regenerate a warmer LLM-written narrative summary from active memories."""
+    return await memory_narrative_summary.get_memory_narrative_summary(
+        user_id=user_id,
+        use_llm=True,
+    )
 
 
 @router.get("/quality")

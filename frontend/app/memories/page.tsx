@@ -119,6 +119,17 @@ type MemoryHealthSchedulerStatus = {
 }
 
 
+type MemoryNarrativeSummary = {
+  summary: string
+  themes: string[]
+  confidence_notes: string[]
+  needs_review_notes: string[]
+  memory_count: number
+  generated_at: string
+  source: "deterministic" | "llm" | string
+}
+
+
 type EditState = {
   memory: MemoryItem
   content: string
@@ -447,6 +458,51 @@ export default function MemoriesPage() {
   const [memoryPinSessionNotice, setMemoryPinSessionNotice] = useState<string | null>(null)
   const [resolvedQualityIssueKeys, setResolvedQualityIssueKeys] = useState<Record<string, boolean>>({})
   const [memoryActionNotice, setMemoryActionNotice] = useState<string | null>(null)
+  const [narrativeSummary, setNarrativeSummary] = useState<MemoryNarrativeSummary | null>(null)
+  const [narrativeLoading, setNarrativeLoading] = useState(false)
+  const [narrativeRegenerating, setNarrativeRegenerating] = useState(false)
+
+  async function loadMemoryNarrativeSummary() {
+    setNarrativeLoading(true)
+
+    try {
+      const res = await fetch("/api/memory-review/summary", {
+        cache: "no-store",
+      })
+
+      if (!res.ok) return
+
+      setNarrativeSummary((await res.json()) as MemoryNarrativeSummary)
+    } catch {
+      setNarrativeSummary(null)
+    } finally {
+      setNarrativeLoading(false)
+    }
+  }
+
+  async function regenerateMemoryNarrativeSummary() {
+    setNarrativeRegenerating(true)
+    setError(null)
+
+    try {
+      const res = await fetch("/api/memory-review/summary/regenerate", {
+        method: "POST",
+        cache: "no-store",
+      })
+
+      if (!res.ok) {
+        const detail = await safeDetail(res)
+        throw new Error(detail || "Failed to regenerate memory summary")
+      }
+
+      setNarrativeSummary((await res.json()) as MemoryNarrativeSummary)
+      setMemoryActionNotice("Aliyya refreshed her narrative understanding of you.")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to regenerate memory summary")
+    } finally {
+      setNarrativeRegenerating(false)
+    }
+  }
 
   async function load() {
     setLoading(true)
@@ -616,6 +672,10 @@ export default function MemoriesPage() {
 
   useEffect(() => {
     void loadPinStatus()
+  }, [])
+
+  useEffect(() => {
+    void loadMemoryNarrativeSummary()
   }, [])
 
   const currentGroups = tab === "review" ? {} : data?.[tab as "active" | "archived"] || {}
@@ -1054,14 +1114,12 @@ export default function MemoriesPage() {
           </div>
         </section>
 
-        <MemoryInsightSummary
-          cards={insightCards}
-          onFocus={(card) => {
-            if (card.targetTab) setTab(card.targetTab)
-            if (card.searchQuery) setQuery(card.searchQuery)
-            if (card.targetTab === "review") setQuery("")
-            setMemoryActionNotice(null)
-          }}
+        <MemoryNarrativeSummaryPanel
+          assistantName={assistantName}
+          summary={narrativeSummary}
+          loading={narrativeLoading}
+          regenerating={narrativeRegenerating}
+          onRegenerate={() => void regenerateMemoryNarrativeSummary()}
         />
 
         {error ? (
@@ -1438,6 +1496,114 @@ function MemoryInsightSummary({
         ))}
       </div>
     </section>
+  )
+}
+
+function MemoryNarrativeSummaryPanel({
+  assistantName,
+  summary,
+  loading,
+  regenerating,
+  onRegenerate,
+}: {
+  assistantName: string
+  summary: MemoryNarrativeSummary | null
+  loading: boolean
+  regenerating: boolean
+  onRegenerate: () => void
+}) {
+  const paragraphs = summary?.summary
+    ? summary.summary.split(/\n{2,}/).map((item) => item.trim()).filter(Boolean)
+    : []
+
+  return (
+    <section className="rounded-[1.75rem] border border-slate-200/70 bg-white/80 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.045]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-zinc-500">
+            Memory narrative
+          </p>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">
+            {assistantName}’s current understanding of you
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
+            A human-friendly synthesis of active memories learned from your chats.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onRegenerate}
+          disabled={regenerating}
+          className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/10 dark:text-zinc-100 dark:hover:bg-white/15"
+        >
+          {regenerating ? "Regenerating..." : "Regenerate summary"}
+        </button>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-black/15">
+        {loading ? (
+          <div className="space-y-3">
+            <div className="h-4 w-5/6 animate-pulse rounded-full bg-slate-200 dark:bg-white/10" />
+            <div className="h-4 w-4/6 animate-pulse rounded-full bg-slate-200 dark:bg-white/10" />
+            <div className="h-4 w-3/4 animate-pulse rounded-full bg-slate-200 dark:bg-white/10" />
+          </div>
+        ) : paragraphs.length ? (
+          <div className="space-y-4 text-sm leading-7 text-slate-700 dark:text-zinc-200">
+            {paragraphs.map((paragraph, index) => (
+              <p key={`memory-narrative-${index}`}>{paragraph}</p>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm leading-7 text-slate-600 dark:text-zinc-300">
+            {assistantName} does not yet have enough active memories to form a detailed narrative. As you chat and approve memories, this section will become more useful.
+          </p>
+        )}
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        <NarrativeMetaList title="Key themes" items={summary?.themes || []} empty="No clear themes yet." />
+        <NarrativeMetaList title="Confidence notes" items={summary?.confidence_notes || []} empty="No confidence notes yet." />
+        <NarrativeMetaList title="Needs review" items={summary?.needs_review_notes || []} empty="No review notes yet." />
+      </div>
+
+      {summary ? (
+        <p className="mt-4 text-xs text-slate-400 dark:text-zinc-500">
+          Based on {summary.memory_count} active memor{summary.memory_count === 1 ? "y" : "ies"} · Source: {summary.source} · Generated {formatDateTime(summary.generated_at)}
+        </p>
+      ) : null}
+    </section>
+  )
+}
+
+function NarrativeMetaList({
+  title,
+  items,
+  empty,
+}: {
+  title: string
+  items: string[]
+  empty: string
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200/70 bg-white/65 p-3 dark:border-white/10 dark:bg-white/[0.035]">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-zinc-500">
+        {title}
+      </p>
+      <div className="mt-2 space-y-1.5">
+        {items.length ? (
+          items.slice(0, 5).map((item, index) => (
+            <p key={`${title}-${index}`} className="text-xs leading-5 text-slate-600 dark:text-zinc-300">
+              · {item}
+            </p>
+          ))
+        ) : (
+          <p className="text-xs leading-5 text-slate-400 dark:text-zinc-500">
+            {empty}
+          </p>
+        )}
+      </div>
+    </div>
   )
 }
 
