@@ -28,7 +28,6 @@ import { useChatPrefill } from "@/components/chat/use-chat-prefill";
 
 import {
   getIdentity,
-  getMainConversation,
   type ChatStreamMeta,
   type Message,
 } from "@/lib/api";
@@ -42,9 +41,11 @@ type LocalMessage =
 export function ConversationPageClient({
   conversationId,
   initialMessages = [],
+  initialIsMainChat = false,
 }: {
   conversationId: string
   initialMessages?: Message[]
+  initialIsMainChat?: boolean
 }) {
 
   const [messages, setMessages] = useState<LocalMessage[]>(initialMessages);
@@ -71,14 +72,7 @@ export function ConversationPageClient({
       ? identity.profile.assistant_name.trim()
       : "Assistant");
 
-  const { data: mainChat } = useQuery({
-    queryKey: ["conversations", "main"],
-    queryFn: getMainConversation,
-    staleTime: 60_000,
-    retry: 1,
-  });
-
-  const isMainChat = mainChat?.id === conversationId;
+  const isMainChat = initialIsMainChat;
 
   const {
     scrollRef,

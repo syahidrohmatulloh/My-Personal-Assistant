@@ -21,7 +21,7 @@ export default async function Page({
 
   const conversation = await supabase
     .from("conversations")
-    .select("id")
+    .select("id, title")
     .eq("id", id)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -36,10 +36,13 @@ export default async function Page({
     .eq("conversation_id", id)
     .order("created_at", { ascending: true });
 
+  const initialIsMainChat = String(conversation.data.title || "").startsWith("Main Chat -");
+
   return (
     <ConversationPageClient
       conversationId={id}
       initialMessages={(messages.data ?? []) as Message[]}
+      initialIsMainChat={initialIsMainChat}
     />
   );
 }
