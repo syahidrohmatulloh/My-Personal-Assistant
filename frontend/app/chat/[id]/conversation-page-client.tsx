@@ -5,9 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowDown } from "lucide-react";
 
 import { Composer } from "@/components/chat/composer";
-import { MessageBubble } from "@/components/chat/message-bubble";
+import { ChatMessageList } from "@/components/chat/chat-message-list";
 import dynamic from "next/dynamic";
-import { Skeleton } from "@/components/ui/skeleton";
 
 const LazyConversationStyleBadge = dynamic(
   () =>
@@ -154,33 +153,11 @@ export function ConversationPageClient({
         ref={scrollRef}
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
       >
-        <div
-          className={[
-            "max-w-3xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-3 sm:space-y-4",
-            !loading && messages.length > 0 && !historySettled ? "opacity-0" : "opacity-100",
-          ].join(" ")}
-        >
-          {loading ? (
-            <>
-              <Skeleton className="h-12 w-3/4 ml-auto rounded-2xl" />
-              <Skeleton className="h-20 w-4/5 rounded-2xl" />
-              <Skeleton className="h-10 w-2/3 ml-auto rounded-2xl" />
-            </>
-          ) : messages.length === 0 ? (
-            <p className="text-sm text-fg-muted text-center pt-12">
-              Say hello — I&apos;m listening.
-            </p>
-          ) : (
-            messages.map((m) => (
-              <MessageBubble
-                key={m.id}
-                role={m.role}
-                content={m.content}
-                pending={"pending" in m && m.pending === true}
-              />
-            ))
-          )}
-        </div>
+        <ChatMessageList
+          messages={messages}
+          loading={loading}
+          historySettled={historySettled}
+        />
       </div>
 
       {showJumpBtn && (
