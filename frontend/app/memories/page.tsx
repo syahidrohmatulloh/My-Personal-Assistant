@@ -186,6 +186,61 @@ function strengthLabel(value?: number | null) {
   return "Low"
 }
 
+function memoryWhyItMatters(memory: MemoryItem) {
+  const field = (memory.structured_field || "").toLowerCase()
+  const category = (memory.category || "").toLowerCase()
+
+  if (field === "assistant_name") {
+    return "This affects how your assistant introduces herself and keeps the experience consistent across chats."
+  }
+
+  if (field === "name" || field === "nickname") {
+    return "This affects how your assistant addresses you naturally across conversations."
+  }
+
+  if (field === "timezone" || category === "important_dates") {
+    return "This helps your assistant avoid wrong timing, reminders, greetings, and scheduling assumptions."
+  }
+
+  if (category === "preferences") {
+    return "This helps your assistant personalize suggestions and avoid repeating options that do not fit you."
+  }
+
+  if (category === "relationships") {
+    return "This helps your assistant understand important people in your life when planning, drafting, or remembering context."
+  }
+
+  if (category === "goals") {
+    return "This helps your assistant connect future advice to what you are actively trying to achieve."
+  }
+
+  if (category === "constraints") {
+    return "This helps your assistant avoid suggestions that conflict with your limits, rules, or preferences."
+  }
+
+  if (category === "routines") {
+    return "This helps your assistant make plans that fit your normal habits and schedule."
+  }
+
+  return "This gives your assistant durable context that may improve future answers when it is relevant."
+}
+
+function memoryTrustSummary(memory: MemoryItem) {
+  const strength = strengthLabel(memory.confidence)
+  const source = sourceLabel(memory.source_priority)
+  const confirmed = memory.last_confirmed_at
+    ? `Confirmed ${formatDate(memory.last_confirmed_at)}`
+    : memory.created_at
+      ? `Learned ${formatDate(memory.created_at)}`
+      : "No date available"
+
+  return {
+    strength,
+    source,
+    confirmed,
+  }
+}
+
 const GROUP_ORDER = [
   "Identity",
   "Important Dates",
@@ -1511,6 +1566,8 @@ function MemoryCard({
             </ul>
           </div>
         ) : null}
+
+        <MemoryTransparencyPanel memory={memory} />
       </div>
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/70 dark:border-white/10 pt-4">
@@ -1602,6 +1659,48 @@ function ActionButton({
       {icon}
       {children}
     </button>
+  )
+}
+
+function MemoryTransparencyPanel({ memory }: { memory: MemoryItem }) {
+  const trust = memoryTrustSummary(memory)
+
+  return (
+    <div className="mt-4 rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 text-xs leading-5 text-slate-600 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-300">
+      <p className="font-medium text-slate-800 dark:text-zinc-100">
+        Why this matters
+      </p>
+      <p className="mt-1">
+        {memoryWhyItMatters(memory)}
+      </p>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <div className="rounded-lg bg-white/70 px-2.5 py-2 dark:bg-black/20">
+          <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400 dark:text-zinc-500">
+            Strength
+          </p>
+          <p className="mt-0.5 font-medium text-slate-700 dark:text-zinc-200">
+            {trust.strength}
+          </p>
+        </div>
+        <div className="rounded-lg bg-white/70 px-2.5 py-2 dark:bg-black/20">
+          <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400 dark:text-zinc-500">
+            Source
+          </p>
+          <p className="mt-0.5 font-medium text-slate-700 dark:text-zinc-200">
+            {trust.source}
+          </p>
+        </div>
+        <div className="rounded-lg bg-white/70 px-2.5 py-2 dark:bg-black/20">
+          <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400 dark:text-zinc-500">
+            Freshness
+          </p>
+          <p className="mt-0.5 font-medium text-slate-700 dark:text-zinc-200">
+            {trust.confirmed}
+          </p>
+        </div>
+      </div>
+    </div>
   )
 }
 
