@@ -1,15 +1,17 @@
 "use client";
 
 import { Sidebar } from "@/components/chat/sidebar";
-import type { Conversation } from "@/lib/api";
+import type { Conversation, Identity } from "@/lib/api";
 
 export function ChatShell({
   initialConversations,
   initialJournaled,
+  initialIdentity,
   children,
 }: {
   initialConversations: Conversation[];
   initialJournaled: boolean;
+  initialIdentity: Identity;
   children: React.ReactNode;
 }) {
   return (
@@ -20,6 +22,7 @@ export function ChatShell({
       <Sidebar
         initialConversations={initialConversations}
         initialJournaled={initialJournaled}
+        initialIdentity={initialIdentity}
       />
       <div className="flex-1 flex flex-col min-w-0 min-h-0 pt-[calc(env(safe-area-inset-top)+56px)] md:pt-0">
         {children}

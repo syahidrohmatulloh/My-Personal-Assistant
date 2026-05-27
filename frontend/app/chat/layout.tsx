@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { ChatShell } from "./chat-shell";
-import type { Conversation } from "@/lib/api";
+import type { Conversation, Identity } from "@/lib/api";
 import { SnapshotPrewarmer } from "@/components/cache/snapshot-prewarmer";
 
 export default async function ChatLayout({
@@ -47,10 +47,17 @@ export default async function ChatLayout({
     redirect("/welcome");
   }
 
+  const initialIdentity = {
+    profile,
+    narrative: null,
+    updated_at: null,
+  } satisfies Identity;
+
   return (
     <ChatShell
       initialConversations={(convos.data ?? []) as Conversation[]}
       initialJournaled={!!journal.data}
+      initialIdentity={initialIdentity}
     >
       <SnapshotPrewarmer userId={user.id} />
       {children}
