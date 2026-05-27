@@ -236,15 +236,90 @@ def _coerce_summary_payload(parsed: Any, fallback: dict[str, Any], memory_count:
     }
 
 
+async def _load_latest_persisted_summary(user_id: str) -> dict[str, Any] | None:
+    try:
+        result = await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("memory_narrative_summaries")
+                .select(
+                    "summary, themes, confidence_notes, needs_review_notes, "
+                    "memory_count, source, generated_at"
+                )
+                .eq("user_id", user_id)
+                .order("generated_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+        )
+    except Exception:
+        return None
+
+    rows = list(result.data or [])
+    if not rows:
+        return None
+
+    row = rows[0]
+    summary = str(row.get("summary") or "").strip()
+    if not summary:
+        return None
+
+    def list_value(value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return []
+
+    return {
+        "summary": summary,
+        "themes": list_value(row.get("themes")),
+        "confidence_notes": list_value(row.get("confidence_notes")),
+        "needs_review_notes": list_value(row.get("needs_review_notes")),
+        "memory_count": int(row.get("memory_count") or 0),
+        "generated_at": str(row.get("generated_at") or _now_iso()),
+        "source": str(row.get("source") or "persisted"),
+    }
+
+
+async def _persist_summary(user_id: str, payload: dict[str, Any]) -> None:
+    try:
+        await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("memory_narrative_summaries")
+                .insert(
+                    {
+                        "user_id": user_id,
+                        "summary": payload.get("summary") or "",
+                        "themes": payload.get("themes") or [],
+                        "confidence_notes": payload.get("confidence_notes") or [],
+                        "needs_review_notes": payload.get("needs_review_notes") or [],
+                        "memory_count": int(payload.get("memory_count") or 0),
+                        "source": payload.get("source") or "deterministic",
+                        "generated_at": payload.get("generated_at") or _now_iso(),
+                    }
+                )
+                .execute()
+            )
+        )
+    except Exception:
+        # Persistence must never break the user-facing summary endpoint.
+        return
+
+
 async def get_memory_narrative_summary(
     *,
     user_id: str,
     use_llm: bool = False,
 ) -> dict[str, Any]:
+    if not use_llm:
+        persisted = await _load_latest_persisted_summary(user_id)
+        if persisted:
+            return persisted
+
     rows = await _load_active_memories(user_id)
     fallback = _deterministic_summary(rows)
 
     if not use_llm or not rows:
+        if not use_llm:
+            await _persist_summary(user_id, fallback)
         return fallback
 
     brief = _memory_brief_for_prompt(rows)
@@ -275,6 +350,9 @@ async def get_memory_narrative_summary(
             raw = raw.strip("`").lstrip("json").strip()
 
         parsed = json.loads(raw)
-        return _coerce_summary_payload(parsed, fallback, len(rows))
+        payload = _coerce_summary_payload(parsed, fallback, len(rows))
+        await _persist_summary(user_id, payload)
+        return payload
     except Exception:
+        await _persist_summary(user_id, fallback)
         return fallback
