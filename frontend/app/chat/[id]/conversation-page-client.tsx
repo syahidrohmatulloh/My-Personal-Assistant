@@ -10,11 +10,11 @@ import { MessageBubble } from "@/components/chat/message-bubble";
 import { ConversationStyleBadge } from "@/components/chat/conversation-style-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useChatScroll } from "@/components/chat/use-chat-scroll";
+import { useChatMessageLoader } from "@/components/chat/use-chat-message-loader";
 
 import {
   getIdentity,
   getMainConversation,
-  listMessages,
   streamChat,
   type ChatStreamMeta,
   type Identity,
@@ -158,6 +158,16 @@ export function ConversationPageClient({
     [conversationId],
   );
 
+  useChatMessageLoader({
+    conversationId,
+    initialMessages,
+    setMessages,
+    setLoading,
+    setHistorySettled,
+    markShouldStickToBottom,
+    settleScrollAfterPaint,
+  });
+
   useEffect(() => {
     let unsubscribe: (() => void) | null = null;
     let cancelled = false;
@@ -207,54 +217,6 @@ export function ConversationPageClient({
     }
   }, [conversationId]);
 
-
-  // Load messages, then scroll the container to bottom on next frame.
-  // Server-prefetched messages make direct opens much faster. The client fetch
-  // is only a fallback for cases where no initial messages were provided.
-  useEffect(() => {
-    let cancelled = false;
-
-    setLoading(initialMessages.length === 0);
-    setHistorySettled(false);
-    markShouldStickToBottom();
-
-    const settleAfterPaint = () => {
-      settleScrollAfterPaint(
-        () => !cancelled,
-        () => setHistorySettled(true),
-      );
-    };
-
-    if (initialMessages.length > 0) {
-      setMessages(initialMessages);
-      setLoading(false);
-      settleAfterPaint();
-
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    listMessages(conversationId)
-      .then((msgs) => {
-        if (cancelled) return;
-
-        setMessages(msgs);
-        setLoading(false);
-        settleAfterPaint();
-      })
-      .catch((err) => {
-        console.error(err);
-        if (!cancelled) {
-          setLoading(false);
-          setHistorySettled(true);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [conversationId, initialMessages, markShouldStickToBottom, settleScrollAfterPaint]);
 
 const handleSend = useCallback(
     async (attachmentIds: string[] = [], overrideText?: string) => {
