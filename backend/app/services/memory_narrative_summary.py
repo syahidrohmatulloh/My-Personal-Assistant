@@ -38,6 +38,28 @@ _CATEGORY_LABELS = {
 }
 
 
+_RAW_MEMORY_MARKERS = [
+    "due_date=",
+    "start_at=",
+    "end_at=",
+    "goal_id=",
+    "location=",
+    "title=",
+    "polished_theme",
+    "aware_glass",
+    "mobile_smooth",
+    "consistent_personal",
+    "companion_not_generic",
+    " | ",
+]
+
+_INTERNAL_MEMORY_VALUES = {
+    "aliyya",
+    "beb",
+    "wib",
+}
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -71,6 +93,51 @@ def _memory_value(row: dict[str, Any]) -> str:
     return structured_value or content
 
 
+def _is_raw_or_internal_text(value: str) -> bool:
+    text = str(value or "").strip()
+    lowered = text.lower()
+
+    if not text:
+        return True
+
+    if lowered in _INTERNAL_MEMORY_VALUES:
+        return True
+
+    if any(marker in lowered for marker in _RAW_MEMORY_MARKERS):
+        return True
+
+    # Snake-case UI config strings are not meaningful to users.
+    if "_" in text and len(text.split()) <= 3:
+        return True
+
+    # Date metadata strings are usually raw scheduler/calendar rows.
+    if "t00:00" in lowered or "+07:00" in lowered or "+00:00" in lowered:
+        return True
+
+    return False
+
+
+def _safe_memory_text(row: dict[str, Any]) -> str | None:
+    content = str(row.get("content") or "").strip()
+    structured_value = str(row.get("structured_value") or "").strip()
+
+    for candidate in [content, structured_value]:
+        if candidate and not _is_raw_or_internal_text(candidate):
+            return candidate
+
+    return None
+
+
+def _safe_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    safe: list[dict[str, Any]] = []
+
+    for row in rows:
+        if _safe_memory_text(row):
+            safe.append(row)
+
+    return safe
+
+
 def _group_memories(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
 
@@ -93,19 +160,20 @@ def _top_values(rows: list[dict[str, Any]], limit: int = 5) -> list[str]:
 
 
 def _summary_looks_raw(summary: str) -> bool:
-    lowered = summary.lower()
-    raw_markers = [
-        "due_date=",
-        "start_at=",
-        "end_at=",
-        "goal_id=",
-        "location=",
-        "polished_theme",
-        "consistent_personal",
-        " | ",
+    lowered = str(summary or "").lower()
+
+    if any(marker in lowered for marker in _RAW_MEMORY_MARKERS):
+        return True
+
+    raw_patterns = [
+        "identity/profile details:",
+        "preferences that may shape recommendations:",
+        "goals or routines such as:",
+        "relationship context involving:",
+        "constraints or limits such as:",
     ]
 
-    return any(marker in lowered for marker in raw_markers)
+    return any(pattern in lowered for pattern in raw_patterns)
 
 
 def _category_counts(rows: list[dict[str, Any]]) -> list[tuple[str, int]]:
@@ -136,79 +204,74 @@ def _natural_theme_sentence(counts: list[tuple[str, int]]) -> str:
 
 
 def _deterministic_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Safe fallback summary.
+    """Safe editorial fallback.
 
-    This must be user-friendly. Do not copy raw memory values because some
-    structured rows contain internal scheduling fields like due_date/start_at.
+    This does NOT list raw memories. It describes the shape of Aliyya's
+    understanding in natural language.
     """
+    safe_rows = _safe_rows(rows)
     memory_count = len(rows)
+    safe_count = len(safe_rows)
     quality = assess_memory_quality(rows)
-    counts = _category_counts(rows)
+    counts = _category_counts(safe_rows)
     themes = [label for label, _count in counts if label != "Other"][:8]
-
     needs_review = int(quality.get("summary", {}).get("needs_review") or 0)
 
     if memory_count <= 0:
         summary = (
-            "Aliyya does not yet have enough active memories to form a detailed understanding of you. "
-            "As you chat more and approve useful memories, this section will become a clearer narrative of who you are, "
-            "what matters to you, and how Aliyya should support you."
+            "Aliyya is still building her understanding of you. She does not yet have enough active, reliable memories to summarize who you are or how she should support you.\n\n"
+            "As your chats continue and you approve useful memories, this section will become a warmer summary of your work, preferences, routines, relationships, and constraints."
+        )
+    elif safe_count <= 3:
+        summary = (
+            f"Aliyya has started building a memory base about you, but the current understanding is still early. She has {memory_count} active memories, although only a small portion is clean enough to summarize confidently.\n\n"
+            "At this stage, treat the summary as a rough orientation rather than a complete profile. Reviewing noisy or outdated memories will help Aliyya become more accurate."
         )
     else:
         theme_sentence = _natural_theme_sentence(counts)
 
-        summary_parts = [
-            (
-                f"Aliyya currently has {memory_count} active memories about you. "
-                f"{theme_sentence} These memories help her keep conversations consistent instead of treating every chat as a fresh start."
-            ),
-            (
-                "At a high level, Aliyya uses these memories to understand your identity and context, your preferences, "
-                "the goals or routines you have mentioned, important people or relationships, and any constraints she should respect."
-            ),
-            (
-                "This summary is intentionally conservative. If a detail is outdated, too vague, or duplicated, it should be reviewed before Aliyya relies on it too strongly."
-            ),
-        ]
-
-        if needs_review > 0:
-            summary_parts.append(
-                f"There are {needs_review} memor{'y' if needs_review == 1 else 'ies'} that may need cleanup. "
-                "Reviewing them will make Aliyya’s understanding more accurate and less noisy."
-            )
-
-        summary = "\n\n".join(summary_parts)
+        summary = (
+            f"Aliyya currently has {memory_count} active memories about you. {theme_sentence} These memories help her keep continuity across conversations, so she can respond with more context instead of starting from zero each time.\n\n"
+            "From the available memory base, Aliyya is trying to understand your identity and working context, the preferences that should shape her suggestions, the goals or routines you return to, important people or relationships, and constraints she should respect.\n\n"
+            "This is not meant to be a permanent biography. It is a living understanding that should be corrected whenever something is outdated, duplicated, too vague, or no longer useful."
+        )
 
     if needs_review > 0:
-        needs_review_notes = [
-            f"{needs_review} memor{'y' if needs_review == 1 else 'ies'} may need review before this understanding is fully reliable."
-        ]
-    else:
-        needs_review_notes = ["No urgent memory cleanup is currently detected."]
+        summary += (
+            f"\n\nThere are currently {needs_review} memories that may need review. Cleaning them up will make this summary more accurate and make Aliyya less likely to rely on noisy details."
+        )
 
     return {
         "summary": summary,
         "themes": themes,
         "confidence_notes": [
-            f"This summary is based on {memory_count} active memor{'y' if memory_count == 1 else 'ies'}.",
-            "It avoids copying raw memory fields and favors a conservative high-level interpretation.",
+            f"This summary is based on {memory_count} active memories.",
+            "Raw scheduler fields, internal UI settings, and unclear technical fragments are intentionally excluded from the narrative.",
         ],
-        "needs_review_notes": needs_review_notes,
+        "needs_review_notes": [
+            f"{needs_review} memory item{'s' if needs_review != 1 else ''} may need review."
+            if needs_review > 0
+            else "No urgent memory cleanup is currently detected."
+        ],
         "memory_count": memory_count,
         "generated_at": _now_iso(),
         "source": "deterministic",
     }
 
+
 def _memory_brief_for_prompt(rows: list[dict[str, Any]]) -> str:
-    grouped = _group_memories(rows)
+    grouped = _group_memories(_safe_rows(rows))
     lines: list[str] = []
 
     for label, items in grouped.items():
+        if not items:
+            continue
+
         lines.append(f"## {label}")
-        for row in items[:20]:
+        for row in items[:14]:
             confidence = row.get("confidence")
             source = row.get("source_priority") or row.get("source") or "unknown"
-            value = str(row.get("content") or "").strip()
+            value = _safe_memory_text(row)
             if not value:
                 continue
             lines.append(f"- {value} | confidence={confidence} | source={source}")
@@ -233,9 +296,11 @@ Rules:
 - Do not say the user has an attribute unless the memory directly supports it.
 - Keep it concise, warm, and useful.
 - If memories are thin, say that clearly.
-- NEVER copy raw structured strings such as due_date=, start_at=, end_at=, goal_id=, location=, or pipe-separated internal fields.
-- If a memory looks like internal metadata, paraphrase the higher-level meaning or ignore it.
+- NEVER copy raw structured strings such as due_date=, start_at=, end_at=, goal_id=, location=, title=, or pipe-separated internal fields.
+- NEVER mention internal UI/style settings such as polished_theme, aware_glass, mobile_smooth, or similar technical tokens.
+- If a memory looks like internal metadata, ignore it.
 - Write a polished narrative, not a database summary.
+- The summary should sound like an assistant's thoughtful understanding, not a list of extracted fields.
 - No markdown fences. JSON only.
 """
 
@@ -245,7 +310,7 @@ def _coerce_summary_payload(parsed: Any, fallback: dict[str, Any], memory_count:
         return fallback
 
     summary = str(parsed.get("summary") or "").strip()
-    if not summary:
+    if not summary or _summary_looks_raw(summary):
         return fallback
 
     def list_of_strings(value: Any) -> list[str]:
@@ -291,8 +356,7 @@ async def _load_latest_persisted_summary(user_id: str) -> dict[str, Any] | None:
     if not summary:
         return None
 
-    source = str(row.get("source") or "persisted")
-    if source != "llm" and _summary_looks_raw(summary):
+    if _summary_looks_raw(summary):
         return None
 
     def list_value(value: Any) -> list[str]:

@@ -1527,7 +1527,7 @@ function MemoryNarrativeSummaryPanel({
             {assistantName}’s current understanding of you
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
-            A natural-language summary of what Aliyya currently understands from your chats and saved memories.
+            A plain-English narrative of Aliyya’s current understanding. If it feels wrong, use Needs Review to clean the underlying memories.
           </p>
         </div>
 
