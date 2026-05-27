@@ -127,6 +127,8 @@ type MemoryNarrativeSummary = {
   memory_count: number
   generated_at: string
   source: "deterministic" | "llm" | string
+  is_stale?: boolean
+  latest_memory_changed_at?: string | null
 }
 
 
@@ -542,6 +544,8 @@ export default function MemoriesPage() {
         },
         snapshotKey,
       )
+
+      void loadMemoryNarrativeSummary()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load memories")
     } finally {
@@ -1566,6 +1570,12 @@ function MemoryNarrativeSummaryPanel({
 
       {summary ? (
         <div className="mt-4 space-y-3">
+          {summary.is_stale ? (
+            <div className="rounded-2xl border border-amber-200/70 bg-amber-50/80 p-3 text-xs leading-5 text-amber-900 dark:border-amber-300/15 dark:bg-amber-300/10 dark:text-amber-100">
+              This summary may be outdated because your memories changed after it was generated. Regenerate it when you want Aliyya to refresh her understanding.
+            </div>
+          ) : null}
+
           {summary.themes?.length ? (
             <div className="flex flex-wrap gap-2">
               {summary.themes.slice(0, 8).map((theme) => (

@@ -64,6 +64,42 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+async def _latest_memory_changed_at(user_id: str) -> str | None:
+    try:
+        result = await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("memories")
+                .select("created_at, updated_at")
+                .eq("user_id", user_id)
+                .eq("superseded", False)
+                .or_("archived.is.false,archived.is.null")
+                .order("updated_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+        )
+    except Exception:
+        return None
+
+    rows = list(result.data or [])
+    if not rows:
+        return None
+
+    row = rows[0]
+    return str(row.get("updated_at") or row.get("created_at") or "") or None
+
+
+def _with_freshness(payload: dict[str, Any], latest_memory_changed_at: str | None) -> dict[str, Any]:
+    generated_at = str(payload.get("generated_at") or "")
+    is_stale = bool(latest_memory_changed_at and generated_at and latest_memory_changed_at > generated_at)
+
+    return {
+        **payload,
+        "is_stale": is_stale,
+        "latest_memory_changed_at": latest_memory_changed_at,
+    }
+
+
 async def _load_active_memories(user_id: str) -> list[dict[str, Any]]:
     result = await asyncio.to_thread(
         lambda: safe_execute(
@@ -405,10 +441,12 @@ async def get_memory_narrative_summary(
     user_id: str,
     use_llm: bool = False,
 ) -> dict[str, Any]:
+    latest_changed_at = await _latest_memory_changed_at(user_id)
+
     if not use_llm:
         persisted = await _load_latest_persisted_summary(user_id)
         if persisted:
-            return persisted
+            return _with_freshness(persisted, latest_changed_at)
 
     rows = await _load_active_memories(user_id)
     fallback = _deterministic_summary(rows)
@@ -416,7 +454,7 @@ async def get_memory_narrative_summary(
     if not use_llm or not rows:
         if not use_llm:
             await _persist_summary(user_id, fallback)
-        return fallback
+        return _with_freshness(fallback, latest_changed_at)
 
     brief = _memory_brief_for_prompt(rows)
 
@@ -448,7 +486,7 @@ async def get_memory_narrative_summary(
         parsed = json.loads(raw)
         payload = _coerce_summary_payload(parsed, fallback, len(rows))
         await _persist_summary(user_id, payload)
-        return payload
+        return _with_freshness(payload, latest_changed_at)
     except Exception:
         await _persist_summary(user_id, fallback)
-        return fallback
+        return _with_freshness(fallback, latest_changed_at)
