@@ -41,10 +41,14 @@ export function ConversationPageClient({
   conversationId,
   initialMessages = [],
   initialIsMainChat = false,
+  initialStyleProfileId = null,
+  initialStyleProfileName = null,
 }: {
   conversationId: string
   initialMessages?: Message[]
   initialIsMainChat?: boolean
+  initialStyleProfileId?: string | null
+  initialStyleProfileName?: string | null
 }) {
 
   const [messages, setMessages] = useState<LocalMessage[]>(initialMessages);
@@ -148,7 +152,13 @@ export function ConversationPageClient({
 
   return (
     <main className="flex-1 flex flex-col min-w-0 min-h-0 relative">
-      {showStyleBadge ? <LazyConversationStyleBadge conversationId={conversationId} /> : null}
+      {showStyleBadge ? (
+        <LazyConversationStyleBadge
+          conversationId={conversationId}
+          initialStyleProfileId={initialStyleProfileId}
+          initialStyleProfileName={initialStyleProfileName}
+        />
+      ) : null}
 <div
         ref={scrollRef}
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain"

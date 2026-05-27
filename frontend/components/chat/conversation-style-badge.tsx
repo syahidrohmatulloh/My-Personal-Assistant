@@ -6,7 +6,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type Conversation,
   type StyleProfile,
-  listConversations,
   listStyleProfiles,
   setConversationStyle,
 } from "@/lib/api";
@@ -21,40 +20,74 @@ import { cn } from "@/lib/utils";
  *
  * Default should feel invisible, not like a mode the user needs to manage.
  */
-export function ConversationStyleBadge({ conversationId }: { conversationId: string }) {
+export function ConversationStyleBadge({
+  conversationId,
+  initialStyleProfileId = null,
+  initialStyleProfileName = null,
+}: {
+  conversationId: string
+  initialStyleProfileId?: string | null
+  initialStyleProfileName?: string | null
+}) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const { data: conversations = [] } = useQuery({
-    queryKey: ["conversations"],
-    queryFn: listConversations,
-  });
+  const [currentId, setCurrentId] = useState<string | null>(initialStyleProfileId);
+  const [currentName, setCurrentName] = useState<string | null>(initialStyleProfileName);
+
   const { data: profiles = [] } = useQuery({
     queryKey: ["style-profiles"],
     queryFn: listStyleProfiles,
+    enabled: open,
     staleTime: 60_000,
   });
 
-  const convo = conversations.find((c) => c.id === conversationId);
-  const currentId = convo?.style_profile_id ?? null;
-  const currentProfile = currentId ? profiles.find((p) => p.id === currentId) : null;
+  const currentProfile =
+    currentId
+      ? profiles.find((p) => p.id === currentId) ??
+        (currentName
+          ? {
+              id: currentId,
+              profile_name: currentName,
+            }
+          : null)
+      : null;
 
   const styleMut = useMutation({
     mutationFn: (profileId: string | null) =>
       setConversationStyle(conversationId, profileId),
     onMutate: async (profileId) => {
       await qc.cancelQueries({ queryKey: ["conversations"] });
-      const prev = qc.getQueryData<Conversation[]>(["conversations"]);
+
+      const prevConversations = qc.getQueryData<Conversation[]>(["conversations"]);
+      const previousId = currentId;
+      const previousName = currentName;
+      const nextName =
+        profileId == null
+          ? null
+          : profiles.find((profile) => profile.id === profileId)?.profile_name ?? null;
+
+      setCurrentId(profileId);
+      setCurrentName(nextName);
+
       qc.setQueryData<Conversation[]>(["conversations"], (old = []) =>
-        old.map((c) =>
-          c.id === conversationId ? { ...c, style_profile_id: profileId } : c,
+        old.map((conversation) =>
+          conversation.id === conversationId
+            ? { ...conversation, style_profile_id: profileId }
+            : conversation,
         ),
       );
-      return { prev };
+
+      return { prevConversations, previousId, previousName };
     },
     onError: (_e, _v, ctx) => {
-      if (ctx?.prev) qc.setQueryData(["conversations"], ctx.prev);
+      if (ctx?.prevConversations) {
+        qc.setQueryData(["conversations"], ctx.prevConversations);
+      }
+
+      setCurrentId(ctx?.previousId ?? null);
+      setCurrentName(ctx?.previousName ?? null);
     },
   });
 
@@ -120,6 +153,7 @@ export function ConversationStyleBadge({ conversationId }: { conversationId: str
               label={p.profile_name}
               active={currentId === p.id}
               onClick={() => {
+                setCurrentName(p.profile_name);
                 styleMut.mutate(p.id);
                 setOpen(false);
               }}
