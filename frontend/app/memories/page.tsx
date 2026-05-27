@@ -1527,7 +1527,7 @@ function MemoryNarrativeSummaryPanel({
             {assistantName}’s current understanding of you
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
-            A human-friendly synthesis of active memories learned from your chats.
+            A natural-language summary of what Aliyya currently understands from your chats and saved memories.
           </p>
         </div>
 
@@ -1541,7 +1541,7 @@ function MemoryNarrativeSummaryPanel({
         </button>
       </div>
 
-      <div className="mt-5 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-black/15">
+      <div className="mt-5 rounded-2xl border border-slate-200/70 bg-slate-50/70 p-5 dark:border-white/10 dark:bg-black/15">
         {loading ? (
           <div className="space-y-3">
             <div className="h-4 w-5/6 animate-pulse rounded-full bg-slate-200 dark:bg-white/10" />
@@ -1549,7 +1549,7 @@ function MemoryNarrativeSummaryPanel({
             <div className="h-4 w-3/4 animate-pulse rounded-full bg-slate-200 dark:bg-white/10" />
           </div>
         ) : paragraphs.length ? (
-          <div className="space-y-4 text-sm leading-7 text-slate-700 dark:text-zinc-200">
+          <div className="space-y-4 text-[15px] leading-8 text-slate-700 dark:text-zinc-200">
             {paragraphs.map((paragraph, index) => (
               <p key={`memory-narrative-${index}`}>{paragraph}</p>
             ))}
@@ -1561,16 +1561,31 @@ function MemoryNarrativeSummaryPanel({
         )}
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-3">
-        <NarrativeMetaList title="Key themes" items={summary?.themes || []} empty="No clear themes yet." />
-        <NarrativeMetaList title="Confidence notes" items={summary?.confidence_notes || []} empty="No confidence notes yet." />
-        <NarrativeMetaList title="Needs review" items={summary?.needs_review_notes || []} empty="No review notes yet." />
-      </div>
-
       {summary ? (
-        <p className="mt-4 text-xs text-slate-400 dark:text-zinc-500">
-          Based on {summary.memory_count} active memor{summary.memory_count === 1 ? "y" : "ies"} · Source: {summary.source} · Generated {formatDateTime(summary.generated_at)}
-        </p>
+        <div className="mt-4 space-y-3">
+          {summary.themes?.length ? (
+            <div className="flex flex-wrap gap-2">
+              {summary.themes.slice(0, 8).map((theme) => (
+                <span
+                  key={theme}
+                  className="rounded-full border border-slate-200 bg-white/75 px-3 py-1 text-xs font-medium text-slate-600 dark:border-white/10 dark:bg-white/[0.06] dark:text-zinc-300"
+                >
+                  {theme}
+                </span>
+              ))}
+            </div>
+          ) : null}
+
+          {summary.needs_review_notes?.length ? (
+            <div className="rounded-2xl border border-amber-200/70 bg-amber-50/70 p-3 text-xs leading-5 text-amber-900 dark:border-amber-300/15 dark:bg-amber-300/10 dark:text-amber-100">
+              {summary.needs_review_notes[0]}
+            </div>
+          ) : null}
+
+          <p className="text-xs text-slate-400 dark:text-zinc-500">
+            Based on {summary.memory_count} active memor{summary.memory_count === 1 ? "y" : "ies"} · Updated {formatDateTime(summary.generated_at)}
+          </p>
+        </div>
       ) : null}
     </section>
   )

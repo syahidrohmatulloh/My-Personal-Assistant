@@ -92,61 +92,93 @@ def _top_values(rows: list[dict[str, Any]], limit: int = 5) -> list[str]:
     return values
 
 
-def _deterministic_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _summary_looks_raw(summary: str) -> bool:
+    lowered = summary.lower()
+    raw_markers = [
+        "due_date=",
+        "start_at=",
+        "end_at=",
+        "goal_id=",
+        "location=",
+        "polished_theme",
+        "consistent_personal",
+        " | ",
+    ]
+
+    return any(marker in lowered for marker in raw_markers)
+
+
+def _category_counts(rows: list[dict[str, Any]]) -> list[tuple[str, int]]:
     grouped = _group_memories(rows)
+    counts = [(label, len(items)) for label, items in grouped.items() if items]
+    counts.sort(key=lambda item: item[1], reverse=True)
+    return counts
+
+
+def _natural_theme_sentence(counts: list[tuple[str, int]]) -> str:
+    if not counts:
+        return "Aliyya is still building her understanding of you."
+
+    labels = [label for label, _count in counts if label != "Other"][:5]
+    if not labels and counts:
+        labels = [counts[0][0]]
+
+    if len(labels) == 1:
+        return f"The clearest area of memory is {labels[0].lower()}."
+    if len(labels) == 2:
+        return f"The clearest areas of memory are {labels[0].lower()} and {labels[1].lower()}."
+
+    return (
+        "The clearest areas of memory are "
+        + ", ".join(label.lower() for label in labels[:-1])
+        + f", and {labels[-1].lower()}."
+    )
+
+
+def _deterministic_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Safe fallback summary.
+
+    This must be user-friendly. Do not copy raw memory values because some
+    structured rows contain internal scheduling fields like due_date/start_at.
+    """
     memory_count = len(rows)
     quality = assess_memory_quality(rows)
-
-    identity = _top_values(grouped.get("Identity", []), 4)
-    preferences = _top_values(grouped.get("Preferences", []), 4)
-    goals = _top_values(grouped.get("Goals", []) + grouped.get("Routines", []), 4)
-    relationships = _top_values(grouped.get("Relationships", []), 4)
-    constraints = _top_values(grouped.get("Constraints", []), 4)
-
-    sentences: list[str] = []
-
-    if identity:
-        sentences.append(
-            "From current memories, Aliyya understands several identity/profile details: "
-            + "; ".join(identity)
-            + "."
-        )
-
-    if preferences:
-        sentences.append(
-            "Aliyya also tracks preferences that may shape recommendations: "
-            + "; ".join(preferences)
-            + "."
-        )
-
-    if goals:
-        sentences.append(
-            "For planning and follow-through, Aliyya remembers goals or routines such as: "
-            + "; ".join(goals)
-            + "."
-        )
-
-    if relationships:
-        sentences.append(
-            "Aliyya has relationship context involving: "
-            + "; ".join(relationships)
-            + "."
-        )
-
-    if constraints:
-        sentences.append(
-            "Aliyya should also respect constraints or limits such as: "
-            + "; ".join(constraints)
-            + "."
-        )
-
-    if not sentences:
-        sentences.append(
-            "Aliyya does not yet have enough active memories to form a detailed understanding. "
-            "As you chat and approve memories, this summary will become more useful."
-        )
+    counts = _category_counts(rows)
+    themes = [label for label, _count in counts if label != "Other"][:8]
 
     needs_review = int(quality.get("summary", {}).get("needs_review") or 0)
+
+    if memory_count <= 0:
+        summary = (
+            "Aliyya does not yet have enough active memories to form a detailed understanding of you. "
+            "As you chat more and approve useful memories, this section will become a clearer narrative of who you are, "
+            "what matters to you, and how Aliyya should support you."
+        )
+    else:
+        theme_sentence = _natural_theme_sentence(counts)
+
+        summary_parts = [
+            (
+                f"Aliyya currently has {memory_count} active memories about you. "
+                f"{theme_sentence} These memories help her keep conversations consistent instead of treating every chat as a fresh start."
+            ),
+            (
+                "At a high level, Aliyya uses these memories to understand your identity and context, your preferences, "
+                "the goals or routines you have mentioned, important people or relationships, and any constraints she should respect."
+            ),
+            (
+                "This summary is intentionally conservative. If a detail is outdated, too vague, or duplicated, it should be reviewed before Aliyya relies on it too strongly."
+            ),
+        ]
+
+        if needs_review > 0:
+            summary_parts.append(
+                f"There are {needs_review} memor{'y' if needs_review == 1 else 'ies'} that may need cleanup. "
+                "Reviewing them will make Aliyya’s understanding more accurate and less noisy."
+            )
+
+        summary = "\n\n".join(summary_parts)
+
     if needs_review > 0:
         needs_review_notes = [
             f"{needs_review} memor{'y' if needs_review == 1 else 'ies'} may need review before this understanding is fully reliable."
@@ -154,25 +186,18 @@ def _deterministic_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     else:
         needs_review_notes = ["No urgent memory cleanup is currently detected."]
 
-    themes = [
-        label
-        for label, items in grouped.items()
-        if items
-    ][:8]
-
     return {
-        "summary": "\n\n".join(sentences),
+        "summary": summary,
         "themes": themes,
         "confidence_notes": [
             f"This summary is based on {memory_count} active memor{'y' if memory_count == 1 else 'ies'}.",
-            "Higher-confidence and structured memories are prioritized.",
+            "It avoids copying raw memory fields and favors a conservative high-level interpretation.",
         ],
         "needs_review_notes": needs_review_notes,
         "memory_count": memory_count,
         "generated_at": _now_iso(),
         "source": "deterministic",
     }
-
 
 def _memory_brief_for_prompt(rows: list[dict[str, Any]]) -> str:
     grouped = _group_memories(rows)
@@ -208,6 +233,9 @@ Rules:
 - Do not say the user has an attribute unless the memory directly supports it.
 - Keep it concise, warm, and useful.
 - If memories are thin, say that clearly.
+- NEVER copy raw structured strings such as due_date=, start_at=, end_at=, goal_id=, location=, or pipe-separated internal fields.
+- If a memory looks like internal metadata, paraphrase the higher-level meaning or ignore it.
+- Write a polished narrative, not a database summary.
 - No markdown fences. JSON only.
 """
 
@@ -261,6 +289,10 @@ async def _load_latest_persisted_summary(user_id: str) -> dict[str, Any] | None:
     row = rows[0]
     summary = str(row.get("summary") or "").strip()
     if not summary:
+        return None
+
+    source = str(row.get("source") or "persisted")
+    if source != "llm" and _summary_looks_raw(summary):
         return None
 
     def list_value(value: Any) -> list[str]:
