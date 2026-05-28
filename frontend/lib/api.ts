@@ -110,9 +110,26 @@ export async function deleteConversation(id: string): Promise<void> {
   if (!r.ok && r.status !== 204) throw new Error(`deleteConversation failed: ${r.status}`);
 }
 
-export async function listMessages(conversationId: string): Promise<Message[]> {
+export async function listMessages(
+  conversationId: string,
+  options: { limit?: number; before?: string | null } = {},
+): Promise<Message[]> {
   const headers = await getAuthHeader();
-  const r = await fetch(`${API_URL}/conversations/${conversationId}/messages`, { headers });
+  const params = new URLSearchParams();
+
+  if (options.limit) {
+    params.set("limit", String(options.limit));
+  }
+
+  if (options.before) {
+    params.set("before", options.before);
+  }
+
+  const qs = params.toString();
+  const r = await fetch(
+    `${API_URL}/conversations/${conversationId}/messages${qs ? `?${qs}` : ""}`,
+    { headers },
+  );
   if (!r.ok) throw new Error(`listMessages failed: ${r.status}`);
   return r.json();
 }

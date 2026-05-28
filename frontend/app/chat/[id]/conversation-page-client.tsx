@@ -41,12 +41,14 @@ export function ConversationPageClient({
   conversationId,
   initialMessages = [],
   initialIsMainChat = false,
+  initialHasMoreMessages = false,
   initialStyleProfileId = null,
   initialStyleProfileName = null,
 }: {
   conversationId: string
   initialMessages?: Message[]
   initialIsMainChat?: boolean
+  initialHasMoreMessages?: boolean
   initialStyleProfileId?: string | null
   initialStyleProfileName?: string | null
 }) {
@@ -89,9 +91,15 @@ export function ConversationPageClient({
     followSignal: messages,
   });
 
-  useChatMessageLoader({
+  const {
+    hasMoreMessages,
+    loadingEarlier,
+    loadEarlierMessages,
+  } = useChatMessageLoader({
     conversationId,
     initialMessages,
+    initialHasMoreMessages,
+    scrollRef,
     setMessages,
     setLoading,
     setHistorySettled,
@@ -167,6 +175,9 @@ export function ConversationPageClient({
           messages={messages}
           loading={loading}
           historySettled={historySettled}
+          hasMoreMessages={hasMoreMessages}
+          loadingEarlier={loadingEarlier}
+          onLoadEarlier={loadEarlierMessages}
         />
       </div>
 

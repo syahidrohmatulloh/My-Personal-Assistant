@@ -36,10 +36,16 @@ export const ChatMessageList = memo(function ChatMessageList({
   messages,
   loading,
   historySettled,
+  hasMoreMessages = false,
+  loadingEarlier = false,
+  onLoadEarlier,
 }: {
   messages: LocalMessage[]
   loading: boolean
   historySettled: boolean
+  hasMoreMessages?: boolean
+  loadingEarlier?: boolean
+  onLoadEarlier?: () => void
 }) {
   return (
     <div
@@ -48,6 +54,19 @@ export const ChatMessageList = memo(function ChatMessageList({
         !loading && messages.length > 0 && !historySettled ? "opacity-0" : "opacity-100",
       ].join(" ")}
     >
+      {!loading && hasMoreMessages ? (
+        <div className="flex justify-center pb-2">
+          <button
+            type="button"
+            onClick={onLoadEarlier}
+            disabled={loadingEarlier}
+            className="rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-white disabled:cursor-wait disabled:opacity-60 dark:border-white/10 dark:bg-white/[0.06] dark:text-zinc-300 dark:hover:bg-white/[0.1]"
+          >
+            {loadingEarlier ? "Loading earlier..." : "Load earlier messages"}
+          </button>
+        </div>
+      ) : null}
+
       {loading ? (
         <>
           <Skeleton className="h-12 w-3/4 ml-auto rounded-2xl" />

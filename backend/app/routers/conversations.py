@@ -9,7 +9,7 @@ routes.
 import asyncio
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import Query, APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.core.auth import get_current_user_id
@@ -411,9 +411,15 @@ async def delete_conversation(
 @router.get("/{conversation_id}/messages", response_model=list[MessageOut])
 async def list_messages(
     conversation_id: str,
+    limit: int = Query(default=80, ge=1, le=200),
+    before: str | None = None,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Load all messages in a conversation, oldest first."""
+    """Load a page of messages, oldest first within the returned page.
+
+    By default this returns the latest 80 messages. Pass before=<created_at>
+    to load messages older than the earliest message currently rendered.
+    """
     supabase = get_supabase()
 
     # First, prove the conversation belongs to this user. Without this check,
@@ -435,11 +441,14 @@ async def list_messages(
             "Protected conversations cannot be deleted",
         )
 
-    result = (
+    query = (
         supabase.table("messages")
         .select("id, role, content, created_at")
         .eq("conversation_id", conversation_id)
-        .order("created_at")
-        .execute()
     )
-    return result.data
+
+    if before:
+        query = query.lt("created_at", before)
+
+    result = query.order("created_at", desc=True).limit(limit).execute()
+    return list(reversed(result.data or []))
