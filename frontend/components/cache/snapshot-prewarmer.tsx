@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
+import { usePathname } from "next/navigation"
 import {
   type Goal,
   type GoalActionProposal,
@@ -107,6 +108,54 @@ function markPrewarmStarted(userId: string) {
   } catch {
     // Ignore storage failures.
   }
+}
+
+function schedulePrewarmAfterIdle(
+  callback: () => void,
+  options: { delayMs: number; idleTimeoutMs: number },
+): () => void {
+  if (typeof window === "undefined") {
+    return () => {}
+  }
+
+  let cancelled = false
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+  let idleHandle: number | null = null
+
+  const run = () => {
+    if (cancelled) return
+
+    const idleWindow = window as IdleWindow
+    if (idleWindow.requestIdleCallback) {
+      idleHandle = idleWindow.requestIdleCallback(
+        () => {
+          if (!cancelled) callback()
+        },
+        { timeout: options.idleTimeoutMs },
+      )
+    } else {
+      callback()
+    }
+  }
+
+  timeoutHandle = setTimeout(run, options.delayMs)
+
+  return () => {
+    cancelled = true
+
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle)
+    }
+
+    const idleWindow = window as IdleWindow
+    if (idleHandle != null && idleWindow.cancelIdleCallback) {
+      idleWindow.cancelIdleCallback(idleHandle)
+    }
+  }
+}
+
+function isChatRoute(pathname: string | null) {
+  return pathname === "/chat" || Boolean(pathname?.startsWith("/chat/"))
 }
 
 
@@ -238,13 +287,24 @@ async function prewarmMemories(userId: string) {
   writeSnapshot<MemoriesSnapshotData>(scopedKey(userId, "memories"), payload)
 }
 
-async function runPrewarmQueue(userId: string) {
-  const tasks = [
-    () => prewarmCalendar(userId),
-    () => prewarmPeople(userId),
-    () => prewarmGoals(userId),
-    () => prewarmMemories(userId),
-  ]
+async function runPrewarmQueue(
+  userId: string,
+  options: { lightMode?: boolean } = {},
+) {
+  const tasks = options.lightMode
+    ? [
+        // Chat pages should not compete with message rendering/streaming.
+        // Keep only light snapshots here; heavier Memory/Calendar snapshots
+        // can be refreshed when the user opens those pages.
+        () => prewarmPeople(userId),
+        () => prewarmGoals(userId),
+      ]
+    : [
+        () => prewarmCalendar(userId),
+        () => prewarmPeople(userId),
+        () => prewarmGoals(userId),
+        () => prewarmMemories(userId),
+      ]
 
   for (const task of tasks) {
     try {
@@ -256,48 +316,31 @@ async function runPrewarmQueue(userId: string) {
 }
 
 export function SnapshotPrewarmer({ userId }: { userId: string }) {
+  const pathname = usePathname()
+
   useEffect(() => {
     if (!userId) {
       return
     }
 
-    let cancelled = false
-    let timeoutHandle: ReturnType<typeof setTimeout> | null = null
-    let idleHandle: number | null = null
-
-    const run = () => {
-      if (cancelled) {
-        return
-      }
-
-      if (!shouldRunPrewarm(userId)) {
-        return
-      }
-
-      markPrewarmStarted(userId)
-      void runPrewarmQueue(userId)
+    if (!shouldRunPrewarm(userId)) {
+      return
     }
 
-    const idleWindow = window as IdleWindow
+    const chatRoute = isChatRoute(pathname)
+    const cleanup = schedulePrewarmAfterIdle(
+      () => {
+        markPrewarmStarted(userId)
+        void runPrewarmQueue(userId, { lightMode: chatRoute })
+      },
+      {
+        delayMs: chatRoute ? 4000 : 900,
+        idleTimeoutMs: chatRoute ? 6000 : 2500,
+      },
+    )
 
-    if (idleWindow.requestIdleCallback) {
-      idleHandle = idleWindow.requestIdleCallback(run, { timeout: 5000 })
-    } else {
-      timeoutHandle = setTimeout(run, 2000)
-    }
-
-    return () => {
-      cancelled = true
-
-      if (idleHandle != null && idleWindow.cancelIdleCallback) {
-        idleWindow.cancelIdleCallback(idleHandle)
-      }
-
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle)
-      }
-    }
-  }, [userId])
+    return cleanup
+  }, [pathname, userId])
 
   return null
 }
