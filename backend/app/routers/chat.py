@@ -73,6 +73,8 @@ from app.services.prompt_builder import (
 from app.services.supabase_client import get_supabase, safe_execute
 
 log = logging.getLogger(__name__)
+CHAT_HISTORY_LOAD_LIMIT = 80
+
 router = APIRouter(tags=["chat"])
 
 # ---------------------------------------------------------------------------
@@ -376,16 +378,26 @@ async def _save_user_message(_supabase, conversation_id: str, content: str) -> s
 
 
 async def _load_history(_supabase, conversation_id: str) -> list[dict]:
+    """Load only the latest chat window for Claude.
+
+    Long-running Main Chat can have hundreds of messages. Loading all of them
+    before trim_history() makes every send slower. We fetch the newest messages
+    first, limit at the database, then reverse so Claude still receives
+    oldest-first order within the active window.
+    """
     result = await asyncio.to_thread(
         lambda: safe_execute(
             lambda sb: sb.table("messages")
-            .select("role, content")
+            .select("role, content, created_at")
             .eq("conversation_id", conversation_id)
-            .order("created_at")
+            .order("created_at", desc=True)
+            .limit(CHAT_HISTORY_LOAD_LIMIT)
             .execute()
         )
     )
-    return [{"role": m["role"], "content": m["content"]} for m in (result.data or [])]
+
+    rows = list(reversed(result.data or []))
+    return [{"role": m["role"], "content": m["content"]} for m in rows]
 
 
 def _is_briefing_discussion_request(message: str | None) -> bool:
@@ -729,7 +741,7 @@ async def chat(
         query_text=body.message,
     )
 
-    # === Phase 2: history (must be after save) ===
+    # === Phase 2: recent history window (must be after save) ===
     messages = await _load_history(supabase, body.conversation_id)
     messages = trim_history(messages)
 
