@@ -26,6 +26,7 @@ Phase 4.12 Zip 2 changes:
 """
 
 import asyncio
+import time
 import json
 import logging
 import re
@@ -741,9 +742,12 @@ async def chat(
         query_text=body.message,
     )
 
+    history_started_at = time.perf_counter()
+
     # === Phase 2: recent history window (must be after save) ===
     messages = await _load_history(supabase, body.conversation_id)
     messages = trim_history(messages)
+    history_elapsed_ms = round((time.perf_counter() - history_started_at) * 1000, 1)
 
     # === Build prompt with cached base + volatile context ===
     volatile_context = render_context(context)
@@ -988,12 +992,13 @@ async def chat(
     )
 
     log.info(
-        "chat: user=%s context_keys=%s legacy_mems=%d related_summaries=%d history_len=%d attachments=%d mode=%s style=%s %s",
+        "chat: user=%s context_keys=%s legacy_mems=%d related_summaries=%d history_len=%d history_ms=%.1f attachments=%d mode=%s style=%s %s",
         user_id[:8],
         list(context.keys()),
         len(legacy_memories),
         len(related_summaries),
         len(messages),
+        history_elapsed_ms,
         len(attachment_rows),
         detected_mode,
         style_audit,
@@ -1063,6 +1068,8 @@ async def _stream_claude_response(
     claude = get_claude()
     supabase = get_supabase()
     assistant_text = ""
+    stream_started_at = time.perf_counter()
+    first_token_logged = False
 
     # System prompt as two blocks:
     #   - BASE_PROMPT: stable, cached for 5 min (ephemeral cache)
@@ -1095,6 +1102,16 @@ async def _stream_claude_response(
             messages=messages,
         ) as stream:
             async for text_chunk in stream.text_stream:
+                if not first_token_logged:
+                    first_token_logged = True
+                    log.info(
+                        "chat_timing: user=%s conversation=%s first_token_ms=%.1f history_len=%d",
+                        user_id[:8],
+                        conversation_id[:8],
+                        (time.perf_counter() - stream_started_at) * 1000,
+                        len(messages),
+                    )
+
                 assistant_text += text_chunk
                 yield f"data: {json.dumps({'type': 'delta', 'text': text_chunk})}\n\n"
     except Exception as exc:  # noqa: BLE001
