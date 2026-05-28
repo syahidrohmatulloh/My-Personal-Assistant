@@ -74,6 +74,7 @@ from app.services.prompt_builder import (
 from app.services.supabase_client import get_supabase, safe_execute
 
 log = logging.getLogger(__name__)
+timing_log = logging.getLogger("uvicorn.error")
 CHAT_HISTORY_LOAD_LIMIT = 80
 
 router = APIRouter(tags=["chat"])
@@ -991,7 +992,7 @@ async def chat(
         f"/repair={companion_settings_row.get('repair_gate_enabled')}"
     )
 
-    log.info(
+    timing_log.info(
         "chat: user=%s context_keys=%s legacy_mems=%d related_summaries=%d history_len=%d history_ms=%.1f attachments=%d mode=%s style=%s %s",
         user_id[:8],
         list(context.keys()),
@@ -1104,7 +1105,7 @@ async def _stream_claude_response(
             async for text_chunk in stream.text_stream:
                 if not first_token_logged:
                     first_token_logged = True
-                    log.info(
+                    timing_log.info(
                         "chat_timing: user=%s conversation=%s first_token_ms=%.1f history_len=%d",
                         user_id[:8],
                         conversation_id[:8],
