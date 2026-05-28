@@ -217,7 +217,7 @@ def build_consolidation_candidates(
                 kind="context",
                 category="goals",
                 structured_field="monthly_focus",
-                structured_value="aliyya_development_memory_mood_relationship_ui_mobile",
+                structured_value="Aliyya development: memory reliability, mood context, relationship continuity, UI polish, and mobile usability",
                 confidence=_confidence_from_count(len(dev_rows), base=0.74),
                 evidence=_evidence(dev_rows),
             )
@@ -235,7 +235,7 @@ def build_consolidation_candidates(
                 kind="preference",
                 category="relationships",
                 structured_field="consolidated_interaction_pattern",
-                structured_value="careful_complete_root_cause_implementation_support",
+                structured_value="Careful, complete, root-cause implementation support",
                 confidence=_confidence_from_count(len(support_rows), base=0.78),
                 evidence=_evidence(support_rows),
             )
@@ -253,7 +253,7 @@ def build_consolidation_candidates(
                 kind="preference",
                 category="preferences",
                 structured_field="consolidated_ui_design_preference",
-                structured_value="polished_theme_aware_glass_ui_good_contrast_mobile_smooth",
+                structured_value="Polished, theme-aware UI with glass-like surfaces, good contrast, and smooth mobile behavior",
                 confidence=_confidence_from_count(len(ui_rows), base=0.78),
                 evidence=_evidence(ui_rows),
             )
@@ -270,7 +270,7 @@ def build_consolidation_candidates(
                 kind="preference",
                 category="relationships",
                 structured_field="consolidated_aliyya_relationship_preference",
-                structured_value="consistent_personal_assistant_companion_not_generic",
+                structured_value="Consistent personal assistant and companion, not a generic assistant",
                 confidence=_confidence_from_count(len(relationship_rows), base=0.76),
                 evidence=_evidence(relationship_rows),
             )

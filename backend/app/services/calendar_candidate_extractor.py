@@ -23,6 +23,7 @@ from typing import Any
 from app.services.embeddings import embed_document
 from app.services.supabase_client import safe_execute
 from app.services import calendar_intent
+from app.services.memory_user_facing_safety import human_calendar_structured_value
 
 log = logging.getLogger(__name__)
 
@@ -248,7 +249,7 @@ def extract_candidate(
         start_at=start_at,
         end_at=end_at,
         all_day=all_day,
-        structured_value=" | ".join(value_parts),
+        structured_value=human_calendar_structured_value(title=title, event_date=event_date_iso, start_at=start_at, end_at=end_at),
         content=f"User has a scheduled event: {title} on {event_date_iso}",
         evidence=[text[:220]],
         confidence=0.86 if local_time else 0.78,
@@ -372,7 +373,7 @@ def _candidate_from_intent_draft(draft: dict[str, Any], source_text: str) -> Cal
         start_at=str(start_at) if start_at else None,
         end_at=str(end_at) if end_at else None,
         all_day=all_day,
-        structured_value=" | ".join(value_parts),
+        structured_value=human_calendar_structured_value(title=title, event_date=event_date, start_at=str(start_at) if start_at else None, end_at=str(end_at) if end_at else None, location=str(location) if location else None),
         content=content,
         evidence=[source_text[:220]],
         confidence=max(0.62, min(confidence, 0.94)),

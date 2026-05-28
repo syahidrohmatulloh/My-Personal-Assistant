@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from app.services.memory_user_facing_safety import memory_low_quality_reasons
+
 
 DUPLICATE_SIMILARITY_THRESHOLD = 0.78
 
@@ -270,6 +272,14 @@ def _find_low_quality_memories(memories: list[dict[str, Any]]) -> list[dict[str,
 
         if _looks_like_debug_or_raw_metadata(content):
             reasons.append("Looks technical or raw")
+
+        for reason in memory_low_quality_reasons(
+            content=content,
+            structured_field=field,
+            structured_value=value,
+        ):
+            if reason not in reasons:
+                reasons.append(reason)
 
         if reasons:
             low_quality.append(
@@ -535,6 +545,14 @@ def _looks_like_debug_or_raw_metadata(content: str) -> bool:
         "structured_value",
         "console.log",
         "stack trace",
+        "due_date=",
+        "start_at=",
+        "end_at=",
+        "goal_id=",
+        "polished_theme",
+        "aware_glass",
+        "mobile_smooth",
+        "consistent_personal",
     ]
     return any(term in low for term in suspicious)
 
