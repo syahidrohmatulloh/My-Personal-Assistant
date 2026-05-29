@@ -52,6 +52,7 @@ from app.services import (
     life_model,
     memory,
     memory_intelligence,
+    proactive_nudges,
     name_normalization,
     temporal_grounding,
     background_extraction_gate,
@@ -1216,6 +1217,17 @@ async def _stream_claude_response(
         ],
     )
 
+    should_schedule_proactive_nudge = proactive_nudges.should_attempt_proactive_nudge(user_message)
+    if should_schedule_proactive_nudge:
+        background_tasks.add_task(
+            proactive_nudges.schedule_from_chat,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            user_message=user_message,
+            client_context=client_context,
+            assistant_response=assistant_text,
+        )
+
     # Calendar draft actions from chat — can update/delete local drafts and synced Google events.
     should_apply_calendar_draft_action = calendar_draft_actions.is_calendar_draft_action_request(
         user_message
@@ -1252,7 +1264,8 @@ async def _stream_claude_response(
 
     # Calendar candidate extraction — deterministic/Haiku-assisted, review-first, never syncs directly.
     should_extract_calendar_candidate = (
-        not should_apply_calendar_draft_action
+        not should_schedule_proactive_nudge
+        and not should_apply_calendar_draft_action
         and not should_create_google_calendar_event
         and (
             extraction_decision.run_calendar_candidate_extraction
