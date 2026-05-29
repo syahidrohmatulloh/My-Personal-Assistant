@@ -21,7 +21,7 @@ from app.routers import (
     calendar_oauth,
     voice,
 )
-from app.services import memory_health_scheduler, proactive_nudges
+from app.services import memory_health_scheduler, rate_limiter, proactive_nudges
 
 app = FastAPI(
     title="My Assistant API",
@@ -31,6 +31,17 @@ app = FastAPI(
 
 # CORS: the frontend (different origin) needs to call us. In production, lock
 # this down to your actual Vercel URL via the ALLOWED_ORIGINS env var.
+
+@app.middleware("http")
+async def lightweight_rate_limit_middleware(request, call_next):
+    rate_limit_response = await rate_limiter.check_rate_limit(request)
+    if rate_limit_response is not None:
+        return rate_limit_response
+
+    return await call_next(request)
+
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
