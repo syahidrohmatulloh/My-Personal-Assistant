@@ -1,14 +1,41 @@
-# flyctl launch added from .gitignore
-**/.env
-**/.venv
-**/__pycache__
-**/*.pyc
-**/.pytest_cache
-**/.ruff_cache
-**/.mypy_cache
-**/*.egg-info
-**/.DS_Store
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# flyctl launch added from .venv/.gitignore
-.venv/**/*
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+
+# Git / local tooling
+.git/
+.gitignore
+.DS_Store
+*.log
+
+# Node / frontend artifacts accidentally copied from root contexts
+node_modules/
+.next/
+dist/
+build/
+
+# Local backups / generated patch files
+*.before-*
+*.bak
+*.bak_*
+*_patch.py
+
+# Fly config not needed inside runtime image
 fly.toml
