@@ -105,6 +105,7 @@ export function ConversationPageClient({
     setHistorySettled,
     markShouldStickToBottom,
     settleScrollAfterPaint,
+    liveRefreshEnabled: !sending,
   });
 
   const handleSend = useChatStreamSender({

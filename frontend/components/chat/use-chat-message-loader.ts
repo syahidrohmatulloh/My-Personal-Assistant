@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { listMessages, type Message } from "@/lib/api"
 
 type LocalMessage =
@@ -8,6 +8,8 @@ type LocalMessage =
   | { id: string; role: "assistant"; content: string; pending: true; created_at?: string }
 
 const MESSAGE_PAGE_SIZE = 80
+const LIVE_REFRESH_INTERVAL_MS = 15_000
+const BOTTOM_STICKINESS_PX = 120
 
 export function useChatMessageLoader({
   conversationId,
@@ -19,6 +21,7 @@ export function useChatMessageLoader({
   setHistorySettled,
   markShouldStickToBottom,
   settleScrollAfterPaint,
+  liveRefreshEnabled = true,
 }: {
   conversationId: string
   initialMessages?: Message[]
@@ -29,9 +32,11 @@ export function useChatMessageLoader({
   setHistorySettled: React.Dispatch<React.SetStateAction<boolean>>
   markShouldStickToBottom: () => void
   settleScrollAfterPaint: (shouldRun: () => boolean, afterScroll?: () => void) => void
+  liveRefreshEnabled?: boolean
 }) {
   const [hasMoreMessages, setHasMoreMessages] = useState(initialHasMoreMessages)
   const [loadingEarlier, setLoadingEarlier] = useState(false)
+  const liveRefreshInFlightRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -86,6 +91,73 @@ export function useChatMessageLoader({
     markShouldStickToBottom,
     setHistorySettled,
     setLoading,
+    setMessages,
+    settleScrollAfterPaint,
+  ])
+
+  useEffect(() => {
+    if (!liveRefreshEnabled) return
+
+    let cancelled = false
+    let intervalHandle: ReturnType<typeof setInterval> | null = null
+
+    const refreshLatestMessages = async () => {
+      if (cancelled) return
+      if (loadingEarlier) return
+      if (liveRefreshInFlightRef.current) return
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return
+
+      liveRefreshInFlightRef.current = true
+
+      try {
+        const latestMessages = await listMessages(conversationId, { limit: MESSAGE_PAGE_SIZE })
+        if (cancelled || latestMessages.length === 0) return
+
+        const container = scrollRef.current
+        const shouldStick =
+          !container ||
+          container.scrollHeight - container.scrollTop - container.clientHeight <= BOTTOM_STICKINESS_PX
+
+        let appendedCount = 0
+
+        setMessages((current) => {
+          const existingIds = new Set(current.map((message) => message.id))
+          const newMessages = latestMessages.filter((message) => !existingIds.has(message.id))
+
+          if (newMessages.length === 0) {
+            return current
+          }
+
+          appendedCount = newMessages.length
+
+          return [...current, ...newMessages]
+        })
+
+        if (shouldStick && appendedCount > 0) {
+          markShouldStickToBottom()
+          settleScrollAfterPaint(() => !cancelled)
+        }
+      } catch (err) {
+        console.error(err)
+      } finally {
+        liveRefreshInFlightRef.current = false
+      }
+    }
+
+    intervalHandle = setInterval(refreshLatestMessages, LIVE_REFRESH_INTERVAL_MS)
+
+    return () => {
+      cancelled = true
+      if (intervalHandle) {
+        clearInterval(intervalHandle)
+      }
+    }
+  }, [
+    conversationId,
+    liveRefreshEnabled,
+    loadingEarlier,
+    markShouldStickToBottom,
+    scrollRef,
     setMessages,
     settleScrollAfterPaint,
   ])
