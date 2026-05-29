@@ -11,6 +11,21 @@ const MESSAGE_PAGE_SIZE = 80
 const LIVE_REFRESH_INTERVAL_MS = 15_000
 const BOTTOM_STICKINESS_PX = 120
 
+function messageCreatedAtMs(message: LocalMessage) {
+  const value = message.created_at
+  if (!value) return Number.MAX_SAFE_INTEGER
+
+  const time = new Date(value).getTime()
+  return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time
+}
+
+function compareMessagesByCreatedAt(a: LocalMessage, b: LocalMessage) {
+  const diff = messageCreatedAtMs(a) - messageCreatedAtMs(b)
+  if (diff !== 0) return diff
+  return String(a.id).localeCompare(String(b.id))
+}
+
+
 export function useChatMessageLoader({
   conversationId,
   initialMessages = [],
@@ -130,7 +145,7 @@ export function useChatMessageLoader({
 
           appendedCount = newMessages.length
 
-          return [...current, ...newMessages]
+          return [...current, ...newMessages].sort(compareMessagesByCreatedAt)
         })
 
         if (shouldStick && appendedCount > 0) {
@@ -144,10 +159,34 @@ export function useChatMessageLoader({
       }
     }
 
+    const runSoon = () => {
+      window.setTimeout(() => {
+        void refreshLatestMessages()
+      }, 750)
+    }
+
+    runSoon()
+
+    const onFocus = () => {
+      void refreshLatestMessages()
+    }
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refreshLatestMessages()
+      }
+    }
+
+    window.addEventListener("focus", onFocus)
+    document.addEventListener("visibilitychange", onVisibilityChange)
+
     intervalHandle = setInterval(refreshLatestMessages, LIVE_REFRESH_INTERVAL_MS)
 
     return () => {
       cancelled = true
+      window.removeEventListener("focus", onFocus)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+
       if (intervalHandle) {
         clearInterval(intervalHandle)
       }
