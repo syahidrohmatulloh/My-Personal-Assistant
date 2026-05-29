@@ -116,6 +116,7 @@ export async function listMessages(
 ): Promise<Message[]> {
   const headers = await getAuthHeader();
   const params = new URLSearchParams();
+  params.set('_ts', String(Date.now()));
 
   if (options.limit) {
     params.set("limit", String(options.limit));

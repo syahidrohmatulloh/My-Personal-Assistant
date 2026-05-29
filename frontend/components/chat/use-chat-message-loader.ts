@@ -8,8 +8,8 @@ type LocalMessage =
   | { id: string; role: "assistant"; content: string; pending: true; created_at?: string }
 
 const MESSAGE_PAGE_SIZE = 80
-const LIVE_REFRESH_INTERVAL_MS = 15_000
-const BOTTOM_STICKINESS_PX = 120
+const LIVE_REFRESH_INTERVAL_MS = 3_000
+const BOTTOM_STICKINESS_PX = 160
 
 function messageCreatedAtMs(message: LocalMessage) {
   const value = message.created_at
@@ -145,7 +145,7 @@ export function useChatMessageLoader({
 
           appendedCount = newMessages.length
 
-          return [...current, ...newMessages].sort(compareMessagesByCreatedAt)
+          return [...current, ...newMessages].sort(compareMessagesByCreatedAt).sort(compareMessagesByCreatedAt)
         })
 
         if (shouldStick && appendedCount > 0) {
