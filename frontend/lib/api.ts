@@ -114,7 +114,6 @@ export async function listMessages(
   conversationId: string,
   options: { limit?: number; before?: string | null } = {},
 ): Promise<Message[]> {
-  const headers = await getAuthHeader();
   const params = new URLSearchParams();
   params.set('_ts', String(Date.now()));
 
@@ -128,8 +127,8 @@ export async function listMessages(
 
   const qs = params.toString();
   const r = await fetch(
-    `${API_URL}/conversations/${conversationId}/messages${qs ? `?${qs}` : ""}`,
-    { headers },
+    `/api/conversations/${conversationId}/messages${qs ? `?${qs}` : ""}`,
+    { cache: "no-store" },
   );
   if (!r.ok) throw new Error(`listMessages failed: ${r.status}`);
   return r.json();
