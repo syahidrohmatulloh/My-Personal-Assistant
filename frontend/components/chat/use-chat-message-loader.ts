@@ -114,13 +114,26 @@ export function useChatMessageLoader({
     if (!liveRefreshEnabled) return
 
     let cancelled = false
-    let intervalHandle: ReturnType<typeof setInterval> | null = null
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+
+    const scheduleNext = (delayMs = LIVE_REFRESH_INTERVAL_MS) => {
+      if (cancelled) return
+
+      timeoutHandle = setTimeout(() => {
+        void refreshLatestMessages()
+      }, delayMs)
+    }
 
     const refreshLatestMessages = async () => {
       if (cancelled) return
-      if (loadingEarlier) return
-      if (liveRefreshInFlightRef.current) return
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") return
+      if (loadingEarlier) {
+        scheduleNext()
+        return
+      }
+      if (liveRefreshInFlightRef.current) {
+        scheduleNext()
+        return
+      }
 
       liveRefreshInFlightRef.current = true
 
@@ -144,8 +157,7 @@ export function useChatMessageLoader({
           }
 
           appendedCount = newMessages.length
-
-          return [...current, ...newMessages].sort(compareMessagesByCreatedAt).sort(compareMessagesByCreatedAt)
+          return [...current, ...newMessages].sort(compareMessagesByCreatedAt)
         })
 
         if (shouldStick && appendedCount > 0) {
@@ -156,16 +168,9 @@ export function useChatMessageLoader({
         console.error(err)
       } finally {
         liveRefreshInFlightRef.current = false
+        scheduleNext()
       }
     }
-
-    const runSoon = () => {
-      window.setTimeout(() => {
-        void refreshLatestMessages()
-      }, 750)
-    }
-
-    runSoon()
 
     const onFocus = () => {
       void refreshLatestMessages()
@@ -180,16 +185,18 @@ export function useChatMessageLoader({
     window.addEventListener("focus", onFocus)
     document.addEventListener("visibilitychange", onVisibilityChange)
 
-    intervalHandle = setInterval(refreshLatestMessages, LIVE_REFRESH_INTERVAL_MS)
+    // Start quickly; do not wait for the first interval tick.
+    scheduleNext(800)
 
     return () => {
       cancelled = true
+
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle)
+      }
+
       window.removeEventListener("focus", onFocus)
       document.removeEventListener("visibilitychange", onVisibilityChange)
-
-      if (intervalHandle) {
-        clearInterval(intervalHandle)
-      }
     }
   }, [
     conversationId,
@@ -200,6 +207,7 @@ export function useChatMessageLoader({
     setMessages,
     settleScrollAfterPaint,
   ])
+
 
   const loadEarlierMessages = useCallback(async () => {
     if (loadingEarlier || !hasMoreMessages) return
