@@ -1,6 +1,6 @@
 "use client"
 
-import { memo } from "react"
+import { Fragment, memo } from "react"
 
 import { MessageBubble } from "@/components/chat/message-bubble"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -31,6 +31,107 @@ const ChatMessageRow = memo(
     ("pending" in prev.message ? prev.message.pending : false) ===
       ("pending" in next.message ? next.message.pending : false),
 )
+
+function localDateKey(value?: string | null) {
+  if (!value) return null
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-")
+}
+
+function isIndonesianLocale() {
+  if (typeof navigator === "undefined") return false
+  return navigator.language.toLowerCase().startsWith("id")
+}
+
+function startOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+function formatMessageTime(value?: string | null) {
+  const date = value ? new Date(value) : new Date()
+
+  if (Number.isNaN(date.getTime())) {
+    return ""
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date)
+}
+
+function formatDateSeparator(value?: string | null) {
+  if (!value) return ""
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+
+  const today = startOfLocalDay(new Date())
+  const target = startOfLocalDay(date)
+  const diffDays = Math.round((today.getTime() - target.getTime()) / 86_400_000)
+  const useIndonesian = isIndonesianLocale()
+
+  if (diffDays === 0) return useIndonesian ? "Hari ini" : "Today"
+  if (diffDays === 1) return useIndonesian ? "Kemarin" : "Yesterday"
+
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: today.getFullYear() === target.getFullYear() ? undefined : "numeric",
+  }).format(date)
+}
+
+function shouldShowDateSeparator(
+  previous?: LocalMessage | null,
+  current?: LocalMessage | null,
+) {
+  if (!current?.created_at) return false
+  if (!previous?.created_at) return true
+
+  return localDateKey(previous.created_at) !== localDateKey(current.created_at)
+}
+
+function ChatDateSeparator({ value }: { value?: string | null }) {
+  const label = formatDateSeparator(value)
+  if (!label) return null
+
+  return (
+    <div className="flex justify-center py-3">
+      <span className="rounded-full border border-border bg-bg/80 px-3 py-1 text-[11px] font-medium text-fg-muted shadow-sm backdrop-blur-md">
+        {label}
+      </span>
+    </div>
+  )
+}
+
+function ChatMessageWithTimestamp({ message }: { message: LocalMessage }) {
+  const isUser = message.role === "user"
+  const time = formatMessageTime(message.created_at)
+
+  return (
+    <div>
+      <ChatMessageRow message={message} />
+      {time ? (
+        <div
+          className={[
+            "-mt-1 px-4 text-[10px] leading-none text-fg-subtle",
+            isUser ? "text-right" : "text-left",
+          ].join(" ")}
+        >
+          {time}
+        </div>
+      ) : null}
+    </div>
+  )
+}
 
 export const ChatMessageList = memo(function ChatMessageList({
   messages,
@@ -78,7 +179,14 @@ export const ChatMessageList = memo(function ChatMessageList({
           Say hello — I&apos;m listening.
         </p>
       ) : (
-        messages.map((message) => <ChatMessageRow key={message.id} message={message} />)
+        messages.map((message, index) => (
+          <Fragment key={message.id}>
+            {shouldShowDateSeparator(messages[index - 1], message) ? (
+              <ChatDateSeparator value={message.created_at} />
+            ) : null}
+            <ChatMessageWithTimestamp message={message} />
+          </Fragment>
+        ))
       )}
     </div>
   )
