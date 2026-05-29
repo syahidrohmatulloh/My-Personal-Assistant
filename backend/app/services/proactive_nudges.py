@@ -214,21 +214,24 @@ def _extract_relative_due(now: datetime, normalized: str) -> datetime | None:
 def _clean_title(text: str) -> str:
     title = str(text or "").strip()
 
-    patterns = [
-        r"^(tolong\s+)?ingetin\s+aku\s+(ya\s+)?(untuk\s+)?",
-        r"^(tolong\s+)?ingatkan\s+aku\s+(ya\s+)?(untuk\s+)?",
-        r"^remind\s+me\s+(to\s+)?",
-        r"^set\s+reminder\s+(to\s+)?",
-        r"^buat\s+reminder\s+(untuk\s+)?",
-        r"^bikin\s+reminder\s+(untuk\s+)?",
-        r"^kasih\s+reminder\s+(untuk\s+)?",
+    # Generic cleanup:
+    # remove everything before and including the reminder intent.
+    # This avoids hardcoding the user's nickname or the assistant's name.
+    intent_patterns = [
+        r"^.*?\b(?:tolong\s+)?ingetin\s+aku\s+(?:ya\s+)?(?:untuk\s+|buat\s+)?",
+        r"^.*?\b(?:tolong\s+)?ingatkan\s+aku\s+(?:ya\s+)?(?:untuk\s+|buat\s+)?",
+        r"^.*?\bremind\s+me\s+(?:to\s+)?",
+        r"^.*?\bset\s+reminder\s+(?:to\s+)?",
+        r"^.*?\b(?:buat|bikin|kasih)\s+reminder\s+(?:untuk\s+|buat\s+)?",
     ]
 
-    for pattern in patterns:
-        title = re.sub(pattern, "", title, flags=re.IGNORECASE).strip()
+    for pattern in intent_patterns:
+        next_title = re.sub(pattern, "", title, flags=re.IGNORECASE).strip()
+        if next_title != title:
+            title = next_title
+            break
 
-    # Remove common timing phrases from the title.
-    cleanup = [
+    cleanup_patterns = [
         r"\bbesok\b",
         r"\blusa\b",
         r"\btomorrow\b",
@@ -247,15 +250,27 @@ def _clean_title(text: str) -> str:
         r"\bat\s*\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm)?\b",
         r"\b\d{1,3}\s*(?:menit|minutes?|mins?)\s*(?:lagi)?\b",
         r"\b\d{1,2}\s*(?:jam|hours?|hrs?)\s*(?:lagi)?\b",
-        r"\buntuk\b",
+        r"\b(?:untuk|buat|to)\b",
         r"\bya\b",
     ]
 
-    for pattern in cleanup:
+    for pattern in cleanup_patterns:
         title = re.sub(pattern, " ", title, flags=re.IGNORECASE)
 
     title = " ".join(title.split()).strip(".,;:- ")
     return title[:120] or "reminder"
+
+
+def _is_english_reminder_request(text: str) -> bool:
+    normalized = _normalize(text)
+    return any(keyword in normalized for keyword in ("remind me", "set reminder"))
+
+
+def _build_nudge_message(*, title: str, user_message: str) -> str:
+    if _is_english_reminder_request(user_message):
+        return f"Time to {title}."
+
+    return f"Waktunya kamu {title}."
 
 
 def parse_nudge_request(
@@ -298,7 +313,7 @@ def parse_nudge_request(
         return None
 
     title = _clean_title(user_message)
-    message = f"Beb, waktunya {title}."
+    message = _build_nudge_message(title=title, user_message=user_message)
 
     return ParsedNudge(
         due_at=due_local.astimezone(timezone.utc),
