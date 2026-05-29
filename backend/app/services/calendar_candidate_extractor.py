@@ -54,6 +54,20 @@ _EVENT_KEYWORDS = (
     "workshop",
 )
 
+_REMINDER_KEYWORDS = (
+    "ingatkan aku",
+    "ingetin aku",
+    "tolong ingatkan",
+    "tolong ingetin",
+    "remind me",
+    "reminder",
+    "set reminder",
+    "buat reminder",
+    "bikin reminder",
+    "kasih reminder",
+    "jangan lupa ingatkan",
+)
+
 _EXPLICIT_CALENDAR_COMMANDS = (
     "masukin ke kalender",
     "masukkan ke kalender",
@@ -155,6 +169,11 @@ def has_calendar_signal(text: str | None) -> bool:
     has_explicit_calendar_command = any(
         command in normalized for command in _EXPLICIT_CALENDAR_COMMANDS
     )
+    has_reminder_keyword = any(keyword in normalized for keyword in _REMINDER_KEYWORDS)
+
+    # Reminder language + date/time is enough, even without a meeting/event noun.
+    if has_reminder_keyword and (has_date_signal or has_time_signal):
+        return True
 
     # Explicit calendar command + date/time is enough, even when the event noun is unusual.
     if has_explicit_calendar_command and (has_date_signal or has_time_signal):
@@ -182,6 +201,9 @@ def should_attempt_calendar_candidate_extraction(text: str | None) -> bool:
     if any(command in normalized for command in _EXPLICIT_CALENDAR_COMMANDS):
         return True
 
+    if any(keyword in normalized for keyword in _REMINDER_KEYWORDS):
+        return True
+
     contextual_terms = (
         "calendar candidate",
         "calender candidate",
@@ -194,6 +216,30 @@ def should_attempt_calendar_candidate_extraction(text: str | None) -> bool:
     )
 
     return any(term in normalized for term in contextual_terms)
+
+
+def _is_reminder_request(normalized: str) -> bool:
+    return any(keyword in normalized for keyword in _REMINDER_KEYWORDS)
+
+
+def _clean_reminder_title(text: str) -> str:
+    title = _build_title(text).strip()
+
+    cleanup_patterns = [
+        r"^(tolong\s+)?ingatkan\s+aku\s+(untuk\s+)?",
+        r"^(tolong\s+)?ingetin\s+aku\s+(untuk\s+)?",
+        r"^remind\s+me\s+(to\s+)?",
+        r"^set\s+reminder\s+(to\s+)?",
+        r"^buat\s+reminder\s+(untuk\s+)?",
+        r"^bikin\s+reminder\s+(untuk\s+)?",
+        r"^kasih\s+reminder\s+(untuk\s+)?",
+    ]
+
+    cleaned = title
+    for pattern in cleanup_patterns:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
+
+    return cleaned[:120] or title[:120] or "Reminder"
 
 
 def extract_candidate(
@@ -231,7 +277,8 @@ def extract_candidate(
         start_at = start_dt.isoformat()
         end_at = end_dt.isoformat()
 
-    title = _build_title(text)
+    is_reminder = _is_reminder_request(normalized)
+    title = _clean_reminder_title(text) if is_reminder else _build_title(text)
     event_date_iso = event_date.isoformat()
 
     value_parts = [
@@ -250,10 +297,14 @@ def extract_candidate(
         end_at=end_at,
         all_day=all_day,
         structured_value=human_calendar_structured_value(title=title, event_date=event_date_iso, start_at=start_at, end_at=end_at),
-        content=f"User has a scheduled event: {title} on {event_date_iso}",
+        content=(
+            f"User wants a reminder: {title} on {event_date_iso}"
+            if is_reminder
+            else f"User has a scheduled event: {title} on {event_date_iso}"
+        ),
         evidence=[text[:220]],
-        confidence=0.86 if local_time else 0.78,
-        reason="deterministic_calendar_candidate",
+        confidence=0.9 if is_reminder and local_time else 0.86 if local_time else 0.78,
+        reason="deterministic_reminder_candidate" if is_reminder else "deterministic_calendar_candidate",
     )
 
 
