@@ -27,6 +27,7 @@ import { useChatPrefill } from "@/components/chat/use-chat-prefill";
 
 import {
   getIdentity,
+  listMessages,
   type ChatStreamMeta,
   type Message,
 } from "@/lib/api";
@@ -36,6 +37,18 @@ import {
 type LocalMessage =
   | Message
   | { id: string; role: "assistant"; content: string; pending: true; created_at?: string };
+
+function localMessageTime(message: LocalMessage) {
+  if (!message.created_at) return Number.MAX_SAFE_INTEGER;
+  const time = new Date(message.created_at).getTime();
+  return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+}
+
+function sortLocalMessages(a: LocalMessage, b: LocalMessage) {
+  const diff = localMessageTime(a) - localMessageTime(b);
+  if (diff !== 0) return diff;
+  return String(a.id).localeCompare(String(b.id));
+}
 
 export function ConversationPageClient({
   conversationId,
@@ -134,6 +147,70 @@ export function ConversationPageClient({
     messagesLength: messages.length,
     handleSend,
   });
+
+  useEffect(() => {
+    let cancelled = false;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    let inFlight = false;
+
+    const pollLatest = async () => {
+      if (cancelled) return;
+
+      if (sending || loading || inFlight) {
+        timeoutHandle = setTimeout(pollLatest, 3000);
+        return;
+      }
+
+      inFlight = true;
+
+      try {
+        const latest = await listMessages(conversationId, { limit: 80 });
+        if (cancelled || latest.length === 0) return;
+
+        let added = false;
+
+        setMessages((current) => {
+          const existingIds = new Set(current.map((message) => message.id));
+          const incoming = latest.filter((message) => !existingIds.has(message.id));
+
+          if (incoming.length === 0) {
+            return current;
+          }
+
+          added = true;
+          return [...current, ...incoming].sort(sortLocalMessages);
+        });
+
+        if (added) {
+          markShouldStickToBottom();
+          settleScrollAfterPaint(() => !cancelled);
+        }
+      } catch (error) {
+        console.error("chat heartbeat refresh failed", error);
+      } finally {
+        inFlight = false;
+        if (!cancelled) {
+          timeoutHandle = setTimeout(pollLatest, 3000);
+        }
+      }
+    };
+
+    timeoutHandle = setTimeout(pollLatest, 1000);
+
+    return () => {
+      cancelled = true;
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    };
+  }, [
+    conversationId,
+    loading,
+    markShouldStickToBottom,
+    sending,
+    setMessages,
+    settleScrollAfterPaint,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
