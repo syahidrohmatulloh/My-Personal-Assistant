@@ -18,9 +18,10 @@ type Props = {
   role: "user" | "assistant";
   content: string;
   pending?: boolean;
+  timestamp?: string;
 };
 
-function MessageBubbleBase({ role, content, pending }: Props) {
+function MessageBubbleBase({ role, content, pending, timestamp }: Props) {
   const isUser = role === "user";
   const assistantName = useAssistantDisplayName();
   const { data: avatarProfile } = useAvatarProfile();
@@ -105,7 +106,14 @@ function MessageBubbleBase({ role, content, pending }: Props) {
         )}
       >
         {isUser ? (
-          <p className="whitespace-pre-wrap break-words">{content}</p>
+          <div>
+            <p className="whitespace-pre-wrap break-words">{content}</p>
+            {timestamp ? (
+              <div className="mt-1 text-right text-[10px] leading-none text-on-accent/70">
+                {timestamp}
+              </div>
+            ) : null}
+          </div>
         ) : (
           <div className="prose-chat break-words">
             {displayContent ? (
@@ -151,6 +159,12 @@ function MessageBubbleBase({ role, content, pending }: Props) {
             ) : null}
 
             {speakError ? <p className="not-prose mt-2 text-[11px] text-red-500">{speakError}</p> : null}
+
+            {timestamp ? (
+              <div className="not-prose mt-2 text-right text-[10px] leading-none text-fg-subtle">
+                {timestamp}
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -161,7 +175,10 @@ function MessageBubbleBase({ role, content, pending }: Props) {
 export const MessageBubble = memo(
   MessageBubbleBase,
   (a, b) =>
-    a.role === b.role && a.content === b.content && a.pending === b.pending,
+    a.role === b.role &&
+    a.content === b.content &&
+    a.pending === b.pending &&
+    a.timestamp === b.timestamp,
 );
 
 function useStreamingText(content: string, active: boolean) {

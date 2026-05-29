@@ -12,15 +12,17 @@ type LocalMessage =
 
 type ChatMessageRowProps = {
   message: LocalMessage
+  timestamp?: string
 }
 
 const ChatMessageRow = memo(
-  function ChatMessageRow({ message }: ChatMessageRowProps) {
+  function ChatMessageRow({ message, timestamp }: ChatMessageRowProps) {
     return (
       <MessageBubble
         role={message.role}
         content={message.content}
         pending={"pending" in message && message.pending === true}
+        timestamp={timestamp}
       />
     )
   },
@@ -29,7 +31,8 @@ const ChatMessageRow = memo(
     prev.message.role === next.message.role &&
     prev.message.content === next.message.content &&
     ("pending" in prev.message ? prev.message.pending : false) ===
-      ("pending" in next.message ? next.message.pending : false),
+      ("pending" in next.message ? next.message.pending : false) &&
+    prev.timestamp === next.timestamp,
 )
 
 function localDateKey(value?: string | null) {
@@ -112,27 +115,6 @@ function ChatDateSeparator({ value }: { value?: string | null }) {
   )
 }
 
-function ChatMessageWithTimestamp({ message }: { message: LocalMessage }) {
-  const isUser = message.role === "user"
-  const time = formatMessageTime(message.created_at)
-
-  return (
-    <div>
-      <ChatMessageRow message={message} />
-      {time ? (
-        <div
-          className={[
-            "-mt-1 px-4 text-[10px] leading-none text-fg-subtle",
-            isUser ? "text-right" : "text-left",
-          ].join(" ")}
-        >
-          {time}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
 export const ChatMessageList = memo(function ChatMessageList({
   messages,
   loading,
@@ -184,7 +166,10 @@ export const ChatMessageList = memo(function ChatMessageList({
             {shouldShowDateSeparator(messages[index - 1], message) ? (
               <ChatDateSeparator value={message.created_at} />
             ) : null}
-            <ChatMessageWithTimestamp message={message} />
+            <ChatMessageRow
+              message={message}
+              timestamp={formatMessageTime(message.created_at)}
+            />
           </Fragment>
         ))
       )}
