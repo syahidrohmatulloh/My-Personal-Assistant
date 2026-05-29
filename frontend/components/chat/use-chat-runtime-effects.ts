@@ -11,6 +11,50 @@ import {
 import { hydrateCompanionMoodForConversation } from "@/lib/companion-mood"
 import { subscribeCompanionMoodRealtime } from "@/lib/companion-mood-realtime"
 
+type IdleWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number
+  cancelIdleCallback?: (handle: number) => void
+}
+
+function scheduleAfterChatIdle(callback: () => void, delayMs = 1500): () => void {
+  if (typeof window === "undefined") {
+    return () => {}
+  }
+
+  let cancelled = false
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+  let idleHandle: number | null = null
+
+  timeoutHandle = setTimeout(() => {
+    if (cancelled) return
+
+    const idleWindow = window as IdleWindow
+    if (idleWindow.requestIdleCallback) {
+      idleHandle = idleWindow.requestIdleCallback(
+        () => {
+          if (!cancelled) callback()
+        },
+        { timeout: 3500 },
+      )
+    } else {
+      callback()
+    }
+  }, delayMs)
+
+  return () => {
+    cancelled = true
+
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle)
+    }
+
+    const idleWindow = window as IdleWindow
+    if (idleHandle != null && idleWindow.cancelIdleCallback) {
+      idleWindow.cancelIdleCallback(idleHandle)
+    }
+  }
+}
+
 export function useChatRuntimeEffects({
   conversationId,
   identity,
@@ -22,19 +66,24 @@ export function useChatRuntimeEffects({
     let unsubscribe: (() => void) | null = null
     let cancelled = false
 
-    void hydrateCompanionMoodForConversation(conversationId)
+    const cancelIdle = scheduleAfterChatIdle(() => {
+      if (cancelled) return
 
-    subscribeCompanionMoodRealtime(conversationId).then((fn) => {
-      if (cancelled) {
-        fn()
-        return
-      }
+      void hydrateCompanionMoodForConversation(conversationId)
 
-      unsubscribe = fn
+      subscribeCompanionMoodRealtime(conversationId).then((fn) => {
+        if (cancelled) {
+          fn()
+          return
+        }
+
+        unsubscribe = fn
+      })
     })
 
     return () => {
       cancelled = true
+      cancelIdle()
       if (unsubscribe) unsubscribe()
     }
   }, [conversationId])

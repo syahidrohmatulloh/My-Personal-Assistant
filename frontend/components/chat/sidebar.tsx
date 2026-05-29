@@ -184,9 +184,10 @@ export function Sidebar({
       }
     },
     enabled: secondaryQueriesEnabled,
-    staleTime: 60_000,
-    gcTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: true,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   const memoryNeedsReview = Math.max(
@@ -209,12 +210,14 @@ export function Sidebar({
 
       return countCalendarSidebarAlerts(Array.isArray(json.items) ? json.items : []);
     },
-    staleTime: 60_000,
-    gcTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: true,
+    enabled: secondaryQueriesEnabled,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
-  const { data: styleProfiles = [] } = useQuery({ queryKey: ["style-profiles"], queryFn: listStyleProfiles, enabled: secondaryQueriesEnabled, staleTime: 60_000, }); const groups = useMemo(() => groupConversations(conversations), [conversations]); useEffect(() => { setOpen(false); }, [activeId]); useEffect(() => { if (open) { const prev = document.body.style.overflow; document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = prev; }; } }, [open]); const createMut = useMutation({ mutationFn: (styleProfileId: string | null = null) => createConversation("New chat", styleProfileId), onMutate: async () => { const optimistic: Conversation = { id: `temp-${Date.now()}`, title: "New chat", created_at: new Date().toISOString(), updated_at: new Date().toISOString(), }; await qc.cancelQueries({ queryKey: ["conversations"] }); qc.setQueryData<Conversation[]>(["conversations"], (old = []) => [ optimistic, ...old, ]); return { optimistic }; }, onSuccess: (real, _vars, ctx) => { qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.map((c) => (c.id === ctx?.optimistic.id ? real : c)), ); setOpen(false); router.push(`/chat/${real.id}`); }, onError: (_e, _v, ctx) => { qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.filter((c) => c.id !== ctx?.optimistic.id), ); }, }); const deleteMut = useMutation({ mutationFn: (id: string) => deleteConversation(id), onMutate: async (id) => { await qc.cancelQueries({ queryKey: ["conversations"] }); const prev = qc.getQueryData<Conversation[]>(["conversations"]); qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.filter((c) => c.id !== id), ); return { prev }; }, onError: (_e, _id, ctx) => { if (ctx?.prev) qc.setQueryData(["conversations"], ctx.prev); }, }); function handleDelete(id: string) { if (!confirm("Delete this conversation?")) return; deleteMut.mutate(id); if (activeId === id) router.push("/chat"); } async function handleSignOut() {
+  const { data: styleProfiles = [] } = useQuery({ queryKey: ["style-profiles"], queryFn: listStyleProfiles, enabled: secondaryQueriesEnabled, staleTime: 5 * 60 * 1000, gcTime: 30 * 60 * 1000, refetchOnWindowFocus: false, }); const groups = useMemo(() => groupConversations(conversations), [conversations]); useEffect(() => { setOpen(false); }, [activeId]); useEffect(() => { if (open) { const prev = document.body.style.overflow; document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = prev; }; } }, [open]); const createMut = useMutation({ mutationFn: (styleProfileId: string | null = null) => createConversation("New chat", styleProfileId), onMutate: async () => { const optimistic: Conversation = { id: `temp-${Date.now()}`, title: "New chat", created_at: new Date().toISOString(), updated_at: new Date().toISOString(), }; await qc.cancelQueries({ queryKey: ["conversations"] }); qc.setQueryData<Conversation[]>(["conversations"], (old = []) => [ optimistic, ...old, ]); return { optimistic }; }, onSuccess: (real, _vars, ctx) => { qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.map((c) => (c.id === ctx?.optimistic.id ? real : c)), ); setOpen(false); router.push(`/chat/${real.id}`); }, onError: (_e, _v, ctx) => { qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.filter((c) => c.id !== ctx?.optimistic.id), ); }, }); const deleteMut = useMutation({ mutationFn: (id: string) => deleteConversation(id), onMutate: async (id) => { await qc.cancelQueries({ queryKey: ["conversations"] }); const prev = qc.getQueryData<Conversation[]>(["conversations"]); qc.setQueryData<Conversation[]>(["conversations"], (old = []) => old.filter((c) => c.id !== id), ); return { prev }; }, onError: (_e, _id, ctx) => { if (ctx?.prev) qc.setQueryData(["conversations"], ctx.prev); }, }); function handleDelete(id: string) { if (!confirm("Delete this conversation?")) return; deleteMut.mutate(id); if (activeId === id) router.push("/chat"); } async function handleSignOut() {
     clearKnownAppSnapshots();
     const supabase = createClient();
     await supabase.auth.signOut();
