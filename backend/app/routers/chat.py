@@ -298,6 +298,20 @@ def _mood_to_palette(mood: str | None) -> str:
     return mapping.get(mood or "", "calm-blue")
 
 
+def _context_to_dict(value: object) -> dict | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "model_dump"):
+        dumped = value.model_dump(exclude_none=True)
+        return dumped if isinstance(dumped, dict) else None
+    if hasattr(value, "dict"):
+        dumped = value.dict(exclude_none=True)
+        return dumped if isinstance(dumped, dict) else None
+    return None
+
+
 def _render_ui_context(ui_context: dict | None) -> str | None:
     """Render frontend app/browser state as ephemeral prompt context.
 
@@ -837,6 +851,8 @@ async def chat(
         volatile_context += "\n\n" + temporal_grounding_block
     identity = context.get("identity") or {}
     profile = identity.get("profile") or {}
+    raw_ui_context = _context_to_dict(getattr(body, "ui_context", None))
+
     raw_client_context = None
     if getattr(body, "client_context", None) is not None:
         raw = body.client_context
@@ -897,7 +913,7 @@ async def chat(
         volatile_context += (
             f"\n- The user just renamed you to {assistant_name}; acknowledge it briefly and then continue."
         )
-    ui_context_block = _render_ui_context(body.ui_context)
+    ui_context_block = _render_ui_context(raw_ui_context)
     if ui_context_block:
         volatile_context += "\n\n" + ui_context_block
 
@@ -923,7 +939,7 @@ async def chat(
     # already fetched via life_model.get_context.
     profile_runtime_block = render_profile_runtime_context(
         context.get("identity") if isinstance(context, dict) else None,
-        body.ui_context,
+        raw_ui_context,
     )
     if profile_runtime_block:
         volatile_context += "\n\n" + profile_runtime_block
@@ -937,7 +953,7 @@ async def chat(
             companion_settings_row,
             current_mood,
             body.message,
-            body.ui_context,
+            raw_ui_context,
         )
         if mood_block:
             volatile_context += "\n\n" + mood_block
