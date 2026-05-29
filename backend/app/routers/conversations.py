@@ -435,12 +435,6 @@ async def list_messages(
     if not convo or not convo.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
 
-    if await _is_protected_conversation(user_id, conversation_id):
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            "Protected conversations cannot be deleted",
-        )
-
     query = (
         supabase.table("messages")
         .select("id, role, content, created_at")
