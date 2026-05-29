@@ -40,17 +40,21 @@ async def render_pending_calendar_confirmation_context(
     start_at = row.get("calendar_event_start_at")
     end_at = row.get("calendar_event_end_at")
     time_text = _format_time_range(start_at, end_at)
+    is_reminder = "reminder" in str(row.get("content") or "").lower()
+    item_label = "reminder" if is_reminder else "calendar item"
 
     return (
-        "Calendar pending suggestion context — internal:\\n"
-        "- There is a hidden pending Calendar suggestion awaiting user confirmation.\\n"
-        "- If the user confirms, you may say you will add it to Calendar.\\n"
-        "- If the user asks for Google Calendar, you may say you will sync it to Google Calendar.\\n"
-        "- If the user declines, you may say you will ignore/remove the suggestion.\\n"
-        "- Do not use internal terms like candidate or event draft.\\n"
-        f"- Pending suggestion id: {row.get('id')}\\n"
-        f"- Event: {title}\\n"
-        f"- Date: {date}\\n"
+        "Calendar/reminder pending suggestion context — internal:\n"
+        f"- There is a hidden pending {item_label} awaiting user confirmation.\n"
+        "- If the user seems to be asking you to remember/remind/schedule something, ask for confirmation naturally.\n"
+        "- For reminders, prefer wording like: 'Mau aku ingetin?' or 'Do you want me to remind you?'\n"
+        "- If the user confirms, you may say you will add it to Calendar/reminders.\n"
+        "- If the user asks for Google Calendar, you may say you will sync it to Google Calendar.\n"
+        "- If the user declines, you may say you will ignore/remove the suggestion.\n"
+        "- Do not use internal terms like candidate or event draft.\n"
+        f"- Pending suggestion id: {row.get('id')}\n"
+        f"- Item: {title}\n"
+        f"- Date: {date}\n"
         f"- Time: {time_text}"
     )
 
