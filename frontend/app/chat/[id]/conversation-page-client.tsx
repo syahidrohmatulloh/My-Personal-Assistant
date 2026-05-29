@@ -50,6 +50,20 @@ function sortLocalMessages(a: LocalMessage, b: LocalMessage) {
   return String(a.id).localeCompare(String(b.id));
 }
 
+function isNearDuplicateMessage(a: LocalMessage, b: LocalMessage) {
+  if (a.role !== b.role) return false;
+  if (a.content.trim() !== b.content.trim()) return false;
+
+  const aTime = localMessageTime(a);
+  const bTime = localMessageTime(b);
+
+  if (aTime === Number.MAX_SAFE_INTEGER || bTime === Number.MAX_SAFE_INTEGER) {
+    return true;
+  }
+
+  return Math.abs(aTime - bTime) <= 10_000;
+}
+
 export function ConversationPageClient({
   conversationId,
   initialMessages = [],
@@ -118,7 +132,7 @@ export function ConversationPageClient({
     setHistorySettled,
     markShouldStickToBottom,
     settleScrollAfterPaint,
-    liveRefreshEnabled: !sending,
+    liveRefreshEnabled: false,
   });
 
   const handleSend = useChatStreamSender({
@@ -171,7 +185,10 @@ export function ConversationPageClient({
 
         setMessages((current) => {
           const existingIds = new Set(current.map((message) => message.id));
-          const incoming = latest.filter((message) => !existingIds.has(message.id));
+          const incoming = latest.filter((message) => {
+            if (existingIds.has(message.id)) return false;
+            return !current.some((existing) => isNearDuplicateMessage(existing, message));
+          });
 
           if (incoming.length === 0) {
             return current;
