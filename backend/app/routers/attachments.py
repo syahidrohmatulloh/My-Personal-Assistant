@@ -19,6 +19,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Up
 
 from app.core.auth import get_current_user_id
 from app.services import attachments
+from app.services.safe_background import add_safe_background_task
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/attachments", tags=["attachments"])
@@ -72,7 +73,8 @@ async def upload_attachment(
     # are skipped — full document analysis happens when the user actually
     # sends the chat message that references the PDF.
     if kind == "image":
-        background_tasks.add_task(
+        add_safe_background_task(
+            background_tasks,
             attachments.describe_image_background,
             attachment_id=row["id"],
             user_id=user_id,
