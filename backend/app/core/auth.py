@@ -9,8 +9,6 @@ once per key rotation — not on every request.
 """
 
 import logging
-import os
-
 from fastapi import Header, HTTPException, status
 import jwt
 from jwt import PyJWKClient
@@ -18,7 +16,7 @@ from jwt import PyJWKClient
 from app.config import settings
 
 log = logging.getLogger(__name__)
-JWT_AUDIENCE = os.getenv("SUPABASE_JWT_AUDIENCE", "authenticated")
+JWT_AUDIENCE = settings.SUPABASE_JWT_AUDIENCE
 
 # Supabase publishes its public keys at this stable URL.
 JWKS_URL = f"{settings.SUPABASE_URL}/auth/v1/.well-known/jwks.json"

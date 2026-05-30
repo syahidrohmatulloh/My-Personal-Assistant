@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_SERVICE_ROLE_KEY: str  # bypasses RLS — only used server-side
     SUPABASE_JWT_SECRET: str  # for verifying JWTs from the frontend
+    SUPABASE_JWT_AUDIENCE: str = "authenticated"
 
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:3000"
