@@ -8,6 +8,7 @@ confirmation phase.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import logging
 import secrets
 from typing import Any
 from urllib.parse import urlencode
@@ -20,6 +21,8 @@ from app.config import settings
 from app.core.auth import get_current_user_id
 from app.services.supabase_client import get_supabase, safe_execute
 
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/calendar/oauth", tags=["calendar_oauth"])
 
@@ -83,9 +86,10 @@ async def google_calendar_oauth_start(
             .execute()
         )
     except Exception as exc:  # noqa: BLE001
+        log.exception("calendar oauth: failed to create state user=%s", user_id[:8])
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create OAuth state: {exc}",
+            detail="Failed to start Google Calendar connection",
         ) from exc
 
     params = {
@@ -114,7 +118,8 @@ async def google_calendar_oauth_callback(
     frontend_url = _frontend_url()
 
     if error:
-        return RedirectResponse(f"{frontend_url}/settings/security?calendar_error={error}")
+        log.warning("calendar oauth: provider returned error=%s", str(error)[:120])
+        return RedirectResponse(f"{frontend_url}/settings/security?calendar_error=oauth_denied")
 
     if not code or not state:
         return RedirectResponse(f"{frontend_url}/settings/security?calendar_error=missing_code_or_state")
@@ -146,9 +151,10 @@ async def google_calendar_oauth_callback(
         email = await _fetch_google_email(token_payload.get("access_token"))
         _store_connection(user_id=user_id, token_payload=token_payload, email=email)
         _mark_state_used(state)
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
+        log.exception("calendar oauth: callback failed state=%s", str(state)[:12])
         return RedirectResponse(
-            f"{frontend_url}/settings/security?calendar_error={urlencode({'m': str(exc)})}"
+            f"{frontend_url}/settings/security?calendar_error=connect_failed"
         )
 
     return RedirectResponse(f"{frontend_url}/settings/security?calendar=connected")
@@ -176,9 +182,10 @@ async def google_calendar_oauth_disconnect(
             .execute()
         )
     except Exception as exc:  # noqa: BLE001
+        log.exception("calendar oauth: disconnect failed user=%s", user_id[:8])
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to disconnect Google Calendar: {exc}",
+            detail="Failed to disconnect Google Calendar",
         ) from exc
 
     return {"ok": True, "connected": False}
@@ -269,7 +276,12 @@ async def _exchange_code_for_token(
         )
 
     if response.status_code >= 400:
-        raise RuntimeError(f"Google token exchange failed: {response.text[:300]}")
+        log.warning(
+            "calendar oauth: token exchange failed status=%s body=%s",
+            response.status_code,
+            response.text[:200],
+        )
+        raise RuntimeError("Google token exchange failed")
 
     return response.json()
 
@@ -403,7 +415,12 @@ async def _refresh_access_token(
         )
 
     if response.status_code >= 400:
-        raise RuntimeError(f"Google token refresh failed: {response.text[:300]}")
+        log.warning(
+            "calendar oauth: token refresh failed status=%s body=%s",
+            response.status_code,
+            response.text[:200],
+        )
+        raise RuntimeError("Google token refresh failed")
 
     return response.json()
 
