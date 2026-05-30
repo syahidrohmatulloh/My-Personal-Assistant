@@ -226,7 +226,7 @@ The AI should behave as a senior engineer.
 
 Frontend:
 
-* Next.js 16
+* Next.js 15
 * TypeScript
 * TailwindCSS
 * React Query
