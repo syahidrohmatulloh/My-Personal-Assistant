@@ -33,6 +33,7 @@ _RULES: tuple[RateLimitRule, ...] = (
     RateLimitRule(path="/chat", max_requests=20, window_seconds=60),
     RateLimitRule(path="/voice/speak", max_requests=30, window_seconds=60),
     RateLimitRule(path="/voice/transcribe", max_requests=20, window_seconds=60),
+    RateLimitRule(path="/attachments/upload", max_requests=12, window_seconds=60),
 )
 
 # key: "{path}:{identity}:{window_seconds}" -> timestamps
