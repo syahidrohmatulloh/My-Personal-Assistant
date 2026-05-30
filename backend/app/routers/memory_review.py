@@ -213,9 +213,10 @@ async def consolidate_memories(
             days=days,
         )
     except Exception as exc:  # noqa: BLE001
+        log.exception("memory review: consolidate failed user=%s", user_id[:8])
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to consolidate memories: {exc}",
+            detail="Failed to consolidate memories",
         ) from exc
 
 
@@ -245,9 +246,10 @@ async def list_memory_review(
     try:
         result = safe_execute(lambda _sb: query.execute())
     except Exception as exc:  # noqa: BLE001
+        log.exception("memory review: load memories failed user=%s", user_id[:8])
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to load memories: {exc}",
+            detail="Failed to load memories",
         ) from exc
 
     rows = result.data or []
@@ -294,9 +296,10 @@ async def list_calendar_candidates(
             )
         )
     except Exception as exc:  # noqa: BLE001
+        log.exception("memory review: load calendar candidates failed user=%s", user_id[:8])
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to load calendar candidates: {exc}",
+            detail="Failed to load Calendar items",
         ) from exc
 
     rows = result.data or []
@@ -334,9 +337,14 @@ async def dismiss_calendar_candidate(
             )
         )
     except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "memory review: dismiss calendar item failed user=%s memory=%s",
+            user_id[:8],
+            memory_id[:8],
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to dismiss calendar candidate: {exc}",
+            detail="Failed to dismiss Calendar item",
         ) from exc
 
     return {"ok": True, "action": "calendar_candidate_dismissed", "memory_id": memory_id}
@@ -400,9 +408,14 @@ async def confirm_calendar_candidate_local_event(
             )
         )
     except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "memory review: confirm calendar draft failed user=%s memory=%s",
+            user_id[:8],
+            memory_id[:8],
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to confirm calendar event draft: {exc}",
+            detail="Failed to confirm Calendar draft",
         ) from exc
 
     return {
@@ -549,9 +562,14 @@ async def update_calendar_candidate_draft(
             )
         )
     except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "memory review: update calendar draft failed user=%s memory=%s",
+            user_id[:8],
+            memory_id[:8],
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update calendar draft: {exc}",
+            detail="Failed to update Calendar draft",
         ) from exc
 
     return {
@@ -964,9 +982,14 @@ async def delete_google_calendar_candidate(
             )
         )
     except Exception as exc:
+        log.exception(
+            "memory review: archive local item after Google delete failed user=%s memory=%s",
+            user_id[:8],
+            memory_id[:8],
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Google event was deleted, but local Calendar item could not be archived: {exc}",
+            detail="Google event was deleted, but the local Calendar item could not be archived",
         ) from exc
 
     return {
@@ -1004,9 +1027,14 @@ async def archive_calendar_candidate(
             )
         )
     except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "memory review: archive calendar item failed user=%s memory=%s",
+            user_id[:8],
+            memory_id[:8],
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to archive calendar candidate: {exc}",
+            detail="Failed to archive Calendar item",
         ) from exc
 
     return {"ok": True, "action": "calendar_candidate_archived", "memory_id": memory_id}
@@ -1072,7 +1100,15 @@ async def resolve_memory_quality(
             archive_memory_ids=body.archive_memory_ids,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        log.warning(
+            "memory review: invalid quality resolve request user=%s error=%s",
+            user_id[:8],
+            str(exc)[:160],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid memory quality resolution request",
+        ) from exc
 
     existing = await asyncio.to_thread(
         lambda: safe_execute(
@@ -1087,9 +1123,14 @@ async def resolve_memory_quality(
     found_ids = {str(row.get("id")) for row in (existing.data or [])}
     missing_ids = [memory_id for memory_id in plan.all_memory_ids if memory_id not in found_ids]
     if missing_ids:
+        log.warning(
+            "memory review: quality resolve missing memories user=%s missing=%s",
+            user_id[:8],
+            [memory_id[:8] for memory_id in missing_ids],
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Memory not found or not owned by user: {', '.join(missing_ids)}",
+            detail="One or more memories were not found",
         )
 
     now = datetime.now(timezone.utc).isoformat()
@@ -1161,9 +1202,14 @@ async def confirm_memory(
             .execute()
         )
     except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "memory review: confirm memory failed user=%s memory=%s",
+            user_id[:8],
+            memory_id[:8],
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to confirm memory: {exc}",
+            detail="Failed to confirm memory",
         ) from exc
 
     return MemoryActionOut(ok=True, action="confirmed", memory_id=memory_id)
@@ -1198,9 +1244,14 @@ async def forget_memory(
             .execute()
         )
     except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "memory review: forget memory failed user=%s memory=%s",
+            user_id[:8],
+            memory_id[:8],
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to forget memory: {exc}",
+            detail="Failed to forget memory",
         ) from exc
 
     return MemoryActionOut(ok=True, action="forgotten", memory_id=memory_id)
@@ -1228,9 +1279,14 @@ async def edit_memory(
     try:
         embedding = await embed_document(body.content)
     except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "memory review: embed edited memory failed user=%s memory=%s",
+            user_id[:8],
+            memory_id[:8],
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to embed edited memory: {exc}",
+            detail="Failed to process edited memory",
         ) from exc
 
     new_row = {
@@ -1278,9 +1334,14 @@ async def edit_memory(
             .execute()
         )
     except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "memory review: edit memory failed user=%s memory=%s",
+            user_id[:8],
+            memory_id[:8],
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to edit memory: {exc}",
+            detail="Failed to edit memory",
         ) from exc
 
     return MemoryActionOut(
@@ -1309,9 +1370,14 @@ async def _assert_memory_owner(*, memory_id: str, user_id: str) -> dict[str, Any
             .execute()
         )
     except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "memory review: read memory failed user=%s memory=%s",
+            user_id[:8],
+            memory_id[:8],
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to read memory: {exc}",
+            detail="Failed to read memory",
         ) from exc
 
     rows = result.data or []
@@ -1363,9 +1429,14 @@ async def _load_memory_for_calendar_candidate(*, memory_id: str, user_id: str) -
             )
         )
     except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "memory review: read calendar item failed user=%s memory=%s",
+            user_id[:8],
+            memory_id[:8],
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to read calendar candidate: {exc}",
+            detail="Failed to read Calendar item",
         ) from exc
 
     rows = result.data or []
