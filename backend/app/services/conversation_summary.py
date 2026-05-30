@@ -29,7 +29,7 @@ from typing import Any
 from app.config import settings
 from app.services.claude import get_claude
 from app.services.embeddings import embed_document, embed_query
-from app.services.supabase_client import get_supabase
+from app.services.supabase_client import get_supabase, safe_execute
 
 log = logging.getLogger(__name__)
 
@@ -66,11 +66,9 @@ async def summarize_conversation(conversation_id: str) -> None:
 
     Idempotent. Runs as a background task; failures are logged, not raised.
     """
-    supabase = get_supabase()
-
     # Look up conversation + the latest message ID.
-    convo_res = (
-        supabase.table("conversations")
+    convo_res = safe_execute(
+        lambda sb: sb.table("conversations")
         .select("id, user_id, summarized_through, summary")
         .eq("id", conversation_id)
         .maybe_single()
@@ -84,8 +82,8 @@ async def summarize_conversation(conversation_id: str) -> None:
     user_id = convo["user_id"]
 
     # Count messages since last summarization. Cheap; avoids re-running on every turn.
-    msgs_res = (
-        supabase.table("messages")
+    msgs_res = safe_execute(
+        lambda sb: sb.table("messages")
         .select("id, role, content, created_at")
         .eq("conversation_id", conversation_id)
         .order("created_at")
@@ -154,14 +152,19 @@ async def summarize_conversation(conversation_id: str) -> None:
         return
 
     last_msg_id = messages[-1]["id"]
-    supabase.table("conversations").update(
-        {
-            "summary": summary,
-            "summary_embedding": embedding,
-            "summarized_through": last_msg_id,
-            "summarized_at": "now()",
-        }
-    ).eq("id", conversation_id).execute()
+    safe_execute(
+        lambda sb: sb.table("conversations")
+        .update(
+            {
+                "summary": summary,
+                "summary_embedding": embedding,
+                "summarized_through": last_msg_id,
+                "summarized_at": "now()",
+            }
+        )
+        .eq("id", conversation_id)
+        .execute()
+    )
 
     log.info(
         "summarize: user=%s convo=%s summary='%s'",
@@ -196,18 +199,19 @@ async def retrieve_related_summaries(
         log.warning("summary retrieval: embed failed: %s", exc)
         return []
 
-    supabase = get_supabase()
     try:
-        result = supabase.rpc(
-            "match_conversation_summaries",
-            {
-                "p_user_id": user_id,
-                "p_query_embedding": query_embedding,
-                "p_exclude_id": exclude_conversation_id,
-                "p_match_count": limit,
-                "p_min_similarity": min_similarity,
-            },
-        ).execute()
+        result = safe_execute(
+            lambda sb: sb.rpc(
+                "match_conversation_summaries",
+                {
+                    "p_user_id": user_id,
+                    "p_query_embedding": query_embedding,
+                    "p_exclude_id": exclude_conversation_id,
+                    "p_match_count": limit,
+                    "p_min_similarity": min_similarity,
+                },
+            ).execute()
+        )
     except Exception as exc:  # noqa: BLE001
         log.warning("summary retrieval: RPC failed: %s", exc)
         return []
