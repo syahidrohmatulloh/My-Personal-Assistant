@@ -82,5 +82,22 @@ async def stop_memory_health_scheduler() -> None:
 
 @app.get("/health", tags=["meta"])
 async def health():
-    """Liveness probe. Hit this to confirm the service is running."""
-    return {"status": "ok", "model": settings.ANTHROPIC_MODEL}
+    """Lightweight liveness/config probe.
+
+    This intentionally avoids paid/slow external calls. It only reports whether
+    required integrations appear configured, without exposing secret values.
+    """
+    return {
+        "status": "ok",
+        "model": settings.ANTHROPIC_MODEL,
+        "supabase_configured": bool(
+            settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY
+        ),
+        "google_calendar_configured": bool(
+            settings.GOOGLE_CLIENT_ID
+            and settings.GOOGLE_CLIENT_SECRET
+            and settings.GOOGLE_CALENDAR_REDIRECT_URI
+        ),
+        "voice_tts_configured": bool(getattr(settings, "ELEVENLABS_API_KEY", None)),
+        "voice_stt_configured": bool(getattr(settings, "DEEPGRAM_API_KEY", None)),
+    }

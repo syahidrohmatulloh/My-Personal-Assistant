@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:3000"
 
+    # Voice providers. Optional so the backend can boot before voice is configured.
+    ELEVENLABS_API_KEY: str | None = None
+    ELEVENLABS_VOICE_ID: str | None = None
+    DEEPGRAM_API_KEY: str | None = None
+
     # Google Calendar OAuth foundation. Optional so the backend can boot before
     # Google OAuth is configured.
     GOOGLE_CLIENT_ID: str | None = None
