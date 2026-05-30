@@ -9,15 +9,78 @@ existing rows, decay confidence). Those are internal to the agent for now.
 """
 
 from datetime import date
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.auth import get_current_user_id
 from app.services import life_model
 
 router = APIRouter(tags=["life-model"])
+
+
+MAX_PROFILE_KEYS = 80
+MAX_DETAILS_KEYS = 40
+MAX_JSON_DEPTH = 4
+MAX_JSON_STRING_CHARS = 2_000
+MAX_JSON_LIST_ITEMS = 50
+
+
+def _validate_bounded_json(
+    value: Any,
+    *,
+    label: str,
+    max_keys: int,
+    max_depth: int = MAX_JSON_DEPTH,
+) -> dict[str, Any]:
+    """Allow flexible profile/details JSON, but reject oversized or deeply nested payloads."""
+    if value is None:
+        return {}
+
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be an object")
+
+    total_keys = 0
+
+    def walk(item: Any, depth: int) -> None:
+        nonlocal total_keys
+
+        if depth > max_depth:
+            raise ValueError(f"{label} is too deeply nested")
+
+        if isinstance(item, dict):
+            total_keys += len(item)
+            if total_keys > max_keys:
+                raise ValueError(f"{label} has too many fields")
+
+            for key, nested in item.items():
+                if not isinstance(key, str):
+                    raise ValueError(f"{label} keys must be strings")
+                if len(key) > 120:
+                    raise ValueError(f"{label} field names are too long")
+                walk(nested, depth + 1)
+            return
+
+        if isinstance(item, list):
+            if len(item) > MAX_JSON_LIST_ITEMS:
+                raise ValueError(f"{label} lists are too long")
+            for nested in item:
+                walk(nested, depth + 1)
+            return
+
+        if isinstance(item, str):
+            if len(item) > MAX_JSON_STRING_CHARS:
+                raise ValueError(f"{label} text values are too long")
+            return
+
+        if item is None or isinstance(item, (bool, int, float)):
+            return
+
+        raise ValueError(f"{label} contains unsupported values")
+
+    walk(value, 1)
+    return value
 
 
 # ----------------------------------------------------------------------------
@@ -26,8 +89,17 @@ router = APIRouter(tags=["life-model"])
 
 
 class IdentityIn(BaseModel):
-    profile: dict = Field(default_factory=dict)
-    narrative: str | None = None
+    profile: dict[str, Any] = Field(default_factory=dict)
+    narrative: str | None = Field(default=None, max_length=10_000)
+
+    @field_validator("profile")
+    @classmethod
+    def validate_profile(cls, value: Any) -> dict[str, Any]:
+        return _validate_bounded_json(
+            value,
+            label="profile",
+            max_keys=MAX_PROFILE_KEYS,
+        )
 
 
 @router.get("/identity")
@@ -52,7 +124,16 @@ class PersonIn(BaseModel):
     importance: int = Field(default=5, ge=1, le=10)
     emotional_significance: int = Field(default=5, ge=1, le=10)
     birthday: date | None = None
-    details: dict = Field(default_factory=dict)
+    details: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("details")
+    @classmethod
+    def validate_details(cls, value: Any) -> dict[str, Any]:
+        return _validate_bounded_json(
+            value,
+            label="details",
+            max_keys=MAX_DETAILS_KEYS,
+        )
 
 
 @router.get("/people")
@@ -84,7 +165,7 @@ GoalStatus = Literal["active", "paused", "achieved", "abandoned"]
 
 class GoalIn(BaseModel):
     title: str = Field(min_length=1, max_length=200)
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=5_000)
     horizon: Horizon
     emotional_weight: int = Field(default=5, ge=1, le=10)
     target_date: date | None = None
@@ -96,7 +177,7 @@ class GoalStatusIn(BaseModel):
 
 class GoalPatchIn(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=5_000)
     horizon: Horizon | None = None
     emotional_weight: int | None = Field(default=None, ge=1, le=10)
     target_date: date | None = None
@@ -248,7 +329,7 @@ LifeEventCategory = Literal[
 
 class LifeEventIn(BaseModel):
     title: str = Field(min_length=1, max_length=200)
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=5_000)
     category: LifeEventCategory = "other"
     happened_on: date
     significance: int = Field(default=5, ge=1, le=10)
