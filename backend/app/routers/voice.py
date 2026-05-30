@@ -41,16 +41,25 @@ async def speak(
     try:
         audio = await generate_speech(body.text)
     except ValueError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        log.warning("voice speak: invalid request user=%s error=%s", user_id[:8], str(exc)[:160])
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid speech request") from exc
     except VoiceConfigurationError as exc:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+        log.warning("voice speak: configuration error user=%s error=%s", user_id[:8], str(exc)[:160])
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Voice is not configured yet",
+        ) from exc
     except VoiceProviderError as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+        log.warning("voice speak: provider error user=%s error=%s", user_id[:8], str(exc)[:160])
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "Voice generation is temporarily unavailable",
+        ) from exc
     except Exception as exc:  # noqa: BLE001
-        log.error("speech generation failed unexpectedly: %s", exc, exc_info=True)
+        log.exception("voice speak: unexpected failure user=%s", user_id[:8])
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
-            "Speech generation failed unexpectedly",
+            "Voice generation failed unexpectedly",
         ) from exc
 
     return StreamingResponse(
@@ -82,13 +91,22 @@ async def transcribe(
         )
         return TranscribeResponse(text=result.text, confidence=result.confidence)
     except ValueError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        log.warning("voice transcribe: invalid request user=%s error=%s", user_id[:8], str(exc)[:160])
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid audio request") from exc
     except VoiceConfigurationError as exc:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+        log.warning("voice transcribe: configuration error user=%s error=%s", user_id[:8], str(exc)[:160])
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Voice transcription is not configured yet",
+        ) from exc
     except TranscriptionProviderError as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+        log.warning("voice transcribe: provider error user=%s error=%s", user_id[:8], str(exc)[:160])
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "Voice transcription is temporarily unavailable",
+        ) from exc
     except Exception as exc:  # noqa: BLE001
-        log.error("transcription failed unexpectedly: %s", exc, exc_info=True)
+        log.exception("voice transcribe: unexpected failure user=%s", user_id[:8])
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             "Transcription failed unexpectedly",

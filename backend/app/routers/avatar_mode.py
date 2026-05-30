@@ -44,9 +44,17 @@ async def put_profile(
     try:
         return await avatar_mode.upsert_avatar_profile(user_id, body.model_dump(exclude_unset=True))
     except ValueError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        log.warning(
+            "avatar mode: invalid profile update user=%s error=%s",
+            user_id[:8],
+            str(exc)[:160],
+        )
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Invalid avatar profile request",
+        ) from exc
     except Exception as exc:  # noqa: BLE001
-        log.error("avatar profile update failed: %s", exc, exc_info=True)
+        log.exception("avatar mode: profile update failed user=%s", user_id[:8])
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             "Failed to update avatar profile",
