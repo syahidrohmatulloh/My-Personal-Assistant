@@ -64,7 +64,11 @@ async def upload_attachment(
             kind=kind,
         )
     except Exception as exc:
-        log.error("attachment upload failed: %s", exc)
+        log.exception(
+            "attachment upload failed user=%s filename=%s",
+            user_id[:8],
+            file.filename[:120],
+        )
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR, "Upload failed"
         ) from exc
