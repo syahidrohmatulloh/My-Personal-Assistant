@@ -73,6 +73,7 @@ from app.services.prompt_builder import (
     trim_history,
 )
 from app.services.supabase_client import get_supabase, safe_execute
+from app.services.safe_background import add_safe_background_task
 
 log = logging.getLogger(__name__)
 timing_log = logging.getLogger("uvicorn.error")
@@ -744,7 +745,7 @@ async def chat(
     if assistant_rename:
         # Persist rename via companion service. Background task — user shouldn't
         # wait on it.
-        background_tasks.add_task(
+        add_safe_background_task(background_tasks, 
             companion.update_settings,
             user_id,
             assistant_name=assistant_rename,
@@ -1169,7 +1170,7 @@ async def _stream_claude_response(
     # Legacy memory extraction is now gated because memory_intelligence is the
     # primary structured extractor. This prevents duplicate durable memories.
     if extraction_decision.run_legacy_memory:
-        background_tasks.add_task(
+        add_safe_background_task(background_tasks, 
             memory.extract_and_save,
             user_id=user_id,
             conversation_id=conversation_id,
@@ -1181,7 +1182,7 @@ async def _stream_claude_response(
 
     # Structured memory intelligence — identity/preferences/routines/dates/etc.
     if extraction_decision.run_memory_intelligence:
-        background_tasks.add_task(
+        add_safe_background_task(background_tasks, 
             memory_intelligence.extract_and_persist,
             user_id=user_id,
             conversation_id=conversation_id,
@@ -1193,7 +1194,7 @@ async def _stream_claude_response(
 
     # Mood-memory feedback — only when debugging/frustration/support-style signal exists.
     if extraction_decision.run_mood_memory_feedback:
-        background_tasks.add_task(
+        add_safe_background_task(background_tasks, 
             mood_memory_feedback.extract_and_persist,
             user_id=user_id,
             user_message=user_message,
@@ -1203,7 +1204,7 @@ async def _stream_claude_response(
 
     # Relationship memory — only when user gives interaction-style or Aliyya-specific signal.
     if extraction_decision.run_relationship_memory:
-        background_tasks.add_task(
+        add_safe_background_task(background_tasks, 
             relationship_memory.extract_and_persist,
             user_id=user_id,
             user_message=user_message,
@@ -1212,7 +1213,7 @@ async def _stream_claude_response(
 
     # Goal intelligence — only on goal-like turns. Suggestions still require confirmation.
     if extraction_decision.run_goal_intelligence:
-        background_tasks.add_task(
+        add_safe_background_task(background_tasks, 
             goal_intelligence.extract_and_persist,
             user_id=user_id,
             conversation_id=conversation_id,
@@ -1221,7 +1222,7 @@ async def _stream_claude_response(
         )
 
     # LLM-routed Calendar confirmation — accepts/dismisses the latest hidden pending suggestion.
-    background_tasks.add_task(
+    add_safe_background_task(background_tasks, 
         calendar_confirmation_actions.apply_calendar_confirmation_decision,
         user_id=user_id,
         conversation_id=conversation_id,
@@ -1235,7 +1236,7 @@ async def _stream_claude_response(
 
     should_schedule_proactive_nudge = proactive_nudges.should_attempt_proactive_nudge(user_message)
     if should_schedule_proactive_nudge:
-        background_tasks.add_task(
+        add_safe_background_task(background_tasks, 
             proactive_nudges.schedule_from_chat,
             user_id=user_id,
             conversation_id=conversation_id,
@@ -1249,7 +1250,7 @@ async def _stream_claude_response(
         user_message
     )
     if should_apply_calendar_draft_action:
-        background_tasks.add_task(
+        add_safe_background_task(background_tasks, 
             calendar_draft_actions.apply_chat_calendar_draft_action,
             user_id=user_id,
             conversation_id=conversation_id,
@@ -1266,7 +1267,7 @@ async def _stream_claude_response(
         user_message
     )
     if should_create_google_calendar_event:
-        background_tasks.add_task(
+        add_safe_background_task(background_tasks, 
             calendar_draft_actions.create_google_calendar_event_from_chat,
             user_id=user_id,
             conversation_id=conversation_id,
@@ -1289,7 +1290,7 @@ async def _stream_claude_response(
         )
     )
     if should_extract_calendar_candidate:
-        background_tasks.add_task(
+        add_safe_background_task(background_tasks, 
             calendar_candidate_extractor.extract_and_persist,
             user_id=user_id,
             conversation_id=conversation_id,
@@ -1312,14 +1313,14 @@ async def _stream_claude_response(
 
     # Background conversation-summary update. Idempotent — only runs Haiku
     # if the conversation has grown ≥N messages since last summarize.
-    background_tasks.add_task(
+    add_safe_background_task(background_tasks, 
         conversation_summary.summarize_conversation,
         conversation_id=conversation_id,
     )
 
     # Background title generation on first message
     if is_first_message and assistant_text:
-        background_tasks.add_task(
+        add_safe_background_task(background_tasks, 
             _generate_title,
             conversation_id=conversation_id,
             user_message=user_message,
