@@ -197,6 +197,46 @@ export function removeSnapshot(key: string) {
   }
 }
 
+export type PromoteSnapshotOptions<T> = {
+  fromKey: string
+  toKey: string
+  fallback: T
+  validate?: (value: unknown) => value is T
+  options?: SnapshotReadOptions
+  removeLegacy?: boolean
+}
+
+/**
+ * Prefer a user-scoped snapshot, but safely promote an older legacy snapshot
+ * into the scoped key when the scoped cache is not available yet.
+ */
+export function promoteSnapshot<T>({
+  fromKey,
+  toKey,
+  fallback,
+  validate,
+  options,
+  removeLegacy = false,
+}: PromoteSnapshotOptions<T>): SnapshotPayload<T> | null {
+  const existing = readSnapshot<T>(toKey, fallback, validate, options)
+  if (existing || fromKey === toKey) {
+    return existing
+  }
+
+  const legacy = readSnapshot<T>(fromKey, fallback, validate, options)
+  if (!legacy) {
+    return null
+  }
+
+  writeSnapshot(toKey, legacy.data)
+
+  if (removeLegacy) {
+    removeSnapshot(fromKey)
+  }
+
+  return legacy
+}
+
 export function getSnapshotSavedAt(key: string): string | null {
   if (typeof window === "undefined") {
     return null

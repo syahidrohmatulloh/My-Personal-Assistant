@@ -21,7 +21,13 @@ import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
 import { useAssistantDisplayName } from "@/hooks/use-identity-owned-label";
 import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 import { createClient } from "@/lib/supabase/client";
-import { readSnapshot, SNAPSHOT_MAX_AGE_MS, userScopedSnapshotKey, writeSnapshot } from "@/lib/snapshot-cache";
+import {
+  promoteSnapshot,
+  readSnapshot,
+  SNAPSHOT_MAX_AGE_MS,
+  userScopedSnapshotKey,
+  writeSnapshot,
+} from "@/lib/snapshot-cache";
 
 const inputCls =
   "mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
@@ -65,58 +71,61 @@ export default function PeoplePage() {
   useEffect(() => {
     let cancelled = false
 
-    async function resolveUserScopedSnapshot() {
-      const supabase = createClient()
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
+    async function loadPeople() {
+      let activeSnapshotKey = LEGACY_PEOPLE_SNAPSHOT_KEY
+
+      try {
+        const supabase = createClient()
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+
+        if (cancelled) return
+
+        const userId = session?.user?.id
+        if (userId) {
+          const scopedKey = peopleSnapshotKeyForUser(userId)
+          const scopedSnapshot = promoteSnapshot<Person[]>({
+            fromKey: LEGACY_PEOPLE_SNAPSHOT_KEY,
+            toKey: scopedKey,
+            fallback: [],
+            validate: isPeopleArray,
+            options: { maxAgeMs: SNAPSHOT_MAX_AGE_MS.people },
+          })
+
+          activeSnapshotKey = scopedKey
+          setSnapshotKey(scopedKey)
+
+          if (scopedSnapshot) {
+            setPeople(scopedSnapshot.data)
+          }
+        }
+      } catch {
+        // Keep the legacy instant snapshot path working if auth/session lookup fails.
+      }
 
       if (cancelled) return
 
-      const userId = session?.user?.id
-      if (!userId) return
+      setLoading(true)
 
-      const scopedKey = peopleSnapshotKeyForUser(userId)
-      const scopedSnapshot = readSnapshot<Person[]>(
-        scopedKey,
-        [],
-        isPeopleArray,
-        { maxAgeMs: SNAPSHOT_MAX_AGE_MS.people },
-      )
-
-      if (scopedSnapshot) {
-        setPeople(scopedSnapshot.data)
-      } else if (people.length > 0) {
-        writeSnapshot(scopedKey, people)
-      }
-
-      setSnapshotKey(scopedKey)
-    }
-
-    void resolveUserScopedSnapshot()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-
-    setLoading(true)
-
-    listPeople()
-      .then((data) => {
+      try {
+        const data = await listPeople()
         if (cancelled) return
+
         setPeople(data)
-        writeSnapshot(snapshotKey, data)
-      })
-      .catch((e) => {
+        writeSnapshot(activeSnapshotKey, data)
+      } catch (e) {
         if (!cancelled) {
           setError(String(e))
         }
-      })
-      .finally(() => !cancelled && setLoading(false))
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
+    }
+
+    void loadPeople()
 
     return () => {
       cancelled = true
