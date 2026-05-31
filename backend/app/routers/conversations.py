@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from app.core.auth import get_current_user_id
 from app.schemas import ConversationOut, CreateConversationIn, MessageOut
 from app.services import companion
-from app.services.claude import get_claude
+from app.services.llm_v2 import get_utility_llm
 from app.services.supabase_client import get_supabase, safe_execute
 
 log = logging.getLogger(__name__)
@@ -360,9 +360,7 @@ async def regenerate_title(
 
 
 async def _haiku_title(messages: list[dict]) -> str | None:
-    """Call Haiku to generate a 3-6 word title. Returns None on failure."""
-    claude = get_claude()
-
+    """Generate a 3-6 word title using the configured utility LLM."""
     # Compose enough context for the model. Cap each message; titles need
     # gist, not full transcripts.
     excerpt_parts: list[str] = []
@@ -370,25 +368,26 @@ async def _haiku_title(messages: list[dict]) -> str | None:
         excerpt_parts.append(f"{m['role'].upper()}: {m['content'][:300]}")
     excerpt = "\n\n".join(excerpt_parts)
 
+    prompt = (
+        "Generate a concise 3-6 word title summarizing this conversation. "
+        "Use the same language as the conversation. "
+        "Output ONLY the title — no quotes, no punctuation at end, no commentary.\n\n"
+        f"Conversation:\n{excerpt}\n\nTitle:"
+    )
+
     try:
-        response = await claude.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=30,
-            system=(
-                "Generate a concise 3-6 word title summarizing this conversation. "
-                "Use the same language as the conversation. "
-                "Output ONLY the title — no quotes, no punctuation at end, no commentary."
-            ),
-            messages=[{"role": "user", "content": excerpt}],
-        )
+        llm = get_utility_llm()
+        title = (
+            await llm.generate_text(
+                prompt=prompt,
+                max_tokens=30,
+                temperature=0.2,
+            )
+        ).strip().strip('"').strip("'")[:60]
     except Exception as exc:
-        log.warning("regenerate-title: Haiku failed: %s", exc)
+        log.warning("regenerate-title: utility LLM failed: %s", exc)
         return None
 
-    block = next((b for b in response.content if b.type == "text"), None)
-    if not block:
-        return None
-    title = block.text.strip().strip('"').strip("'")[:60]
     return title or None
 
 
