@@ -7,6 +7,24 @@ import {
 let activeAvatarAudioCleanup: (() => void) | null = null;
 let activeAvatarAudioElement: HTMLAudioElement | null = null;
 
+function createPlaybackError(error: unknown): Error {
+  const name = error instanceof DOMException ? error.name : "";
+  const message = error instanceof Error ? error.message : "";
+
+  if (
+    name === "NotAllowedError" ||
+    /not allowed|permission|user agent|platform/i.test(message)
+  ) {
+    return new Error("Safari memblokir audio playback. Tap Speak sekali lagi atau cek permission audio browser.");
+  }
+
+  if (name === "NotSupportedError") {
+    return new Error("Format audio belum bisa diputar oleh browser ini.");
+  }
+
+  return new Error("Audio belum bisa diputar. Coba tap Speak lagi.");
+}
+
 function cleanupActiveAvatarAudio(): void {
   if (activeAvatarAudioCleanup) {
     activeAvatarAudioCleanup();
@@ -48,7 +66,7 @@ export async function playAvatarAudioUrl(sourceUrl: string, source = "voice"): P
     return audio;
   } catch (error) {
     cleanupActiveAvatarAudio();
-    throw error;
+    throw createPlaybackError(error);
   }
 }
 
@@ -67,7 +85,7 @@ export async function playAvatarAudioBlob(blob: Blob, source = "voice"): Promise
   } catch (error) {
     revokeObjectUrl();
     cleanupActiveAvatarAudio();
-    throw error;
+    throw createPlaybackError(error);
   }
 }
 

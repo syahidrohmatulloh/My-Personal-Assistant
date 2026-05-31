@@ -49,7 +49,11 @@ function MessageBubbleBase({ role, content, pending, timestamp }: Props) {
       const response = await speakText(textToSpeak);
       await avatarAudio.playResponse(response, "voice");
     } catch (error) {
-      setSpeakError(error instanceof Error ? error.message : "Speech playback failed.");
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Audio belum bisa diputar. Coba tap Speak lagi.";
+      setSpeakError(message);
     }
   }
 
