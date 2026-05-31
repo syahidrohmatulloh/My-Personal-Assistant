@@ -13,11 +13,10 @@ import json
 import logging
 from typing import Any
 
-from app.services.claude import get_claude
+from app.services.llm_v2 import get_utility_llm
 
 log = logging.getLogger(__name__)
 
-MODEL_NAME = "claude-haiku-4-5"
 
 ALLOWED_ACTIONS = {
     "accept_local",
@@ -98,11 +97,11 @@ async def classify_calendar_confirmation(
     )
 
     try:
-        response = await get_claude().messages.create(
-            model=MODEL_NAME,
+        llm = get_utility_llm()
+        response_text = await llm.generate_text(
+            prompt=f"{SYSTEM_PROMPT}\n\n{prompt}",
             max_tokens=500,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
         )
     except Exception as exc:  # noqa: BLE001
         log.warning("calendar_decision_router: LLM classify failed: %s", exc)
@@ -113,7 +112,7 @@ async def classify_calendar_confirmation(
             reason="llm_failed",
         )
 
-    raw = _parse_json_object(_response_text(response))
+    raw = _parse_json_object(response_text)
     return _normalise_decision(raw, pending_suggestions)
 
 
