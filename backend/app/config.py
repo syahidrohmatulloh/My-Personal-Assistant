@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     STYLE_ANALYSIS_SAMPLE_CHARS: int = 80_000
     STYLE_ANALYSIS_MAX_CHARS: int = 100_000
 
+    # Dual LLM provider architecture.
+    # Chat remains Claude until utility pilots are stable.
+    CHAT_LLM_PROVIDER: str = "claude"
+    UTILITY_LLM_PROVIDER: str = "claude"
+
+    # Ollama / self-hosted local model settings for future utility pilots.
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "qwen2.5:7b"
+
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",")]
