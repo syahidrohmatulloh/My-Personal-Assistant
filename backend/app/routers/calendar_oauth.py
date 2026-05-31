@@ -201,9 +201,13 @@ def _require_google_oauth_config() -> tuple[str, str, str]:
         missing.append("GOOGLE_CALENDAR_REDIRECT_URI")
 
     if missing:
+        log.warning(
+            "calendar oauth: missing config keys=%s",
+            ",".join(missing),
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Google Calendar OAuth is not configured. Missing: {', '.join(missing)}",
+            detail="Google Calendar OAuth is not configured",
         )
 
     return (
