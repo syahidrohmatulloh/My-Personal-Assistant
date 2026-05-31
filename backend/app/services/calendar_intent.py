@@ -17,9 +17,10 @@ import logging
 import re
 from typing import Any
 
+from app.services.llm_v2 import get_utility_llm
+
 log = logging.getLogger(__name__)
 
-MODEL_NAME = "claude-haiku-4-5"
 
 SYSTEM_PROMPT = """You extract calendar event drafts for a review-first personal assistant app.
 
@@ -50,12 +51,6 @@ Rules:
 - Prefer preserving important people, purpose, and location.
 - Do not include phrases like "masukin kalender", "tolong", or raw database fields in the title.
 """
-
-
-def _get_claude_client():
-    from app.services.claude import get_claude
-
-    return get_claude()
 
 
 def _client_context_dict(client_context: dict[str, Any] | None) -> dict[str, Any]:
@@ -270,15 +265,14 @@ async def extract_calendar_intent_draft(
         + json.dumps(payload, ensure_ascii=False, indent=2)
     )
 
-    claude = _get_claude_client()
-    response = await claude.messages.create(
-        model=MODEL_NAME,
+    llm = get_utility_llm()
+    response_text = await llm.generate_text(
+        prompt=f"{SYSTEM_PROMPT}\n\n{prompt}",
         max_tokens=700,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
+        temperature=0.1,
     )
 
-    parsed = _parse_json_object(_response_text(response))
+    parsed = _parse_json_object(response_text)
     if not parsed:
         return None
 
