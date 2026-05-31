@@ -76,14 +76,20 @@ async def patch_settings(
             repair_gate_enabled=body.repair_gate_enabled,
         )
     except ValueError as exc:
-        # Escalation rule violation — 400 with the rule message.
+        log.warning(
+            "companion settings: invalid update user=%s error=%s",
+            user_id[:8],
+            str(exc)[:160],
+        )
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, str(exc)
+            status.HTTP_400_BAD_REQUEST,
+            "Invalid companion settings update",
         ) from exc
     except Exception as exc:
-        log.error("companion settings update failed: %s", exc, exc_info=True)
+        log.exception("companion settings: update failed user=%s", user_id[:8])
         raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR, "Failed to update settings"
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Failed to update settings",
         ) from exc
 
     return _to_response(updated)
