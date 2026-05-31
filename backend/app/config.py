@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     # Chat remains Claude until utility pilots are stable.
     CHAT_LLM_PROVIDER: str = "claude"
     UTILITY_LLM_PROVIDER: str = "claude"
+    UTILITY_LLM_MODEL: str = "claude-haiku-4-5"
 
     # Ollama / self-hosted local model settings for future utility pilots.
     OLLAMA_BASE_URL: str = "http://localhost:11434"

@@ -14,12 +14,12 @@ _chat_provider: LLMProvider | None = None
 _utility_provider: LLMProvider | None = None
 
 
-def _build_provider(provider: str) -> LLMProvider:
+def _build_provider(provider: str, *, model: str | None = None) -> LLMProvider:
     normalized = (provider or "claude").strip().lower()
     if normalized == "claude":
-        return ClaudeProvider()
+        return ClaudeProvider(model=model)
     if normalized == "ollama":
-        return OllamaProvider()
+        return OllamaProvider(model=model)
     raise ValueError(f"Unknown LLM provider: {normalized}")
 
 
@@ -34,8 +34,21 @@ def get_chat_llm() -> LLMProvider:
 def get_utility_llm() -> LLMProvider:
     global _utility_provider
     if _utility_provider is None:
-        _utility_provider = _build_provider(settings.UTILITY_LLM_PROVIDER)
-        log.info("utility llm provider=%s", settings.UTILITY_LLM_PROVIDER)
+        utility_provider_name = settings.UTILITY_LLM_PROVIDER.strip().lower()
+        utility_model = (
+            settings.UTILITY_LLM_MODEL
+            if utility_provider_name == "claude"
+            else settings.OLLAMA_MODEL
+        )
+        _utility_provider = _build_provider(
+            settings.UTILITY_LLM_PROVIDER,
+            model=utility_model,
+        )
+        log.info(
+            "utility llm provider=%s model=%s",
+            settings.UTILITY_LLM_PROVIDER,
+            utility_model,
+        )
     return _utility_provider
 
 

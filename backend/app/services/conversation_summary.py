@@ -26,8 +26,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.config import settings
-from app.services.claude import get_claude
+from app.services.llm_v2 import get_utility_llm
 from app.services.embeddings import embed_document, embed_query
 from app.services.supabase_client import get_supabase, safe_execute
 
@@ -126,22 +125,20 @@ async def summarize_conversation(conversation_id: str) -> None:
     convo_text = "".join(convo_text_parts)
 
     try:
-        claude = get_claude()
-        response = await claude.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=300,
-            system=SUMMARY_PROMPT,
-            messages=[{"role": "user", "content": convo_text}],
-        )
-        block = next((b for b in response.content if b.type == "text"), None)
-        if not block:
-            log.warning("summarize: no text block in Haiku response")
-            return
-        summary = block.text.strip()[:SUMMARY_MAX_CHARS]
+        llm = get_utility_llm()
+        summary_prompt = f"{SUMMARY_PROMPT}\n\nConversation:\n{convo_text}\n\nSummary:"
+        summary = (
+            await llm.generate_text(
+                prompt=summary_prompt,
+                max_tokens=300,
+                temperature=0.2,
+            )
+        ).strip()[:SUMMARY_MAX_CHARS]
         if not summary:
+            log.warning("summarize: utility LLM returned empty summary")
             return
     except Exception as exc:  # noqa: BLE001
-        log.warning("summarize: Haiku call failed: %s", exc)
+        log.warning("summarize: utility LLM call failed: %s", exc)
         return
 
     # Embed the summary for cross-conversation retrieval.
