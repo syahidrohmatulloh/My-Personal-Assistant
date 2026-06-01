@@ -9,14 +9,19 @@ export default function SettingsPage() {
   return (
     <main className="min-h-dvh">
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 sm:py-8 fade-up">
-        <BackToChatButton />
-
-        <h1 className="text-3xl font-semibold text-fg mb-2 tracking-tighter">
-          Settings
-        </h1>
-        <p className="text-base text-fg-muted mb-6">
-          Personalize how your assistant works.
-        </p>
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-semibold text-fg mb-2 tracking-tighter">
+              Settings
+            </h1>
+            <p className="text-base text-fg-muted">
+              Personalize how your assistant works.
+            </p>
+          </div>
+          <div className="shrink-0 pt-1">
+            <BackToChatButton />
+          </div>
+        </div>
 
         <section className="mt-2">
           <h2 className="text-[10px] font-semibold uppercase tracking-wider text-fg-subtle mb-2 px-1">

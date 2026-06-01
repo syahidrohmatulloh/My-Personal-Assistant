@@ -19,7 +19,7 @@ const MODE_INFO: Record<
 > = {
   professional: {
     label: "Professional",
-    subtitle: "Calm, neutral chief-of-staff",
+    subtitle: "Calm, neutral, professional",
     description:
       "Assistant stays emotionally consistent and focused on being useful. No moods, no warmth performance. Best for work-mode and decision support.",
   },
@@ -115,8 +115,8 @@ export default function CompanionSettingsPage() {
           Companion Mode
         </h1>
         <p className="text-sm sm:text-base text-fg-muted mb-6">
-          Shape how Aliyya works with you — both her working mode and her
-          relationship tone. You can change this anytime.
+          Shape how Aliyya works with you. Working mode controls her priorities;
+          relationship tone controls how formal or personal she sounds.
         </p>
 
         {error && (
@@ -141,6 +141,12 @@ export default function CompanionSettingsPage() {
                 This changes how Aliyya prioritizes your needs. It does not
                 rename her or change the relationship tone settings below.
               </p>
+              <div className="mb-3 rounded-xl border border-border bg-fg/[0.035] px-3 py-2 text-[11px] leading-relaxed text-fg-soft">
+                <span className="font-medium text-fg">How this works:</span>{" "}
+                Chief of Staff controls focus, structure, risks, and next actions.
+                Relationship tone below still controls how formal, friendly, or
+                personal Aliyya sounds.
+              </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 {(Object.keys(ASSISTANT_MODE_INFO) as AssistantMode[]).map((mode) => (
                   <AssistantModeOption
@@ -154,12 +160,19 @@ export default function CompanionSettingsPage() {
                   />
                 ))}
               </div>
+              {settings.assistant_mode === "chief_of_staff" ? (
+                <p className="mt-3 rounded-xl bg-cyan-500/10 px-3 py-2 text-[11px] leading-relaxed text-fg-soft">
+                  In Chief of Staff mode, Aliyya will still prioritize structure,
+                  decisions, risks, follow-ups, and next actions — even if the
+                  relationship tone below is warm or partner-like.
+                </p>
+              ) : null}
             </section>
 
             {/* === Relationship tone selector === */}
             <section className="glass rounded-2xl p-4">
               <Header
-                title="Relationship tone"
+                title="Relationship tone — applies across both modes"
                 saved={savedFlash === "mode"}
                 saving={saving === "mode"}
               />
