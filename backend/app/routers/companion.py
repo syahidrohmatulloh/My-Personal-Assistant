@@ -27,6 +27,7 @@ class CompanionSettingsOut(BaseModel):
     assistant_name: str
     mood_realism: str
     repair_gate_enabled: bool
+    assistant_mode: str
 
 
 class CompanionSettingsPatchIn(BaseModel):
@@ -45,14 +46,25 @@ class CompanionSettingsPatchIn(BaseModel):
         pattern="^(stable|dynamic)$",
     )
     repair_gate_enabled: bool | None = None
+    assistant_mode: str | None = Field(
+        default=None,
+        pattern="^(life_companion|chief_of_staff)$",
+    )
 
 
 def _to_response(row: dict) -> CompanionSettingsOut:
+    preferences = row.get("preferences") or {}
+    assistant_mode = (
+        preferences.get("assistant_mode")
+        if isinstance(preferences, dict)
+        else None
+    )
     return CompanionSettingsOut(
         companion_mode=row.get("companion_mode") or "professional",
         assistant_name=row.get("assistant_name") or "Assistant",
         mood_realism=row.get("mood_realism") or "stable",
         repair_gate_enabled=bool(row.get("repair_gate_enabled")),
+        assistant_mode=assistant_mode or "life_companion",
     )
 
 
@@ -74,6 +86,11 @@ async def patch_settings(
             assistant_name=body.assistant_name,
             mood_realism=body.mood_realism,  # type: ignore[arg-type]
             repair_gate_enabled=body.repair_gate_enabled,
+            preferences=(
+                {"assistant_mode": body.assistant_mode}
+                if body.assistant_mode is not None
+                else None
+            ),
         )
     except ValueError as exc:
         log.warning(

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowLeft, AlertCircle, Loader2, Check } from "lucide-react";
 import {
+  type AssistantMode,
   type CompanionMode,
   type CompanionSettings,
   type MoodRealism,
@@ -39,6 +40,24 @@ const MODE_INFO: Record<
     subtitle: "Companion-style with optional mood dynamics",
     description:
       "Most personal mode. Unlocks optional dynamic mood (assistant has shifting moods) and repair gate (assistant may need reassurance when feeling hurt). Read each toggle carefully — these change the relationship dynamic significantly.",
+  },
+};
+
+const ASSISTANT_MODE_INFO: Record<
+  AssistantMode,
+  { label: string; subtitle: string; description: string }
+> = {
+  life_companion: {
+    label: "Life Companion",
+    subtitle: "Warm, personal, emotionally present",
+    description:
+      "Aliyya prioritizes warmth, continuity, personal context, gentle support, journaling, people, goals, and everyday life rhythm.",
+  },
+  chief_of_staff: {
+    label: "Chief of Staff",
+    subtitle: "Serious, structured, execution-focused",
+    description:
+      "Aliyya prioritizes clarity, decisions, priorities, calendar, follow-ups, risks, and concise executive-grade recommendations.",
   },
 };
 
@@ -96,8 +115,8 @@ export default function CompanionSettingsPage() {
           Companion Mode
         </h1>
         <p className="text-sm sm:text-base text-fg-muted mb-6">
-          Shape how the assistant behaves with you — from neutral chief-of-staff
-          to a more personal companion. You can change this anytime.
+          Shape how Aliyya works with you — both her working mode and her
+          relationship tone. You can change this anytime.
         </p>
 
         {error && (
@@ -111,10 +130,36 @@ export default function CompanionSettingsPage() {
           <p className="text-sm text-fg-muted">Loading…</p>
         ) : (
           <div className="space-y-4">
-            {/* === Mode selector === */}
+            {/* === Assistant working mode === */}
             <section className="glass rounded-2xl p-4">
               <Header
-                title="Mode"
+                title="Assistant working mode"
+                saved={savedFlash === "assistant_mode"}
+                saving={saving === "assistant_mode"}
+              />
+              <p className="text-xs text-fg-muted mt-1 mb-3">
+                This changes how Aliyya prioritizes your needs. It does not
+                rename her or change the relationship tone settings below.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {(Object.keys(ASSISTANT_MODE_INFO) as AssistantMode[]).map((mode) => (
+                  <AssistantModeOption
+                    key={mode}
+                    mode={mode}
+                    info={ASSISTANT_MODE_INFO[mode]}
+                    selected={settings.assistant_mode === mode}
+                    onClick={() =>
+                      applyPatch("assistant_mode", { assistant_mode: mode })
+                    }
+                  />
+                ))}
+              </div>
+            </section>
+
+            {/* === Relationship tone selector === */}
+            <section className="glass rounded-2xl p-4">
+              <Header
+                title="Relationship tone"
                 saved={savedFlash === "mode"}
                 saving={saving === "mode"}
               />
@@ -250,6 +295,45 @@ function Header({
         </span>
       ) : null}
     </div>
+  );
+}
+
+function AssistantModeOption({
+  mode,
+  info,
+  selected,
+  onClick,
+}: {
+  mode: AssistantMode;
+  info: { label: string; subtitle: string; description: string };
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "w-full text-left p-3 rounded-xl border-2 transition-all",
+        selected
+          ? mode === "chief_of_staff"
+            ? "border-cyan-400 bg-cyan-500/15 text-fg shadow-md shadow-cyan-500/15"
+            : "border-accent bg-accent/12 text-fg shadow-md shadow-accent/15"
+          : "border-border bg-transparent hover:border-border-strong hover:bg-fg/5",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-fg">{info.label}</p>
+          <p className="mt-0.5 text-[11px] text-fg-muted">{info.subtitle}</p>
+          <p className="mt-2 text-[11px] leading-relaxed text-fg-soft">
+            {info.description}
+          </p>
+        </div>
+        {selected && (
+          <Check className="h-5 w-5 shrink-0 text-accent mt-0.5" strokeWidth={3} />
+        )}
+      </div>
+    </button>
   );
 }
 

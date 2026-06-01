@@ -918,12 +918,14 @@ export async function putCompanionMoodState(
 
 export type CompanionMode = "professional" | "friendly" | "affectionate" | "partner";
 export type MoodRealism = "stable" | "dynamic";
+export type AssistantMode = "life_companion" | "chief_of_staff";
 
 export type CompanionSettings = {
   companion_mode: CompanionMode;
   assistant_name: string;
   mood_realism: MoodRealism;
   repair_gate_enabled: boolean;
+  assistant_mode: AssistantMode;
 };
 
 export type CompanionSettingsPatch = Partial<CompanionSettings>;
