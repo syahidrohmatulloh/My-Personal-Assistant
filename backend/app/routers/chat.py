@@ -68,6 +68,7 @@ from app.services.deterministic_profile import render_profile_runtime_context
 from app.services.claude import get_claude
 from app.services.prompt_builder import (
     BASE_PROMPT,
+    get_base_prompt,
     render_client_time_context,
     render_context,
     trim_history,
@@ -754,6 +755,15 @@ async def chat(
     else:
         assistant_name = companion_settings_row.get("assistant_name") or "Assistant"
 
+    preferences = (companion_settings_row or {}).get("preferences") or {}
+    assistant_mode = (
+        str(preferences.get("assistant_mode") or "life_companion").lower().strip()
+        if isinstance(preferences, dict)
+        else "life_companion"
+    )
+    if assistant_mode not in {"life_companion", "chief_of_staff"}:
+        assistant_mode = "life_companion"
+
     chronology_context = await conversation_chronology.build_context_if_relevant(
         user_id=user_id,
         query_text=body.message,
@@ -1059,6 +1069,7 @@ async def chat(
             detected_mode=detected_mode,
             assistant_name=assistant_name,
             user_mood_context=user_mood_ctx,
+            assistant_mode=assistant_mode,
         ),
         media_type="text/event-stream",
         headers={
@@ -1083,6 +1094,7 @@ async def _stream_claude_response(
     detected_mode: str | None = None,
     assistant_name: str = "Assistant",
     user_mood_context=None,
+    assistant_mode: str = "life_companion",
 ) -> AsyncIterator[str]:
     claude = get_claude()
     supabase = get_supabase()
@@ -1096,7 +1108,7 @@ async def _stream_claude_response(
     system_blocks: list[dict] = [
         {
             "type": "text",
-            "text": BASE_PROMPT,
+            "text": get_base_prompt(assistant_mode),
             "cache_control": {"type": "ephemeral"},
         }
     ]

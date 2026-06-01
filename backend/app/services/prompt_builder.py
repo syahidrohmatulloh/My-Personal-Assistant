@@ -74,6 +74,36 @@ answers."""
 
 
 # ---------------------------------------------------------------------------
+# Assistant working mode overlays
+# ---------------------------------------------------------------------------
+
+LIFE_COMPANION_MODE_PROMPT = """# Assistant working mode
+
+Current mode: Life Companion.
+Prioritize warmth, emotional presence, continuity, personal context, and gentle support.
+Still be useful and concrete, but do not become overly formal unless the user asks."""
+
+CHIEF_OF_STAFF_MODE_PROMPT = """# Assistant working mode
+
+Current mode: Chief of Staff.
+Prioritize clarity, structure, decisions, execution, time management, risks, follow-ups, and next actions.
+Be concise and professional. Avoid overly affectionate language unless the user explicitly asks for it.
+When useful, lead with the bottom line, then action items."""
+
+
+def get_base_prompt(assistant_mode: str = "life_companion") -> str:
+    """Return BASE_PROMPT with a compact working-mode overlay.
+
+    BASE_PROMPT remains the single source of truth for conduct, language,
+    memory usage, and safety rules. The mode overlay only changes posture.
+    """
+    mode = (assistant_mode or "life_companion").lower().strip()
+    if mode == "chief_of_staff":
+        return BASE_PROMPT + "\n\n" + CHIEF_OF_STAFF_MODE_PROMPT
+    return BASE_PROMPT + "\n\n" + LIFE_COMPANION_MODE_PROMPT
+
+
+# ---------------------------------------------------------------------------
 # Identity prose — replaces raw JSON dump
 # ---------------------------------------------------------------------------
 

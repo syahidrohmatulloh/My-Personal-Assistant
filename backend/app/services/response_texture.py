@@ -182,6 +182,13 @@ def render_response_texture_block(
     companion_settings_row = companion_settings_row or {}
 
     companion_mode = _as_text(companion_settings_row.get("companion_mode")).lower()
+    preferences = companion_settings_row.get("preferences") or {}
+    assistant_mode = (
+        str(preferences.get("assistant_mode") or "life_companion").lower().strip()
+        if isinstance(preferences, dict)
+        else "life_companion"
+    )
+    is_chief_of_staff = assistant_mode == "chief_of_staff"
     user_mood = _get_user_mood_label(user_mood_context)
     companion_mood = _get_companion_mood_label(current_mood)
 
@@ -194,7 +201,10 @@ def render_response_texture_block(
     max_symbols = 0
     reason = "default restraint"
 
-    if serious:
+    if is_chief_of_staff:
+        max_symbols = 0
+        reason = "chief_of_staff mode — structured, emoji-free professionalism"
+    elif serious:
         max_symbols = 0
         reason = "professional or time-sensitive context"
     elif recent_emoji_turns >= 2:
