@@ -140,13 +140,13 @@ export function Composer({ value, onChange, onSubmit, disabled, placeholder, qui
             at 16px to avoid iOS auto-zoom; globals.css enforces this. */}
       <div className="max-w-3xl mx-auto">
         {showQuickActions ? (
-          <div className="mb-2 flex gap-1.5 overflow-x-auto px-1 pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="mb-1.5 flex max-w-full gap-1.5 overflow-x-auto px-2 pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {quickActions.map((action) => (
               <button
                 key={action.label}
                 type="button"
                 onClick={() => onChange(action.prompt)}
-                className="shrink-0 rounded-full border border-border bg-bg/55 px-3 py-1.5 text-xs font-medium text-fg-muted shadow-sm backdrop-blur transition hover:bg-fg/[0.055] hover:text-fg active:scale-[0.98]"
+                className="shrink-0 rounded-full border border-border/80 bg-bg/35 px-2.5 py-1 text-[11px] font-medium leading-5 text-fg-subtle shadow-sm backdrop-blur transition hover:border-border-strong hover:bg-fg/[0.045] hover:text-fg active:scale-[0.98]"
               >
                 {action.label}
               </button>
