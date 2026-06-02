@@ -47,11 +47,12 @@ export function AmbientBackground() {
     }
 
     function onAssistantModeEvent(event: Event) {
-      const detail = (event as CustomEvent<{ assistant_mode?: unknown }>).detail;
-      const eventMode = detail?.assistant_mode;
+      const detail = (event as CustomEvent<{ assistant_mode?: unknown; preferences?: { assistant_mode?: unknown } }>).detail;
+      const eventMode = detail?.assistant_mode ?? detail?.preferences?.assistant_mode;
 
       if (eventMode === "chief_of_staff" || eventMode === "life_companion") {
         setAssistantMode(eventMode);
+        return;
       }
 
       void syncAssistantMode();
