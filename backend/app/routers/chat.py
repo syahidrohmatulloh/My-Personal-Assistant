@@ -363,6 +363,15 @@ def _render_ui_context(ui_context: dict | None) -> str | None:
     return "\n".join(lines)
 
 
+async def _safe_life_model_context(user_id: str, *, mood_days: int = 14) -> dict:
+    try:
+        context = await life_model.get_context(user_id, mood_days=mood_days)
+        return context if isinstance(context, dict) else {}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("life_model.get_context failed user=%s: %s", user_id[:8], exc)
+        return {}
+
+
 async def _check_ownership(_supabase, conversation_id: str, user_id: str):
     return await asyncio.to_thread(
         lambda: safe_execute(
@@ -703,7 +712,7 @@ async def chat(
     ) = await asyncio.gather(
         _check_ownership(supabase, body.conversation_id, user_id),
         _save_user_message(supabase, body.conversation_id, body.message),
-        life_model.get_context(user_id, mood_days=14),
+        _safe_life_model_context(user_id, mood_days=14),
         memory.retrieve_relevant(user_id, body.message, limit=5),
         conversation_summary.retrieve_related_summaries(
             user_id=user_id,
