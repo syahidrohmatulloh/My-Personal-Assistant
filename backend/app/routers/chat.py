@@ -992,6 +992,18 @@ async def chat(
             lines.append(f"- [{when}] {title}: {s['summary']}")
         volatile_context += "\n\n" + "\n".join(lines)
 
+    if assistant_mode == "chief_of_staff":
+        volatile_context += (
+            "\n\n## Current-turn Chief of Staff surface-style override"
+            "\n- This is the highest-priority style directive for this turn."
+            "\n- Address the user by their real name when natural."
+            "\n- Do not use affectionate nicknames such as 'beb', 'sayang', 'dear', 'love', or similar."
+            "\n- Do not use romantic, playful, partner-like, or overly cute wording."
+            "\n- Do not use emoji-like symbols."
+            "\n- Keep warmth subtle and professional."
+            "\n- Prefer concise, structured, action-oriented replies."
+        )
+
     # Inject companion mode directive. Placed near the end so it has high
     # recency weight in Claude's attention. None on short / ambiguous messages.
     mode_directive = companion_mode.directive_for(detected_mode)
