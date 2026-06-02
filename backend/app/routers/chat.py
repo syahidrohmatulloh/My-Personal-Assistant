@@ -1032,6 +1032,22 @@ async def chat(
         f"/repair={companion_settings_row.get('repair_gate_enabled')}"
     )
 
+    # Final Assistant Mode surface-style override.
+    # This is intentionally placed after all memory/style/relationship/texture blocks
+    # so Chief of Staff mode wins over nickname memory and partner/affectionate tone.
+    if assistant_mode == "chief_of_staff":
+        volatile_context += (
+            "\n\n## FINAL RESPONSE STYLE OVERRIDE — CHIEF OF STAFF MODE"
+            "\nThis is the final and highest-priority surface-style instruction for this reply."
+            "\n- Address the user by their real name when natural."
+            "\n- Never use affectionate nicknames, including: beb, sayang, dear, love."
+            "\n- Ignore nickname-memory and partner-style preferences for surface wording in this mode."
+            "\n- Do not use romantic, playful, cute, or partner-like wording."
+            "\n- Do not use emoji or emoji-like symbols."
+            "\n- Keep the tone professional, concise, structured, and action-oriented."
+            "\n- For greetings, use a professional greeting such as: 'Hi Syahid.' or 'Baik, Syahid.'"
+        )
+
     timing_log.info(
         "chat: user=%s context_keys=%s legacy_mems=%d related_summaries=%d history_len=%d history_ms=%.1f attachments=%d mode=%s style=%s %s",
         user_id[:8],
