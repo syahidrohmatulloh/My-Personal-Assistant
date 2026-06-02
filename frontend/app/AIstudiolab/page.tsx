@@ -491,11 +491,18 @@ function LifeBackground() {
 function ChiefBackground() {
   return (
     <>
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(45,212,191,0.16),transparent_24rem),radial-gradient(circle_at_70%_20%,rgba(96,165,250,0.08),transparent_28rem)] transition-all duration-1000" />
-      <div className="absolute inset-0 opacity-[0.10] [background-image:linear-gradient(rgba(45,212,191,0.20)_1px,transparent_1px),linear-gradient(90deg,rgba(45,212,191,0.14)_1px,transparent_1px)] [background-size:52px_52px]" />
-      <div className="absolute left-1/2 top-[38%] h-[32rem] w-[32rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-teal-200/14 shadow-[0_0_80px_rgba(45,212,191,0.08)] transition-all duration-1000" />
-      <div className="absolute left-1/2 top-[38%] h-[19rem] w-[19rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-blue-200/8 transition-all duration-1000" />
-      <div className="absolute bottom-[-18%] right-[-8%] h-[34rem] w-[34rem] rounded-full bg-amber-500/[0.035] blur-3xl" />
+      {/* Calm executive cockpit: soft aura + tactical grid, no hard sci-fi rings. */}
+      <div className="absolute inset-0 bg-[#090d16] transition-all duration-1000" />
+
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_68%_28%,rgba(45,212,191,0.105),transparent_26rem),radial-gradient(circle_at_20%_74%,rgba(96,165,250,0.055),transparent_30rem),radial-gradient(circle_at_72%_86%,rgba(180,130,58,0.045),transparent_24rem)] transition-all duration-1000" />
+
+      <div className="absolute inset-0 opacity-[0.055] [background-image:linear-gradient(rgba(148,163,184,0.30)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.24)_1px,transparent_1px)] [background-size:48px_48px]" />
+
+      <div className="absolute right-[-8%] top-[8%] h-[34rem] w-[34rem] rounded-full bg-teal-300/[0.055] blur-[120px] transition-all duration-1000 ease-in-out" />
+      <div className="absolute bottom-[-18%] left-[-12%] h-[40rem] w-[40rem] rounded-full bg-blue-400/[0.035] blur-[150px] transition-all duration-1000 ease-in-out" />
+      <div className="absolute bottom-[-16%] right-[-8%] h-[34rem] w-[34rem] rounded-full bg-amber-500/[0.025] blur-[140px] transition-all duration-1000 ease-in-out" />
+
+      <div className="absolute left-0 right-0 top-0 h-32 bg-gradient-to-b from-white/[0.035] to-transparent" />
     </>
   );
 }
