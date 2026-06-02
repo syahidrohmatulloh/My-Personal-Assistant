@@ -185,6 +185,17 @@ export function useChatStreamSender({
           if (event.type === "meta") {
             setStreamMeta(event)
 
+            if (
+              event.assistant_mode === "chief_of_staff" ||
+              event.assistant_mode === "life_companion"
+            ) {
+              window.dispatchEvent(
+                new CustomEvent("assistant-companion-settings", {
+                  detail: { assistant_mode: event.assistant_mode },
+                }),
+              )
+            }
+
             if (event.calendar_snapshot_dirty) {
               calendarSnapshotDirtyRef.current = true
             }
@@ -234,18 +245,22 @@ export function useChatStreamSender({
         if (rafId != null) cancelAnimationFrame(rafId)
         flush()
 
-        setMessages((prev) =>
-          prev.map((message) =>
-            message.id === assistantId
-              ? {
-                  id: assistantId,
-                  role: "assistant",
-                  content: assistantText,
-                  created_at: new Date().toISOString(),
-                }
-              : message,
-          ),
-        )
+        if (assistantText.trim().length === 0) {
+          setMessages((prev) => prev.filter((message) => message.id !== assistantId))
+        } else {
+          setMessages((prev) =>
+            prev.map((message) =>
+              message.id === assistantId
+                ? {
+                    id: assistantId,
+                    role: "assistant",
+                    content: assistantText,
+                    created_at: new Date().toISOString(),
+                  }
+                : message,
+            ),
+          )
+        }
 
         applyAssistantMoodAfterLatestMessagePaint(assistantText, conversationId)
 
