@@ -954,5 +954,15 @@ export async function patchCompanionSettings(
     } catch {}
     throw new Error(detail);
   }
-  return r.json();
+  const updated = (await r.json()) as CompanionSettings;
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent<CompanionSettings>("assistant-companion-settings", {
+        detail: updated,
+      }),
+    );
+  }
+
+  return updated;
 }
