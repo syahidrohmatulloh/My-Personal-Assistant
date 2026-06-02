@@ -24,6 +24,103 @@ type LocalMessage =
   | Message
   | { id: string; role: "assistant"; content: string; pending: true; created_at?: string }
 
+
+type AssistantModeCommandTarget = "life_companion" | "chief_of_staff"
+
+function normaliseAssistantModeCommandText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function detectAssistantModeCommandTarget(text: string): AssistantModeCommandTarget | null {
+  const value = normaliseAssistantModeCommandText(text)
+  if (!value) return null
+
+  const questionPrefixes = [
+    "apa ",
+    "apa itu",
+    "apakah ",
+    "what ",
+    "what is",
+    "jelasin",
+    "jelaskan",
+    "explain",
+    "maksud",
+    "contoh",
+    "bedanya",
+  ]
+
+  if (questionPrefixes.some((prefix) => value.startsWith(prefix))) {
+    return null
+  }
+
+  const chiefPatterns = [
+    "mode serius",
+    "mode kerja",
+    "mode eksekusi",
+    "mode executive",
+    "mode eksekutif",
+    "mode chief",
+    "chief of staff mode",
+    "mode chief of staff",
+    "jadi chief of staff",
+    "masuk chief of staff",
+    "aktifkan chief of staff",
+    "switch to chief of staff",
+    "change to chief of staff",
+    "turn on chief of staff",
+    "be my chief of staff",
+    "pakai chief of staff",
+    "sebagai chief of staff",
+  ]
+
+  const lifePatterns = [
+    "life companion mode",
+    "mode life companion",
+    "companion mode",
+    "mode companion",
+    "balik companion",
+    "balik life companion",
+    "kembali companion",
+    "kembali life companion",
+    "mode santai",
+    "mode personal",
+    "mode teman",
+    "mode hangat",
+    "mode ngobrol",
+    "mode biasa",
+    "switch to life companion",
+    "change to life companion",
+    "turn on life companion",
+  ]
+
+  const padded = ` ${value} `
+  const chief = chiefPatterns.find((pattern) => padded.includes(` ${pattern} `))
+  const life = lifePatterns.find((pattern) => padded.includes(` ${pattern} `))
+
+  if (chief && life) {
+    return value.lastIndexOf(chief) > value.lastIndexOf(life)
+      ? "chief_of_staff"
+      : "life_companion"
+  }
+
+  if (chief) return "chief_of_staff"
+  if (life) return "life_companion"
+  return null
+}
+
+function dispatchAssistantModeForInstantBackground(mode: AssistantModeCommandTarget) {
+  window.dispatchEvent(
+    new CustomEvent("assistant-companion-settings", {
+      detail: { assistant_mode: mode },
+    }),
+  )
+}
+
+
 function shouldInvalidateCalendarSnapshotAfterChat(userText: string, assistantText: string): boolean {
   const combined = `${userText}\n${assistantText}`.toLowerCase()
 
@@ -116,6 +213,11 @@ export function useChatStreamSender({
 
       const messageText = text || (attachmentIds.length > 0 ? "(shared an attachment)" : "")
 
+      const requestedAssistantMode = detectAssistantModeCommandTarget(messageText)
+      if (requestedAssistantMode) {
+        dispatchAssistantModeForInstantBackground(requestedAssistantMode)
+      }
+
       setInput("")
       setSending(true)
       setStreamMeta(null)
@@ -184,6 +286,13 @@ export function useChatStreamSender({
         for await (const event of streamChat(conversationId, messageText, attachmentIds)) {
           if (event.type === "meta") {
             setStreamMeta(event)
+
+            if (
+              event.assistant_mode === "chief_of_staff" ||
+              event.assistant_mode === "life_companion"
+            ) {
+              dispatchAssistantModeForInstantBackground(event.assistant_mode)
+            }
 
             if (
               event.assistant_mode === "chief_of_staff" ||
