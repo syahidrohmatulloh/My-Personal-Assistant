@@ -26,10 +26,8 @@ import { useChatRuntimeEffects } from "@/components/chat/use-chat-runtime-effect
 import { useChatPrefill } from "@/components/chat/use-chat-prefill";
 
 import {
-  getCompanionSettings,
   getIdentity,
   listMessages,
-  type AssistantMode,
   type ChatStreamMeta,
   type Message,
 } from "@/lib/api";
@@ -99,19 +97,6 @@ export function ConversationPageClient({
     refetchOnWindowFocus: false,
   });
 
-  const { data: companionSettings } = useQuery({
-    queryKey: ["companion-settings"],
-    queryFn: getCompanionSettings,
-    staleTime: 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-  });
-
-  const assistantMode: AssistantMode =
-    companionSettings?.assistant_mode === "chief_of_staff"
-      ? "chief_of_staff"
-      : "life_companion";
 
   const assistantName =
     streamMeta?.assistant_name ||
@@ -271,7 +256,6 @@ export function ConversationPageClient({
 
   return (
     <main className="flex-1 flex flex-col min-w-0 min-h-0 relative">
-      <AssistantModeBadge mode={assistantMode} />
       {showStyleBadge ? (
         <LazyConversationStyleBadge
           conversationId={conversationId}
@@ -313,32 +297,3 @@ export function ConversationPageClient({
     </main>
   );
 }
-
-
-function AssistantModeBadge({ mode }: { mode: AssistantMode }) {
-  const isChief = mode === "chief_of_staff";
-  const label = isChief ? "Chief of Staff" : "Life Companion";
-  const description = isChief
-    ? "Structured, focused, execution-first"
-    : "Warm, personal, emotionally present";
-
-  return (
-    <div className="pointer-events-none absolute right-3 top-3 z-20 hidden sm:block">
-      <div
-        className={
-          isChief
-            ? "rounded-full border border-cyan-400/30 bg-cyan-950/20 px-3 py-1.5 text-right shadow-sm backdrop-blur-md"
-            : "rounded-full border border-accent/25 bg-bg/45 px-3 py-1.5 text-right shadow-sm backdrop-blur-md"
-        }
-      >
-        <p className="text-[11px] font-semibold leading-none text-fg">
-          {label}
-        </p>
-        <p className="mt-1 text-[10px] leading-none text-fg-subtle">
-          {description}
-        </p>
-      </div>
-    </div>
-  );
-}
-
