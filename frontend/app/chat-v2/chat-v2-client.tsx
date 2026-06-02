@@ -430,7 +430,7 @@ function ChatFrame({
   return (
     <div
       className={[
-        "flex min-h-[620px] flex-1 flex-col rounded-[2rem] border shadow-2xl backdrop-blur-xl transition-all duration-700",
+        "flex h-[calc(100dvh-8.75rem)] min-h-[520px] flex-col overflow-hidden rounded-[2rem] border shadow-2xl backdrop-blur-xl transition-all duration-700",
         isExpanded ? "mx-auto w-full max-w-5xl" : "w-full",
         isChief
           ? "border-teal-100/20 bg-[#0b141d]/82 shadow-black/35"
@@ -469,7 +469,7 @@ function ChatFrame({
         </div>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-hidden px-5 py-6">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-6 pr-3 scroll-smooth [scrollbar-width:thin]">
         {(messages.length > 0 ? messages.slice(-12) : null)?.map((message) => (
           <div
             key={message.id}
@@ -536,7 +536,7 @@ function ChatFrame({
         </div>
       </div>
 
-      <div className="p-5">
+      <div className="shrink-0 p-5">
         <div
           className={[
             "rounded-2xl border px-4 py-3 text-sm",
