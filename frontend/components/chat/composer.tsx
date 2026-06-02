@@ -5,12 +5,18 @@ import {ArrowUp, FileText, ImageIcon, Loader2, Paperclip, X, Mic, Square} from "
 import { type AttachmentMeta, uploadAttachment } from "@/lib/api";
 import { useVoiceInput } from "@/hooks/use-voice-input";
 
+type ComposerQuickAction = {
+  label: string;
+  prompt: string;
+};
+
 type Props = {
   value: string;
   onChange: (v: string) => void;
   onSubmit: (attachmentIds: string[]) => void;
   disabled?: boolean;
   placeholder?: string;
+  quickActions?: ComposerQuickAction[];
 };
 
 type PendingUpload =
@@ -20,7 +26,7 @@ type PendingUpload =
 
 const ACCEPT = "image/jpeg,image/png,image/gif,image/webp,application/pdf";
 
-export function Composer({ value, onChange, onSubmit, disabled, placeholder }: Props) {
+export function Composer({ value, onChange, onSubmit, disabled, placeholder, quickActions }: Props) {
   const voiceInput = useVoiceInput({ language: "multi" });
   const voiceBusy = voiceInput.isRecording || voiceInput.isTranscribing;
 
@@ -116,6 +122,11 @@ export function Composer({ value, onChange, onSubmit, disabled, placeholder }: P
     (value.trim().length > 0 || pending.some((p) => p.kind === "done")) &&
     uploadingCount === 0 &&
     !disabled;
+  const showQuickActions =
+    !disabled &&
+    value.trim().length === 0 &&
+    pending.length === 0 &&
+    !!quickActions?.length;
 
   return (
     <div className="sticky bottom-0 px-3 sm:px-6 pb-2 sm:pb-4 pb-safe">
@@ -128,6 +139,21 @@ export function Composer({ value, onChange, onSubmit, disabled, placeholder }: P
           - desktop text-[17px] / mobile text-base (16px) — mobile must stay
             at 16px to avoid iOS auto-zoom; globals.css enforces this. */}
       <div className="max-w-3xl mx-auto">
+        {showQuickActions ? (
+          <div className="mb-2 flex gap-1.5 overflow-x-auto px-1 pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {quickActions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                onClick={() => onChange(action.prompt)}
+                className="shrink-0 rounded-full border border-border bg-bg/55 px-3 py-1.5 text-xs font-medium text-fg-muted shadow-sm backdrop-blur transition hover:bg-fg/[0.055] hover:text-fg active:scale-[0.98]"
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         {/* Attachment chips above the input */}
         {pending.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-2 px-1">

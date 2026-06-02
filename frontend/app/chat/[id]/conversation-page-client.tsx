@@ -317,6 +317,19 @@ export function ConversationPageClient({
       ? "Ask Aliyya to brief, prioritize, or structure next actions..."
       : "Cerita ke Aliyya...";
 
+  const composerQuickActions =
+    assistantMode === "chief_of_staff"
+      ? [
+          { label: "Brief me", prompt: "Brief me for today." },
+          { label: "Prioritize", prompt: "Help me prioritize my next actions." },
+          { label: "Find risks", prompt: "Find risks, blockers, and decisions I need to handle." },
+        ]
+      : [
+          { label: "Reflect", prompt: "Help me reflect on what I am feeling right now." },
+          { label: "Journal", prompt: "Help me write a gentle journal entry about today." },
+          { label: "Remember this", prompt: "Help me capture something important from this moment." },
+        ];
+
   return (
     <main className="flex-1 flex flex-col min-w-0 min-h-0 relative">
       {showStyleBadge ? (
@@ -357,6 +370,7 @@ export function ConversationPageClient({
         onSubmit={handleSend}
         disabled={sending}
         placeholder={composerPlaceholder}
+        quickActions={composerQuickActions}
       />
     </main>
   );
