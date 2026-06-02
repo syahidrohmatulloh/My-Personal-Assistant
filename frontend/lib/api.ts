@@ -142,6 +142,7 @@ export type ChatStreamMeta = {
   background_palette_hint?: string;
   assistant_name?: string;
   calendar_snapshot_dirty?: boolean;
+  assistant_mode?: AssistantMode;
 };
 
 export type ChatStreamEvent =

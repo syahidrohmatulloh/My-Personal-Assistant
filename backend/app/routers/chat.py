@@ -1163,6 +1163,7 @@ async def _stream_static_assistant_response(
     meta_event = {
         "type": "meta",
         "mode": detected_mode or "assistant_mode_command",
+        "assistant_mode": assistant_mode,
         "pacing": _mode_to_pacing(detected_mode),
         "mood": mood,
         "background_palette_hint": _mood_to_palette(mood),
@@ -1210,6 +1211,7 @@ async def _stream_claude_response(
     meta_event = {
         "type": "meta",
         "mode": detected_mode or "unknown",
+        "assistant_mode": assistant_mode,
         "pacing": _mode_to_pacing(detected_mode),
         "mood": mood,
         "background_palette_hint": _mood_to_palette(mood),

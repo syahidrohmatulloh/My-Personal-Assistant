@@ -164,6 +164,19 @@ export function ConversationPageClient({
   });
 
   useEffect(() => {
+    const assistantMode = streamMeta?.assistant_mode;
+    if (assistantMode !== "chief_of_staff" && assistantMode !== "life_companion") {
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent("assistant-companion-settings", {
+        detail: { assistant_mode: assistantMode },
+      }),
+    );
+  }, [streamMeta?.assistant_mode]);
+
+  useEffect(() => {
     let cancelled = false;
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
     let inFlight = false;
