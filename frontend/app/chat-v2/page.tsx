@@ -16,7 +16,7 @@ import {
   Newspaper,
   Sparkles,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type AssistantMode = "life_companion" | "chief_of_staff";
 
@@ -46,10 +46,54 @@ const modeCopy = {
 };
 
 export default function ChatV2Page() {
-  const [mode, setMode] = useState<AssistantMode>("life_companion");
-  const [layout, setLayout] = useState<LayoutMode>("split");
+  const [mode, setModeState] = useState<AssistantMode>("life_companion");
+  const [layout, setLayoutState] = useState<LayoutMode>("expanded");
 
   const isChief = mode === "chief_of_staff";
+
+  useEffect(() => {
+    try {
+      const savedMode = window.localStorage.getItem("aliyya.chatV2.mode");
+      const nextMode: AssistantMode =
+        savedMode === "chief_of_staff" ? "chief_of_staff" : "life_companion";
+
+      const savedLayout = window.localStorage.getItem(`aliyya.chatV2.layout.${nextMode}`);
+      const defaultLayout: LayoutMode = nextMode === "chief_of_staff" ? "split" : "expanded";
+      const nextLayout: LayoutMode =
+        savedLayout === "split" || savedLayout === "expanded" ? savedLayout : defaultLayout;
+
+      setModeState(nextMode);
+      setLayoutState(nextLayout);
+    } catch {
+      setModeState("life_companion");
+      setLayoutState("expanded");
+    }
+  }, []);
+
+  function setMode(nextMode: AssistantMode) {
+    setModeState(nextMode);
+
+    try {
+      window.localStorage.setItem("aliyya.chatV2.mode", nextMode);
+      const savedLayout = window.localStorage.getItem(`aliyya.chatV2.layout.${nextMode}`);
+      const defaultLayout: LayoutMode = nextMode === "chief_of_staff" ? "split" : "expanded";
+
+      setLayoutState(
+        savedLayout === "split" || savedLayout === "expanded" ? savedLayout : defaultLayout,
+      );
+    } catch {
+      setLayoutState(nextMode === "chief_of_staff" ? "split" : "expanded");
+    }
+  }
+
+  function setLayout(nextLayout: LayoutMode) {
+    setLayoutState(nextLayout);
+
+    try {
+      window.localStorage.setItem(`aliyya.chatV2.layout.${mode}`, nextLayout);
+    } catch {}
+  }
+
   const isExpanded = layout === "expanded";
   const copy = modeCopy[mode];
 
