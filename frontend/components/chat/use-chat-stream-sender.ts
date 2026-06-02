@@ -51,41 +51,137 @@ function detectAssistantModeCommandTarget(text: string): AssistantModeCommandTar
     "maksud",
     "contoh",
     "bedanya",
+    "how ",
+    "how do",
+    "how should",
+    "why ",
   ]
 
   if (questionPrefixes.some((prefix) => value.startsWith(prefix))) {
     return null
   }
 
+  const discussionMarkers = [
+    "mau buat",
+    "lagi mau buat",
+    "buat 2 mode",
+    "buat dua mode",
+    "bikin 2 mode",
+    "bikin dua mode",
+    "develop 2 mode",
+    "develop dua mode",
+    "fitur mode",
+    "feature mode",
+    "desain mode",
+    "design mode",
+    "konsep mode",
+    "rancang mode",
+    "2 mode nih",
+    "dua mode nih",
+    "i want to build",
+    "i wanna build",
+    "i am building",
+    "im building",
+    "i m building",
+    "i want to create",
+    "i wanna create",
+    "i am creating",
+    "im creating",
+    "i m creating",
+    "i am designing",
+    "im designing",
+    "i m designing",
+    "lets design",
+    "let us design",
+    "lets improve",
+    "let us improve",
+    "change the prompt",
+    "changing the prompt",
+    "improve the prompt",
+    "prompt for",
+    "compare",
+    "comparison",
+    "two modes",
+    "2 modes",
+    "build two modes",
+    "create two modes",
+    "design two modes",
+    "mode feature",
+    "feature for",
+    "prototype",
+    "sandbox",
+  ]
+
+  const mentionsChief =
+    value.includes("chief") || value.includes("serius") || value.includes("executive")
+  const mentionsCompanion =
+    value.includes("companion") || value.includes("santai") || value.includes("hangat")
+  const mentionsMode = value.includes("mode") || value.includes("modes")
+
+  if (mentionsMode && discussionMarkers.some((marker) => value.includes(marker))) {
+    return null
+  }
+
+  if (
+    mentionsChief &&
+    mentionsCompanion &&
+    discussionMarkers.some((marker) => value.includes(marker))
+  ) {
+    return null
+  }
+
   const chiefPatterns = [
     "mode serius",
+    "serius dulu",
+    "serius lagi",
     "mode kerja",
     "mode eksekusi",
     "mode executive",
     "mode eksekutif",
-    "mode chief",
-    "chief of staff mode",
-    "mode chief of staff",
+    "mode chief dulu",
+    "mode chief lagi",
+    "chief mode dulu",
+    "chief mode lagi",
+    "mode chief of staff dulu",
+    "mode chief of staff lagi",
+    "chief of staff dulu",
+    "chief of staff lagi",
+    "chief of staff mode dulu",
+    "chief of staff mode lagi",
     "jadi chief of staff",
     "masuk chief of staff",
     "aktifkan chief of staff",
     "switch to chief of staff",
+    "switch me to chief of staff",
     "change to chief of staff",
+    "change me to chief of staff",
     "turn on chief of staff",
+    "use chief of staff",
+    "use chief of staff mode",
     "be my chief of staff",
     "pakai chief of staff",
     "sebagai chief of staff",
   ]
 
   const lifePatterns = [
-    "life companion mode",
-    "mode life companion",
-    "companion mode",
-    "mode companion",
     "balik companion",
+    "balik companion mode",
     "balik life companion",
+    "balik life companion mode",
     "kembali companion",
+    "kembali companion mode",
     "kembali life companion",
+    "kembali life companion mode",
+    "mode companion dulu",
+    "mode companion lagi",
+    "companion mode dulu",
+    "companion mode lagi",
+    "companion dulu",
+    "companion lagi",
+    "life companion dulu",
+    "life companion lagi",
+    "life companion mode dulu",
+    "life companion mode lagi",
     "mode santai",
     "mode personal",
     "mode teman",
@@ -93,8 +189,12 @@ function detectAssistantModeCommandTarget(text: string): AssistantModeCommandTar
     "mode ngobrol",
     "mode biasa",
     "switch to life companion",
+    "switch me to life companion",
     "change to life companion",
+    "change me to life companion",
     "turn on life companion",
+    "use life companion",
+    "use life companion mode",
   ]
 
   const padded = ` ${value} `
