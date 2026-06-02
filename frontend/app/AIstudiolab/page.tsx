@@ -198,7 +198,7 @@ export default function AIStudioLabPage() {
               className={
                 isChief
                   ? "mt-5 max-w-2xl text-base leading-8 text-slate-300 transition-colors duration-700 sm:text-lg"
-                  : "mt-5 max-w-2xl text-base leading-8 text-stone-650 text-stone-600 transition-colors duration-700 sm:text-lg"
+                  : "mt-5 max-w-2xl text-base leading-8 text-stone-600 transition-colors duration-700 sm:text-lg"
               }
             >
               {modeCopy.subtitle}
@@ -227,7 +227,7 @@ export default function AIStudioLabPage() {
                 onClick={() => setMode("chief")}
                 className={
                   isChief
-                    ? "rounded-full bg-teal-200 px-4 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-teal-500/10 transition-all duration-500"
+                    ? "rounded-full border border-teal-200/18 bg-slate-800/80 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-black/20 transition-all duration-500"
                     : "rounded-full px-4 py-2 text-sm font-medium text-stone-500 transition hover:text-stone-900"
                 }
               >
@@ -321,7 +321,7 @@ export default function AIStudioLabPage() {
                 <div className="relative h-16 w-16">
                   <div className="absolute inset-0 rounded-full border border-teal-200/25" />
                   <div className="absolute inset-3 rounded-full border border-blue-200/15" />
-                  <div className="absolute inset-[1.35rem] rounded-full bg-teal-100 shadow-[0_0_32px_rgba(45,212,191,0.52)]" />
+                  <div className="absolute inset-[1.35rem] rounded-full bg-teal-100 shadow-[0_0_18px_rgba(45,212,191,0.55),0_0_42px_rgba(45,212,191,0.28)]" />
                 </div>
               ) : (
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-stone-100 via-white to-lavender-100 text-stone-500 shadow-inner">
@@ -345,10 +345,10 @@ export default function AIStudioLabPage() {
                       message.from === "user"
                         ? isChief
                           ? "ml-auto max-w-[78%] rounded-3xl bg-teal-50 px-4 py-3 text-sm leading-6 text-slate-950 shadow-sm transition-all duration-500"
-                          : "ml-auto max-w-[78%] rounded-3xl bg-stone-900 px-4 py-3 text-sm leading-6 text-white shadow-sm transition-all duration-500"
+                          : "ml-auto max-w-[78%] rounded-3xl bg-stone-800 px-4 py-3 text-sm leading-6 text-stone-50 shadow-sm transition-all duration-500"
                         : isChief
                           ? "max-w-[86%] rounded-3xl border border-teal-200/10 bg-white/[0.06] px-4 py-3 text-sm leading-6 text-slate-100 shadow-sm transition-all duration-500"
-                          : "max-w-[86%] rounded-3xl border border-white/80 bg-white/72 px-4 py-3 text-sm leading-6 text-stone-700 shadow-sm transition-all duration-500"
+                          : "max-w-[86%] rounded-3xl border border-white/80 bg-white/78 px-4 py-3 text-sm leading-6 text-stone-800 shadow-sm transition-all duration-500"
                     }
                   >
                     {message.text}
@@ -393,8 +393,8 @@ export default function AIStudioLabPage() {
             <div
               className={
                 isChief
-                  ? "mt-4 rounded-full border border-teal-200/12 bg-black/18 px-4 py-3 text-sm text-slate-300 transition-all duration-700"
-                  : "mt-4 rounded-full border border-white/80 bg-white/76 px-4 py-3 text-sm text-stone-600 shadow-sm transition-all duration-700"
+                  ? "mt-4 rounded-2xl border border-teal-200/12 bg-black/18 px-4 py-3 text-sm text-slate-300 transition-all duration-700"
+                  : "mt-4 rounded-full border border-white/80 bg-white/80 px-4 py-3 text-sm text-stone-600 shadow-sm transition-all duration-700"
               }
             >
               {modeCopy.input}
