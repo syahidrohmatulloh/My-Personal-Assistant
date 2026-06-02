@@ -47,7 +47,7 @@ const modeCopy = {
 
 export default function ChatV2Page() {
   const [mode, setModeState] = useState<AssistantMode>("life_companion");
-  const [layout, setLayoutState] = useState<LayoutMode>("expanded");
+  const [layout, setLayoutState] = useState<LayoutMode>("split");
 
   const isChief = mode === "chief_of_staff";
 
@@ -58,7 +58,7 @@ export default function ChatV2Page() {
         savedMode === "chief_of_staff" ? "chief_of_staff" : "life_companion";
 
       const savedLayout = window.localStorage.getItem(`aliyya.chatV2.layout.${nextMode}`);
-      const defaultLayout: LayoutMode = nextMode === "chief_of_staff" ? "split" : "expanded";
+      const defaultLayout: LayoutMode = "split";
       const nextLayout: LayoutMode =
         savedLayout === "split" || savedLayout === "expanded" ? savedLayout : defaultLayout;
 
@@ -66,7 +66,7 @@ export default function ChatV2Page() {
       setLayoutState(nextLayout);
     } catch {
       setModeState("life_companion");
-      setLayoutState("expanded");
+      setLayoutState("split");
     }
   }, []);
 
@@ -76,13 +76,13 @@ export default function ChatV2Page() {
     try {
       window.localStorage.setItem("aliyya.chatV2.mode", nextMode);
       const savedLayout = window.localStorage.getItem(`aliyya.chatV2.layout.${nextMode}`);
-      const defaultLayout: LayoutMode = nextMode === "chief_of_staff" ? "split" : "expanded";
+      const defaultLayout: LayoutMode = "split";
 
       setLayoutState(
         savedLayout === "split" || savedLayout === "expanded" ? savedLayout : defaultLayout,
       );
     } catch {
-      setLayoutState(nextMode === "chief_of_staff" ? "split" : "expanded");
+      setLayoutState("split");
     }
   }
 
