@@ -110,6 +110,7 @@ async def update_settings(
     *,
     companion_mode: CompanionMode | None = None,
     assistant_name: str | None = None,
+    assistant_mode: str | None = None,
     mood_realism: MoodRealism | None = None,
     repair_gate_enabled: bool | None = None,
     preferences: dict[str, Any] | None = None,
@@ -145,6 +146,20 @@ async def update_settings(
         raise ValueError(
             "repair_gate_enabled=True requires mood_realism='dynamic'."
         )
+
+    if assistant_mode is not None:
+        normalised_assistant_mode = str(assistant_mode).lower().strip()
+        if normalised_assistant_mode not in {"life_companion", "chief_of_staff"}:
+            raise ValueError(f"Invalid assistant_mode={assistant_mode!r}.")
+
+        current_preferences = current.get("preferences")
+        merged_preferences: dict[str, Any] = (
+            dict(current_preferences) if isinstance(current_preferences, dict) else {}
+        )
+        if preferences:
+            merged_preferences.update(preferences)
+        merged_preferences["assistant_mode"] = normalised_assistant_mode
+        preferences = merged_preferences
 
     # Build upsert payload — only set fields that were explicitly provided.
     # This way unset fields keep their existing values via the on-conflict behavior.
