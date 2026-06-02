@@ -26,8 +26,10 @@ import { useChatRuntimeEffects } from "@/components/chat/use-chat-runtime-effect
 import { useChatPrefill } from "@/components/chat/use-chat-prefill";
 
 import {
+  getCompanionSettings,
   getIdentity,
   listMessages,
+  type AssistantMode,
   type ChatStreamMeta,
   type Message,
 } from "@/lib/api";
@@ -86,6 +88,7 @@ export function ConversationPageClient({
   const [loading, setLoading] = useState(initialMessages.length === 0);
   const [historySettled, setHistorySettled] = useState(initialMessages.length === 0);
   const [streamMeta, setStreamMeta] = useState<ChatStreamMeta | null>(null);
+  const [assistantMode, setAssistantMode] = useState<AssistantMode>("life_companion");
   const [showStyleBadge, setShowStyleBadge] = useState(false);
 
   const { data: identity } = useQuery({
@@ -162,6 +165,48 @@ export function ConversationPageClient({
     messagesLength: messages.length,
     handleSend,
   });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function syncAssistantMode() {
+      try {
+        const settings = await getCompanionSettings();
+        if (cancelled) return;
+        setAssistantMode(
+          settings.assistant_mode === "chief_of_staff"
+            ? "chief_of_staff"
+            : "life_companion",
+        );
+      } catch {
+        if (!cancelled) {
+          setAssistantMode("life_companion");
+        }
+      }
+    }
+
+    function onAssistantModeEvent(event: Event) {
+      const detail = (event as CustomEvent<{ assistant_mode?: unknown; preferences?: { assistant_mode?: unknown } }>).detail;
+      const eventMode = detail?.assistant_mode ?? detail?.preferences?.assistant_mode;
+
+      if (eventMode === "chief_of_staff" || eventMode === "life_companion") {
+        setAssistantMode(eventMode);
+        return;
+      }
+
+      void syncAssistantMode();
+    }
+
+    void syncAssistantMode();
+    window.addEventListener("assistant-companion-settings", onAssistantModeEvent);
+    window.addEventListener("focus", onAssistantModeEvent);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("assistant-companion-settings", onAssistantModeEvent);
+      window.removeEventListener("focus", onAssistantModeEvent);
+    };
+  }, []);
 
   useEffect(() => {
     const assistantMode = streamMeta?.assistant_mode;
@@ -267,6 +312,11 @@ export function ConversationPageClient({
     };
   }, []);
 
+  const composerPlaceholder =
+    assistantMode === "chief_of_staff"
+      ? "Ask Aliyya to brief, prioritize, or structure next actions..."
+      : "Cerita ke Aliyya...";
+
   return (
     <main className="flex-1 flex flex-col min-w-0 min-h-0 relative">
       {showStyleBadge ? (
@@ -306,6 +356,7 @@ export function ConversationPageClient({
         onChange={setInput}
         onSubmit={handleSend}
         disabled={sending}
+        placeholder={composerPlaceholder}
       />
     </main>
   );

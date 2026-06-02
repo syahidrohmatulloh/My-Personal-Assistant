@@ -10,6 +10,7 @@ type Props = {
   onChange: (v: string) => void;
   onSubmit: (attachmentIds: string[]) => void;
   disabled?: boolean;
+  placeholder?: string;
 };
 
 type PendingUpload =
@@ -19,7 +20,7 @@ type PendingUpload =
 
 const ACCEPT = "image/jpeg,image/png,image/gif,image/webp,application/pdf";
 
-export function Composer({ value, onChange, onSubmit, disabled }: Props) {
+export function Composer({ value, onChange, onSubmit, disabled, placeholder }: Props) {
   const voiceInput = useVoiceInput({ language: "multi" });
   const voiceBusy = voiceInput.isRecording || voiceInput.isTranscribing;
 
@@ -205,7 +206,7 @@ export function Composer({ value, onChange, onSubmit, disabled }: Props) {
             value={value}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKey}
-            placeholder="Message your assistant…"
+            placeholder={placeholder ?? "Message your assistant…"}
             enterKeyHint="send"
             autoCapitalize="sentences"
             autoCorrect="on"
