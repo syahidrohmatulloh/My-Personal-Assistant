@@ -323,20 +323,22 @@ function AssistantModeBadge({ mode }: { mode: AssistantMode }) {
     : "Warm, personal, emotionally present";
 
   return (
-    <div className="pointer-events-none absolute right-3 top-3 z-20 hidden sm:block">
-      <div
-        className={
-          isChief
-            ? "rounded-full border border-cyan-400/30 bg-cyan-950/20 px-3 py-1.5 text-right shadow-sm backdrop-blur-md"
-            : "rounded-full border border-accent/25 bg-bg/45 px-3 py-1.5 text-right shadow-sm backdrop-blur-md"
-        }
-      >
-        <p className="text-[11px] font-semibold leading-none text-fg">
-          {label}
-        </p>
-        <p className="mt-1 text-[10px] leading-none text-fg-subtle">
-          {description}
-        </p>
+    <div className="shrink-0 px-3 pt-2 sm:pt-3">
+      <div className="flex justify-end">
+        <div
+          className={
+            isChief
+              ? "max-w-full rounded-full border border-cyan-400/30 bg-cyan-950/20 px-3 py-1.5 text-right shadow-sm backdrop-blur-md sm:max-w-[280px]"
+              : "max-w-full rounded-full border border-accent/25 bg-bg/45 px-3 py-1.5 text-right shadow-sm backdrop-blur-md sm:max-w-[280px]"
+          }
+        >
+          <p className="text-[11px] font-semibold leading-none text-fg">
+            {label}
+          </p>
+          <p className="mt-1 truncate text-[10px] leading-none text-fg-subtle">
+            {description}
+          </p>
+        </div>
       </div>
     </div>
   );
