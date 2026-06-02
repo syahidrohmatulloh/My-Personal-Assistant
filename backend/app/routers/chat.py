@@ -75,6 +75,10 @@ from app.services.prompt_builder import (
 )
 from app.services.supabase_client import get_supabase, safe_execute
 from app.services.safe_background import add_safe_background_task
+from app.services.assistant_mode_commands import (
+    detect_assistant_mode_command,
+    render_mode_command_confirmation,
+)
 
 log = logging.getLogger(__name__)
 timing_log = logging.getLogger("uvicorn.error")
@@ -764,6 +768,45 @@ async def chat(
     if assistant_mode not in {"life_companion", "chief_of_staff"}:
         assistant_mode = "life_companion"
 
+    assistant_mode_command = detect_assistant_mode_command(body.message)
+    if assistant_mode_command:
+        new_mode = assistant_mode_command.target_mode
+        await companion.update_settings(user_id, assistant_mode=new_mode)
+
+        assistant_text = render_mode_command_confirmation(
+            assistant_mode_command,
+            previous_mode=assistant_mode,  # type: ignore[arg-type]
+        )
+
+        await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("messages")
+                .insert(
+                    {
+                        "conversation_id": body.conversation_id,
+                        "role": "assistant",
+                        "content": assistant_text,
+                    }
+                )
+                .execute()
+            )
+        )
+
+        return StreamingResponse(
+            _stream_static_assistant_response(
+                assistant_text=assistant_text,
+                assistant_name=assistant_name,
+                detected_mode=detected_mode,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+            background=background_tasks,
+        )
+
     chronology_context = await conversation_chronology.build_context_if_relevant(
         user_id=user_id,
         query_text=body.message,
@@ -1107,6 +1150,26 @@ async def chat(
         },
         background=background_tasks,
     )
+
+
+async def _stream_static_assistant_response(
+    *,
+    assistant_text: str,
+    assistant_name: str,
+    detected_mode: str | None = None,
+) -> AsyncIterator[str]:
+    """Stream a deterministic assistant response without calling Claude."""
+    mood = _mode_to_mood(detected_mode)
+    meta_event = {
+        "type": "meta",
+        "mode": detected_mode or "assistant_mode_command",
+        "pacing": _mode_to_pacing(detected_mode),
+        "mood": mood,
+        "background_palette_hint": _mood_to_palette(mood),
+        "assistant_name": assistant_name,
+    }
+    yield f"data: {json.dumps(meta_event)}\n\n"
+    yield f"data: {json.dumps({'type': 'delta', 'text': assistant_text})}\n\n"
 
 
 async def _stream_claude_response(
