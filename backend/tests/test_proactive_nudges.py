@@ -47,3 +47,16 @@ def test_confirmation_without_reminder_offer_does_not_schedule():
     )
 
     assert parsed is None
+
+
+def test_parse_loose_natural_indonesian_reminder_text():
+    parsed = parse_nudge_request(
+        user_message="beb ingetin lagi ya aku 1 menit lagi buat chat lagi sama kamu",
+        client_context={
+            "local_time": "2026-06-03T10:03:00+07:00",
+            "timezone_offset_minutes": -420,
+        },
+    )
+
+    assert parsed is not None
+    assert parsed.message == "Waktunya kamu chat lagi sama aku."

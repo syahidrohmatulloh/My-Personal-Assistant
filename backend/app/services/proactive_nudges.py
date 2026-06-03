@@ -88,7 +88,18 @@ def should_attempt_proactive_nudge(text: str | None) -> bool:
     if not normalized:
         return False
 
-    return any(keyword in normalized for keyword in _REMINDER_KEYWORDS)
+    if any(keyword in normalized for keyword in _REMINDER_KEYWORDS):
+        return True
+
+    loose_reminder_words = ("ingetin", "ingatkan", "remind", "reminder")
+    has_loose_reminder_word = any(word in normalized for word in loose_reminder_words)
+    has_time_signal = bool(
+        _extract_relative_due(_client_now(None), normalized)
+        or _extract_explicit_time(normalized)
+        or _extract_time_of_day_default(normalized)
+    )
+
+    return has_loose_reminder_word and has_time_signal
 
 
 def _timezone_offset_minutes(client_context: dict[str, Any] | None) -> int:
@@ -218,6 +229,8 @@ def _clean_title(text: str) -> str:
     # remove everything before and including the reminder intent.
     # This avoids hardcoding the user's nickname or the assistant's name.
     intent_patterns = [
+        r"^.*?\b(?:tolong\s+)?ingetin\s+(?:lagi\s+)?(?:ya\s+)?aku\s+(?:ya\s+)?(?:untuk\s+|buat\s+)?",
+        r"^.*?\b(?:tolong\s+)?ingatkan\s+(?:lagi\s+)?(?:ya\s+)?aku\s+(?:ya\s+)?(?:untuk\s+|buat\s+)?",
         r"^.*?\b(?:tolong\s+)?ingetin\s+aku\s+(?:ya\s+)?(?:untuk\s+|buat\s+)?",
         r"^.*?\b(?:tolong\s+)?ingatkan\s+aku\s+(?:ya\s+)?(?:untuk\s+|buat\s+)?",
         r"^.*?\bremind\s+me\s+(?:to\s+)?",
@@ -264,11 +277,18 @@ def _clean_title(text: str) -> str:
     # "Waktunya kamu chat aku", not "Waktunya kamu chat kamu".
     pov_replacements = {
         "chat kamu": "chat aku",
+        "chat sama kamu": "chat sama aku",
+        "chat lagi sama kamu": "chat lagi sama aku",
         "hubungi kamu": "hubungi aku",
+        "hubungi lagi sama kamu": "hubungi lagi sama aku",
         "telepon kamu": "telepon aku",
+        "telepon lagi sama kamu": "telepon lagi sama aku",
         "call kamu": "call aku",
+        "call sama kamu": "call sama aku",
         "message kamu": "message aku",
+        "message sama kamu": "message sama aku",
         "dm kamu": "dm aku",
+        "dm sama kamu": "dm sama aku",
         "kabarin kamu": "kabarin aku",
         "ngabarin kamu": "ngabarin aku",
     }
