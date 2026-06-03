@@ -64,10 +64,9 @@ export function ChatV2Client({
       const nextMode: AssistantMode =
         savedMode === "chief_of_staff" ? "chief_of_staff" : "life_companion";
 
-      const savedLayout = window.localStorage.getItem(`aliyya.chatV2.layout.${nextMode}`);
-      const defaultLayout: LayoutMode = "split";
+      const savedLayout = window.localStorage.getItem("aliyya.chatV2.layout");
       const nextLayout: LayoutMode =
-        savedLayout === "split" || savedLayout === "expanded" ? savedLayout : defaultLayout;
+        savedLayout === "expanded" || savedLayout === "split" ? savedLayout : "split";
 
       setModeState(nextMode);
       setLayoutState(nextLayout);
@@ -82,22 +81,14 @@ export function ChatV2Client({
 
     try {
       window.localStorage.setItem("aliyya.chatV2.mode", nextMode);
-      const savedLayout = window.localStorage.getItem(`aliyya.chatV2.layout.${nextMode}`);
-      const defaultLayout: LayoutMode = "split";
-
-      setLayoutState(
-        savedLayout === "split" || savedLayout === "expanded" ? savedLayout : defaultLayout,
-      );
-    } catch {
-      setLayoutState("split");
-    }
+    } catch {}
   }
 
   function setLayout(nextLayout: LayoutMode) {
     setLayoutState(nextLayout);
 
     try {
-      window.localStorage.setItem(`aliyya.chatV2.layout.${mode}`, nextLayout);
+      window.localStorage.setItem("aliyya.chatV2.layout", nextLayout);
     } catch {}
   }
 
