@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useChatStreamSender } from "@/components/chat/use-chat-stream-sender";
 import {
   getCompanionSettings,
+  listMessages,
   patchCompanionSettings,
   type ChatStreamMeta,
   type Message,
@@ -120,6 +121,23 @@ export function ChatV2Client({
     };
   }, []);
 
+  useEffect(() => {
+    function onAssistantModeEvent(event: Event) {
+      const detail = (event as CustomEvent<{ assistant_mode?: unknown; preferences?: { assistant_mode?: unknown } }>).detail;
+      const eventMode = detail?.assistant_mode ?? detail?.preferences?.assistant_mode;
+
+      if (eventMode === "chief_of_staff" || eventMode === "life_companion") {
+        applyModeLocally(eventMode);
+      }
+    }
+
+    window.addEventListener("assistant-companion-settings", onAssistantModeEvent);
+
+    return () => {
+      window.removeEventListener("assistant-companion-settings", onAssistantModeEvent);
+    };
+  }, []);
+
   function applyModeLocally(nextMode: AssistantMode) {
     setModeState(nextMode);
 
@@ -166,6 +184,16 @@ export function ChatV2Client({
       if (!el) return;
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     });
+  }
+
+  async function refreshMessagesFromServer() {
+    if (!activeConversationId) return;
+
+    try {
+      const latest = await listMessages(activeConversationId, { limit: 80 });
+      setMessages(latest);
+      scrollMessagesToBottom();
+    } catch {}
   }
 
   const handleSend = useChatStreamSender({
@@ -326,7 +354,10 @@ export function ChatV2Client({
               sending={sending}
               canSend={Boolean(activeConversationId)}
               onInputChange={setInput}
-              onSubmit={() => handleSend([])}
+              onSubmit={async () => {
+                await handleSend([]);
+                await refreshMessagesFromServer();
+              }}
               messagesScrollRef={messagesScrollRef}
             />
           </section>
