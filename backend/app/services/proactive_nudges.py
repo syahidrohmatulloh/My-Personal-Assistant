@@ -273,6 +273,100 @@ def _build_nudge_message(*, title: str, user_message: str) -> str:
     return f"Waktunya kamu {title}."
 
 
+_CONFIRMATION_KEYWORDS = (
+    "oke",
+    "ok",
+    "okay",
+    "yes",
+    "ya",
+    "iya",
+    "boleh",
+    "sip",
+    "siap",
+    "setuju",
+    "sure",
+)
+
+_REMINDER_OFFER_WORDS = (
+    "ingetin",
+    "ingatkan",
+    "remind",
+    "reminder",
+)
+
+def _is_confirmation_message(text: str | None) -> bool:
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+
+    return normalized in _CONFIRMATION_KEYWORDS or any(
+        normalized.startswith(f"{keyword} ") for keyword in _CONFIRMATION_KEYWORDS
+    )
+
+
+def _assistant_response_looks_like_reminder_offer(text: str | None) -> bool:
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+
+    has_reminder_word = any(word in normalized for word in _REMINDER_OFFER_WORDS)
+    has_time = bool(_extract_explicit_time(normalized) or _extract_relative_due(_client_now(None), normalized))
+    return has_reminder_word and has_time
+
+
+def _title_from_confirmation_offer(text: str | None) -> str:
+    normalized = _normalize(text)
+
+    simple_candidates = (
+        ("berangkat", "berangkat"),
+        ("meeting", "meeting"),
+        ("rapat", "rapat"),
+        ("minum obat", "minum obat"),
+        ("tidur", "tidur"),
+        ("jemput", "jemput"),
+        ("call", "call"),
+    )
+
+    for needle, title in simple_candidates:
+        if needle in normalized:
+            return title
+
+    return "reminder ini"
+
+
+def parse_nudge_from_chat(
+    *,
+    user_message: str,
+    client_context: dict[str, Any] | None = None,
+    assistant_response: str | None = None,
+) -> ParsedNudge | None:
+    parsed = parse_nudge_request(user_message=user_message, client_context=client_context)
+    if parsed:
+        return parsed
+
+    if not _is_confirmation_message(user_message):
+        return None
+
+    if not _assistant_response_looks_like_reminder_offer(assistant_response):
+        return None
+
+    # Reuse the existing deterministic parser, but feed it an explicit reminder
+    # request reconstructed from the assistant confirmation text.
+    parsed_from_offer = parse_nudge_request(
+        user_message=f"ingetin aku {assistant_response}",
+        client_context=client_context,
+    )
+    if not parsed_from_offer:
+        return None
+
+    title = _title_from_confirmation_offer(assistant_response)
+    return ParsedNudge(
+        due_at=parsed_from_offer.due_at,
+        title=title,
+        message=_build_nudge_message(title=title, user_message="ingetin aku"),
+    )
+
+
 def parse_nudge_request(
     *,
     user_message: str,
