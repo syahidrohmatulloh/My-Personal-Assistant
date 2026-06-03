@@ -110,6 +110,54 @@ export function ConversationPageClient({
 
   const isMainChat = initialIsMainChat;
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refreshMessagesWhenIdle() {
+      if (cancelled) return;
+      if (sending) return;
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+
+      try {
+        const latest = await listMessages(conversationId, { limit: 80 });
+        if (cancelled) return;
+
+        setMessages((current) => {
+          if (current.some((message) => "pending" in message && message.pending)) {
+            return current;
+          }
+
+          const currentLast = current.at(-1)?.id;
+          const latestLast = latest.at(-1)?.id;
+
+          if (currentLast === latestLast && current.length === latest.length) {
+            return current;
+          }
+
+          return latest;
+        });
+      } catch {}
+    }
+
+    const interval = window.setInterval(() => {
+      void refreshMessagesWhenIdle();
+    }, 15000);
+
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        void refreshMessagesWhenIdle();
+      }
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [conversationId, sending, setMessages]);
+
   const {
     scrollRef,
     stickToBottomRef,

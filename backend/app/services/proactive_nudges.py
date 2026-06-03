@@ -258,6 +258,25 @@ def _clean_title(text: str) -> str:
         title = re.sub(pattern, " ", title, flags=re.IGNORECASE)
 
     title = " ".join(title.split()).strip(".,;:- ")
+
+    # User-facing POV repair:
+    # If user says "ingetin aku buat chat kamu", the reminder should say
+    # "Waktunya kamu chat aku", not "Waktunya kamu chat kamu".
+    pov_replacements = {
+        "chat kamu": "chat aku",
+        "hubungi kamu": "hubungi aku",
+        "telepon kamu": "telepon aku",
+        "call kamu": "call aku",
+        "message kamu": "message aku",
+        "dm kamu": "dm aku",
+        "kabarin kamu": "kabarin aku",
+        "ngabarin kamu": "ngabarin aku",
+    }
+    lowered = title.lower()
+    for source, target in pov_replacements.items():
+        if source in lowered:
+            title = lowered.replace(source, target)
+
     return title[:120] or "reminder"
 
 

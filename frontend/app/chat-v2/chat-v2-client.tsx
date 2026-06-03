@@ -225,6 +225,38 @@ export function ChatV2Client({
     scrollMessagesToBottom();
   }, [messages.length]);
 
+  useEffect(() => {
+    if (!activeConversationId) return;
+
+    let cancelled = false;
+
+    async function refreshWhenIdle() {
+      if (cancelled) return;
+      if (sending) return;
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+
+      await refreshMessagesFromServer();
+    }
+
+    const interval = window.setInterval(() => {
+      void refreshWhenIdle();
+    }, 15000);
+
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        void refreshWhenIdle();
+      }
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [activeConversationId, sending]);
+
   const isExpanded = layout === "expanded";
   const copy = modeCopy[mode];
 
