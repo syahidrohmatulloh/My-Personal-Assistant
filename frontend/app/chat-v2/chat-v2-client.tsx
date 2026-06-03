@@ -19,7 +19,12 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChatStreamSender } from "@/components/chat/use-chat-stream-sender";
-import type { ChatStreamMeta, Message } from "@/lib/api";
+import {
+  getCompanionSettings,
+  patchCompanionSettings,
+  type ChatStreamMeta,
+  type Message,
+} from "@/lib/api";
 
 type AssistantMode = "life_companion" | "chief_of_staff";
 
@@ -67,35 +72,82 @@ export function ChatV2Client({
   const [messages, setMessages] = useState<LocalMessage[]>(initialMessages);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [, setStreamMeta] = useState<ChatStreamMeta | null>(null);
+  const [streamMeta, setStreamMeta] = useState<ChatStreamMeta | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
 
   const isChief = mode === "chief_of_staff";
 
   useEffect(() => {
-    try {
-      const savedMode = window.localStorage.getItem("aliyya.chatV2.mode");
-      const nextMode: AssistantMode =
-        savedMode === "chief_of_staff" ? "chief_of_staff" : "life_companion";
+    let cancelled = false;
 
-      const savedLayout = window.localStorage.getItem("aliyya.chatV2.layout");
-      const nextLayout: LayoutMode =
-        savedLayout === "expanded" || savedLayout === "split" ? savedLayout : "split";
+    async function hydrateWorkspaceState() {
+      let nextMode: AssistantMode = "life_companion";
+
+      try {
+        const settings = await getCompanionSettings();
+        nextMode =
+          settings.assistant_mode === "chief_of_staff"
+            ? "chief_of_staff"
+            : "life_companion";
+      } catch {
+        try {
+          const savedMode = window.localStorage.getItem("aliyya.chatV2.mode");
+          nextMode = savedMode === "chief_of_staff" ? "chief_of_staff" : "life_companion";
+        } catch {
+          nextMode = "life_companion";
+        }
+      }
+
+      if (cancelled) return;
 
       setModeState(nextMode);
-      setLayoutState(nextLayout);
-    } catch {
-      setModeState("life_companion");
-      setLayoutState("split");
+
+      try {
+        window.localStorage.setItem("aliyya.chatV2.mode", nextMode);
+        const savedLayout = window.localStorage.getItem("aliyya.chatV2.layout");
+        const nextLayout: LayoutMode =
+          savedLayout === "expanded" || savedLayout === "split" ? savedLayout : "split";
+        setLayoutState(nextLayout);
+      } catch {
+        setLayoutState("split");
+      }
     }
+
+    void hydrateWorkspaceState();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  function setMode(nextMode: AssistantMode) {
+  function applyModeLocally(nextMode: AssistantMode) {
     setModeState(nextMode);
 
     try {
       window.localStorage.setItem("aliyya.chatV2.mode", nextMode);
     } catch {}
+
+    window.dispatchEvent(
+      new CustomEvent("assistant-companion-settings", {
+        detail: { assistant_mode: nextMode },
+      }),
+    );
+  }
+
+  function setMode(nextMode: AssistantMode) {
+    applyModeLocally(nextMode);
+
+    void patchCompanionSettings({ assistant_mode: nextMode }).catch(() => {
+      void getCompanionSettings()
+        .then((settings) => {
+          applyModeLocally(
+            settings.assistant_mode === "chief_of_staff"
+              ? "chief_of_staff"
+              : "life_companion",
+          );
+        })
+        .catch(() => {});
+    });
   }
 
   function setLayout(nextLayout: LayoutMode) {
@@ -127,6 +179,15 @@ export function ChatV2Client({
     setStreamMeta,
     markShouldStickToBottom: scrollMessagesToBottom,
   });
+
+  useEffect(() => {
+    const assistantMode = streamMeta?.assistant_mode;
+    if (assistantMode !== "chief_of_staff" && assistantMode !== "life_companion") {
+      return;
+    }
+
+    applyModeLocally(assistantMode);
+  }, [streamMeta?.assistant_mode]);
 
   useEffect(() => {
     setMessages(initialMessages);
