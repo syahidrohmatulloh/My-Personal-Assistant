@@ -46,6 +46,11 @@ export default async function ChatV2Page() {
 
   return (
     <ChatV2Client
+      conversationId={
+        typeof selectedConversation?.id === "string"
+          ? selectedConversation.id
+          : null
+      }
       initialMessages={initialMessages}
       conversationTitle={
         typeof selectedConversation?.title === "string"

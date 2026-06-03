@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   ArrowLeft,
+  ArrowUp,
   Brain,
   BriefcaseBusiness,
   CalendarDays,
@@ -16,12 +17,18 @@ import {
   Newspaper,
   Sparkles,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import type { Message } from "@/lib/api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useChatStreamSender } from "@/components/chat/use-chat-stream-sender";
+import type { ChatStreamMeta, Message } from "@/lib/api";
 
 type AssistantMode = "life_companion" | "chief_of_staff";
 
 type LayoutMode = "split" | "expanded";
+
+type LocalMessage =
+  | Message
+  | { id: string; role: "assistant"; content: string; pending: true; created_at?: string };
+
 
 const modeCopy = {
   life_companion: {
@@ -47,14 +54,21 @@ const modeCopy = {
 };
 
 export function ChatV2Client({
+  conversationId,
   initialMessages = [],
   conversationTitle = null,
 }: {
+  conversationId?: string | null;
   initialMessages?: Message[];
   conversationTitle?: string | null;
 }) {
   const [mode, setModeState] = useState<AssistantMode>("life_companion");
   const [layout, setLayoutState] = useState<LayoutMode>("split");
+  const [messages, setMessages] = useState<LocalMessage[]>(initialMessages);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [, setStreamMeta] = useState<ChatStreamMeta | null>(null);
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null);
 
   const isChief = mode === "chief_of_staff";
 
@@ -91,6 +105,36 @@ export function ChatV2Client({
       window.localStorage.setItem("aliyya.chatV2.layout", nextLayout);
     } catch {}
   }
+
+  const activeConversationId = conversationId ?? "";
+
+  function scrollMessagesToBottom() {
+    requestAnimationFrame(() => {
+      const el = messagesScrollRef.current;
+      if (!el) return;
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    });
+  }
+
+  const handleSend = useChatStreamSender({
+    conversationId: activeConversationId,
+    input,
+    setInput,
+    sending,
+    setSending,
+    messagesLength: messages.length,
+    setMessages,
+    setStreamMeta,
+    markShouldStickToBottom: scrollMessagesToBottom,
+  });
+
+  useEffect(() => {
+    setMessages(initialMessages);
+  }, [initialMessages]);
+
+  useEffect(() => {
+    scrollMessagesToBottom();
+  }, [messages.length]);
 
   const isExpanded = layout === "expanded";
   const copy = modeCopy[mode];
@@ -212,7 +256,18 @@ export function ChatV2Client({
               </div>
             </div>
 
-            <ChatFrame mode={mode} isExpanded={isExpanded} messages={initialMessages} conversationTitle={conversationTitle} />
+            <ChatFrame
+              mode={mode}
+              isExpanded={isExpanded}
+              messages={messages}
+              conversationTitle={conversationTitle}
+              input={input}
+              sending={sending}
+              canSend={Boolean(activeConversationId)}
+              onInputChange={setInput}
+              onSubmit={() => handleSend([])}
+              messagesScrollRef={messagesScrollRef}
+            />
           </section>
         </section>
       </div>
@@ -409,11 +464,23 @@ function ChatFrame({
   isExpanded,
   messages,
   conversationTitle,
+  input,
+  sending,
+  canSend,
+  onInputChange,
+  onSubmit,
+  messagesScrollRef,
 }: {
   mode: AssistantMode;
   isExpanded: boolean;
-  messages: Message[];
+  messages: LocalMessage[];
   conversationTitle?: string | null;
+  input: string;
+  sending: boolean;
+  canSend: boolean;
+  onInputChange: (value: string) => void;
+  onSubmit: () => void;
+  messagesScrollRef: { current: HTMLDivElement | null };
 }) {
   const isChief = mode === "chief_of_staff";
   const copy = modeCopy[mode];
@@ -460,7 +527,7 @@ function ChatFrame({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-6 pr-3 scroll-smooth [scrollbar-width:thin]">
+      <div ref={messagesScrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-6 pr-3 scroll-smooth [scrollbar-width:thin]">
         {(messages.length > 0 ? messages.slice(-12) : null)?.map((message) => (
           <div
             key={message.id}
@@ -528,16 +595,55 @@ function ChatFrame({
       </div>
 
       <div className="shrink-0 p-5">
-        <div
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!canSend || sending || input.trim().length === 0) return;
+            onSubmit();
+          }}
           className={[
-            "rounded-2xl border px-4 py-3 text-sm",
+            "flex items-end gap-3 rounded-2xl border px-4 py-3 shadow-sm transition",
             isChief
-              ? "border-white/15 bg-black/15 text-slate-400"
-              : "border-white/80 bg-white/76 text-stone-500",
+              ? "border-white/15 bg-black/15 text-slate-100 focus-within:border-teal-200/35"
+              : "border-white/80 bg-white/76 text-stone-950 focus-within:border-stone-300",
           ].join(" ")}
         >
-          {copy.input}
-        </div>
+          <textarea
+            value={input}
+            onChange={(event) => onInputChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                const isMobile = window.matchMedia("(max-width: 640px)").matches;
+                if (!isMobile) {
+                  event.preventDefault();
+                  if (canSend && !sending && input.trim().length > 0) {
+                    onSubmit();
+                  }
+                }
+              }
+            }}
+            rows={1}
+            disabled={!canSend || sending}
+            placeholder={canSend ? copy.input : "No conversation is available yet."}
+            className={[
+              "min-h-[36px] max-h-36 flex-1 resize-none bg-transparent py-1 text-sm leading-6 outline-none placeholder:opacity-70 disabled:cursor-not-allowed disabled:opacity-60",
+              isChief ? "text-slate-100 placeholder:text-slate-500" : "text-stone-950 placeholder:text-stone-500",
+            ].join(" ")}
+          />
+          <button
+            type="submit"
+            disabled={!canSend || sending || input.trim().length === 0}
+            aria-label="Send message"
+            className={[
+              "grid h-9 w-9 shrink-0 place-items-center rounded-full transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-35",
+              isChief
+                ? "bg-teal-100 text-slate-950 hover:bg-teal-50"
+                : "bg-stone-950 text-white hover:bg-stone-800",
+            ].join(" ")}
+          >
+            <ArrowUp className="h-4 w-4" />
+          </button>
+        </form>
       </div>
     </div>
   );
