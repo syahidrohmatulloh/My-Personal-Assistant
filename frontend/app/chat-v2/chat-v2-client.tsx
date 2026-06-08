@@ -21,6 +21,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useChatStreamSender } from "@/components/chat/use-chat-stream-sender";
 import {
   getCompanionSettings,
+  getIdentity,
+  getTodayBriefing,
+  getTodaysJournal,
+  listGoals,
   listMessages,
   patchCompanionSettings,
   type ChatStreamMeta,
@@ -34,6 +38,16 @@ type LayoutMode = "split" | "expanded";
 type LocalMessage =
   | Message
   | { id: string; role: "assistant"; content: string; pending: true; created_at?: string };
+
+type WorkspaceContext = {
+  status: "loading" | "ready" | "error";
+  briefingContent?: string | null;
+  briefingOpenedAt?: string | null;
+  briefingConversationId?: string | null;
+  journaledToday?: boolean;
+  activeGoals?: Array<{ id?: string; title?: string; status?: string }>;
+  assistantName?: string | null;
+};
 
 
 const modeCopy = {
@@ -74,9 +88,76 @@ export function ChatV2Client({
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [streamMeta, setStreamMeta] = useState<ChatStreamMeta | null>(null);
+  const [workspaceContext, setWorkspaceContext] = useState<WorkspaceContext>({
+    status: "loading",
+  });
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
 
   const isChief = mode === "chief_of_staff";
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateWorkspaceContext() {
+      try {
+        const [briefingResult, journalResult, goalsResult, identityResult] =
+          await Promise.allSettled([
+            getTodayBriefing(),
+            getTodaysJournal(),
+            listGoals("active"),
+            getIdentity(),
+          ]);
+
+        if (cancelled) return;
+
+        const briefing =
+          briefingResult.status === "fulfilled" ? briefingResult.value : null;
+        const journal =
+          journalResult.status === "fulfilled" ? journalResult.value : null;
+        const goals =
+          goalsResult.status === "fulfilled" && Array.isArray(goalsResult.value)
+            ? goalsResult.value
+            : [];
+        const identity =
+          identityResult.status === "fulfilled" ? identityResult.value : null;
+
+        setWorkspaceContext({
+          status: "ready",
+          briefingContent:
+            typeof briefing?.content === "string" ? briefing.content : null,
+          briefingOpenedAt:
+            typeof briefing?.opened_at === "string" ? briefing.opened_at : null,
+          briefingConversationId:
+            typeof briefing?.conversation_id === "string"
+              ? briefing.conversation_id
+              : null,
+          journaledToday: Boolean(journal?.entry),
+          activeGoals: goals
+            .filter((goal) => goal?.status === "active" || !goal?.status)
+            .slice(0, 4)
+            .map((goal) => ({
+              id: typeof goal?.id === "string" ? goal.id : undefined,
+              title: typeof goal?.title === "string" ? goal.title : undefined,
+              status: typeof goal?.status === "string" ? goal.status : undefined,
+            })),
+          assistantName:
+            typeof identity?.profile?.assistant_name === "string"
+              ? identity.profile.assistant_name
+              : null,
+        });
+      } catch {
+        if (!cancelled) {
+          setWorkspaceContext({ status: "error" });
+        }
+      }
+    }
+
+    void hydrateWorkspaceContext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -261,8 +342,12 @@ export function ChatV2Client({
   const copy = modeCopy[mode];
 
   const leftPanel = useMemo(() => {
-    return isChief ? <ChiefDeskPanel /> : <CompanionDeskPanel />;
-  }, [isChief]);
+    return isChief ? (
+      <ChiefDeskPanel context={workspaceContext} />
+    ) : (
+      <CompanionDeskPanel context={workspaceContext} />
+    );
+  }, [isChief, workspaceContext]);
 
   return (
     <main
@@ -491,51 +576,116 @@ function ModeToggle({
   );
 }
 
-function CompanionDeskPanel() {
+function truncateText(value: string | null | undefined, maxLength = 140): string | null {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1).trim()}…`;
+}
+
+function goalTitles(context: WorkspaceContext): string[] {
+  return (context.activeGoals || [])
+    .map((goal) => String(goal.title || "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+function CompanionDeskPanel({ context }: { context: WorkspaceContext }) {
+  const goals = goalTitles(context);
+  const briefingSnippet = truncateText(context.briefingContent, 150);
+  const assistantName = context.assistantName || "Aliyya";
+
   return (
     <div className="grid gap-3">
       <PanelCard tone="life" icon={<Heart className="h-4 w-4" />} title="Gentle check-in">
-        <p>You may want a slower space tonight. Keep the chat open and process one thing at a time.</p>
+        {context.status === "loading" ? (
+          <p>Preparing your personal context…</p>
+        ) : context.journaledToday ? (
+          <p>You have already opened today’s reflection. This space can continue from that thread gently.</p>
+        ) : (
+          <p>No journal entry yet today. This can become a calm place to close the loop or process what is on your mind.</p>
+        )}
       </PanelCard>
-      <PanelCard tone="life" icon={<Lightbulb className="h-4 w-4" />} title="Ideas to revisit">
-        <ul>
-          <li>Chat V2 flexible workspace</li>
-          <li>Voice cloning research notes</li>
-          <li>Personal briefing preferences</li>
-        </ul>
+
+      <PanelCard tone="life" icon={<Lightbulb className="h-4 w-4" />} title="Personal ideas">
+        {goals.length > 0 ? (
+          <ul>
+            {goals.map((goal) => (
+              <li key={goal}>{goal}</li>
+            ))}
+          </ul>
+        ) : (
+          <p>Ideas, personal plans, and things to revisit will sit here without crowding the main chat.</p>
+        )}
       </PanelCard>
-      <PanelCard tone="life" icon={<Brain className="h-4 w-4" />} title="Memory signal">
-        <p>Family, personal rhythm, and project continuity stay visible without crowding the chat.</p>
+
+      <PanelCard tone="life" icon={<Brain className="h-4 w-4" />} title="Continuity signal">
+        <p>
+          {assistantName} can keep the conversation grounded in your journal, goals, family context, and recent threads while keeping the chat area quiet.
+        </p>
       </PanelCard>
-      <PanelCard tone="life" icon={<Compass className="h-4 w-4" />} title="Optional briefing">
-        <p>Later this can become a personal digest: family, ideas, health rhythm, or topics you ask Aliyya to track.</p>
+
+      <PanelCard tone="life" icon={<Compass className="h-4 w-4" />} title="Soft briefing">
+        {briefingSnippet ? (
+          <p>{briefingSnippet}</p>
+        ) : (
+          <p>Later this can become a personal digest: family, ideas, health rhythm, or any topic you ask the assistant to track.</p>
+        )}
       </PanelCard>
     </div>
   );
 }
 
-function ChiefDeskPanel() {
+function ChiefDeskPanel({ context }: { context: WorkspaceContext }) {
+  const goals = goalTitles(context);
+  const briefingSnippet = truncateText(context.briefingContent, 150);
+  const briefingReady = Boolean(context.briefingContent);
+  const briefingOpened = Boolean(context.briefingOpenedAt || context.briefingConversationId);
+
   return (
     <div className="grid gap-3">
       <PanelCard tone="chief" icon={<CalendarDays className="h-4 w-4" />} title="Today brief">
-        <ul>
-          <li>3 agenda blocks to review</li>
-          <li>2 follow-ups open</li>
-          <li>1 decision queue item</li>
-        </ul>
+        {context.status === "loading" ? (
+          <p>Loading today’s operating context…</p>
+        ) : briefingReady ? (
+          <ul>
+            <li>{briefingOpened ? "Briefing thread already opened" : "Briefing ready for review"}</li>
+            <li>{goals.length} active goal{goals.length === 1 ? "" : "s"} visible</li>
+            <li>{context.journaledToday ? "Journal signal available" : "No journal signal today"}</li>
+          </ul>
+        ) : (
+          <ul>
+            <li>No briefing content yet</li>
+            <li>{goals.length} active goal{goals.length === 1 ? "" : "s"} visible</li>
+            <li>Use chat to turn context into priorities</li>
+          </ul>
+        )}
       </PanelCard>
+
       <PanelCard tone="chief" icon={<CheckCircle2 className="h-4 w-4" />} title="Priority queue">
-        <ul>
-          <li>Decide Chat V2 scope</li>
-          <li>Clean quick action UX</li>
-          <li>Plan briefing panel sources</li>
-        </ul>
+        {goals.length > 0 ? (
+          <ul>
+            {goals.map((goal) => (
+              <li key={goal}>{goal}</li>
+            ))}
+          </ul>
+        ) : (
+          <p>No active goal is surfaced yet. This section will become your execution queue.</p>
+        )}
       </PanelCard>
+
       <PanelCard tone="chief" icon={<Newspaper className="h-4 w-4" />} title="Briefing topics">
-        <p>Economy, banking, AI, tech, market news, or any custom topic you ask Aliyya to track.</p>
+        {briefingSnippet ? (
+          <p>{briefingSnippet}</p>
+        ) : (
+          <p>Economy, banking, AI, tech, market news, or any custom topic you ask the assistant to track.</p>
+        )}
       </PanelCard>
+
       <PanelCard tone="chief" icon={<CircleDot className="h-4 w-4" />} title="Risks & blockers">
-        <p>Keep visual experiments isolated in Chat V2 until the main chat replacement is proven stable.</p>
+        <p>
+          Keep visual experiments isolated in Chat V2 until the workspace is proven stable enough to replace the main chat.
+        </p>
       </PanelCard>
     </div>
   );
