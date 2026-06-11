@@ -13,6 +13,7 @@ This router does not touch companion mood, user mood, journal, or prompt logic.
 
 from __future__ import annotations
 import asyncio
+import re
 import httpx
 
 from datetime import date, datetime, timedelta, timezone
@@ -1512,20 +1513,46 @@ async def _load_memory_for_calendar_candidate(*, memory_id: str, user_id: str) -
 
 
 def _event_title_from_candidate(row: dict[str, Any]) -> str:
-    value = str(row.get("structured_value") or "").strip()
+    explicit_title = str(row.get("calendar_event_title") or "").strip()
+    if explicit_title:
+        return explicit_title[:120]
+
+    structured_value = str(row.get("structured_value") or "").strip()
+    if structured_value:
+        human_structured = re.match(
+            r"^Calendar event:\s*(.+?)(?:;\s*(?:date|starts|ends|location)\b|$)",
+            structured_value,
+            flags=re.IGNORECASE,
+        )
+        if human_structured:
+            title = human_structured.group(1).strip()
+            if title:
+                return title[:120]
+
+        legacy_title = re.sub(
+            r"\s*\|\s*due_date=.*$",
+            "",
+            structured_value,
+            flags=re.IGNORECASE,
+        ).strip()
+        if legacy_title:
+            return legacy_title[:120]
+
     content = str(row.get("content") or "").strip()
+    content = re.sub(
+        r"^User has a scheduled event:\s*",
+        "",
+        content,
+        flags=re.IGNORECASE,
+    )
+    content = re.sub(
+        r"\s+on\s+\d{4}-\d{2}-\d{2}.*$",
+        "",
+        content,
+        flags=re.IGNORECASE,
+    ).strip()
 
-    if value:
-        # structured_value shape: "presentation title | due_date=YYYY-MM-DD | relative=tomorrow"
-        title = value.split("|", 1)[0].strip(" ,.;:-")
-        if title:
-            return title[:180]
-
-    if content:
-        return content[:180]
-
-    return "Calendar event"
-
+    return content[:120] or "Calendar event"
 
 def _is_iso_date(value: str) -> bool:
     try:

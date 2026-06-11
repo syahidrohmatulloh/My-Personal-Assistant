@@ -514,6 +514,84 @@ def _same_calendar_time_for_dedupe(
 
 
 
+def _extract_canonical_calendar_title_hint(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return text
+
+    human_structured = re.match(
+        r"^Calendar event:\s*(.+?)(?:;\s*(?:date|starts|ends|location)\b|$)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if human_structured:
+        text = human_structured.group(1).strip()
+
+    text = re.sub(
+        r"^User has a scheduled event:\s*",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\s+on\s+\d{4}-\d{2}-\d{2}.*$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\s*\|\s*due_date=.*$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    text = re.sub(
+        r"^.*?\b(?:agenda|acara|jadwal)\s+",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    text = re.sub(
+        r"[,;]\s*(?:tee\s*off|mulai|starts?|starting|pukul|jam)\b.*$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    text = re.sub(
+        r"\s+tee\s*off(?:\s+nya)?\b.*$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    location_between = re.match(
+        r"^(?P<activity>[^,;]{1,60}?)\s+"
+        r"(?P<location_connector>di|at)\s+"
+        r"(?P<location>[^,;]{1,100}?)\s+"
+        r"(?P<party_connector>dengan|sama|with)\s+"
+        r"(?P<party>[^,;]{1,80})$",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if location_between:
+        activity = location_between.group("activity").strip()
+        connector = location_between.group("party_connector").lower()
+        party = location_between.group("party").strip()
+
+        if connector == "with":
+            text = f"{activity} with {party}"
+        elif connector == "sama":
+            text = f"{activity} sama {party}"
+        else:
+            text = f"{activity} dengan {party}"
+
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _clean_calendar_event_title(value: str | None) -> str:
     """Clean user-message fragments into agenda-like event titles.
 
@@ -525,7 +603,9 @@ def _clean_calendar_event_title(value: str | None) -> str:
     """
     import re
 
-    text = str(value or "").strip()
+    text = _extract_canonical_calendar_title_hint(
+        str(value or "").strip()
+    )
     text = re.sub(r"\s+", " ", text)
     text = re.sub(r"\s*\|\s*due_date=.*$", "", text, flags=re.I)
     text = re.sub(r"^user has a scheduled event:\s*", "", text, flags=re.I)
