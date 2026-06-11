@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  AlarmClock,
   Brain,
   CalendarDays,
   CheckCircle2,
@@ -46,6 +47,45 @@ function joinNaturally(items: string[]): string {
   if (items.length <= 1) return items.join("");
   if (items.length === 2) return `${items[0]} and ${items[1]}`;
   return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+function formatClock(value: string | null | undefined): string | null {
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return new Intl.DateTimeFormat("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function formatReminderDue(value: string | null | undefined): string {
+  if (!value) return "Time unavailable";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Time unavailable";
+
+  const now = new Date();
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+
+  if (sameDay) {
+    return `Today, ${formatClock(value) || ""}`.replace(/, $/, "");
+  }
+
+  return new Intl.DateTimeFormat("id-ID", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
 }
 
 export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
@@ -166,6 +206,76 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
         </ul>
       ) : (
         <p>The latest things saved to memory will appear here as short notes.</p>
+      );
+    },
+  },
+  {
+    id: "today_agenda",
+    title: "Today's agenda",
+    icon: CalendarDays,
+    modes: BOTH,
+    defaultVisible: true,
+    render: (context) => {
+      if (context.status === "loading" || context.agendaStatus === "loading") {
+        return <p>Bringing today’s schedule into focus…</p>;
+      }
+
+      if (context.agendaStatus === "error") {
+        return <p>Today’s agenda could not be refreshed. The rest of your workspace is still available.</p>;
+      }
+
+      const agenda = (context.todayAgenda || []).slice(0, 4);
+
+      return agenda.length > 0 ? (
+        <ul>
+          {agenda.map((event, index) => {
+            const time = event.allDay
+              ? "All day"
+              : formatClock(event.startAt) || "Time pending";
+
+            return (
+              <li key={event.id || `${event.title}-${index}`}>
+                <span className="font-medium">{time}</span>
+                {event.title ? ` — ${event.title}` : ""}
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p>No confirmed events are scheduled here for today. You can ask the assistant to add or organize one.</p>
+      );
+    },
+  },
+  {
+    id: "upcoming_reminders",
+    title: "Upcoming reminders",
+    icon: AlarmClock,
+    modes: BOTH,
+    defaultVisible: true,
+    render: (context) => {
+      if (context.status === "loading" || context.remindersStatus === "loading") {
+        return <p>Checking what you asked to be reminded about…</p>;
+      }
+
+      if (context.remindersStatus === "error") {
+        return <p>Upcoming reminders could not be refreshed right now.</p>;
+      }
+
+      const reminders = (context.upcomingReminders || []).slice(0, 4);
+
+      return reminders.length > 0 ? (
+        <ul>
+          {reminders.map((reminder, index) => (
+            <li key={reminder.id || `${reminder.title}-${index}`}>
+              <span className="font-medium">
+                {formatReminderDue(reminder.dueAt)}
+              </span>
+              {reminder.title ? ` — ${reminder.title}` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>No upcoming reminders. Ask in chat whenever something should come back at the right time.</p>
       );
     },
   },

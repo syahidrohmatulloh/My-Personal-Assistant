@@ -7,6 +7,8 @@ export type WorkspaceCardId =
   | "soft_briefing"
   | "people_who_matter"
   | "recent_memories"
+  | "today_agenda"
+  | "upcoming_reminders"
   | "today_brief"
   | "priority_queue"
   | "briefing_topics"
@@ -30,6 +32,24 @@ export type WorkspaceMemory = {
   kind?: string;
 };
 
+export type WorkspaceAgendaItem = {
+  id?: string;
+  title?: string;
+  date?: string;
+  startAt?: string | null;
+  endAt?: string | null;
+  allDay?: boolean;
+  status?: string;
+};
+
+export type WorkspaceReminder = {
+  id?: string;
+  title?: string;
+  message?: string | null;
+  dueAt?: string;
+  status?: string;
+};
+
 export type WorkspaceContext = {
   status: "loading" | "ready" | "error";
   briefingContent?: string | null;
@@ -40,6 +60,10 @@ export type WorkspaceContext = {
   pausedGoals?: WorkspaceGoal[];
   people?: WorkspacePerson[];
   recentMemories?: WorkspaceMemory[];
+  todayAgenda?: WorkspaceAgendaItem[];
+  upcomingReminders?: WorkspaceReminder[];
+  agendaStatus?: "loading" | "ready" | "error";
+  remindersStatus?: "loading" | "ready" | "error";
   assistantName?: string | null;
 };
 

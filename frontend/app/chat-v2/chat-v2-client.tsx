@@ -35,6 +35,10 @@ import {
 } from "./mode-events";
 import type { WorkspaceContext } from "./workspace/types";
 import { WorkspacePanel } from "./workspace/workspace-panel";
+import {
+  loadTodayWorkspaceAgenda,
+  loadUpcomingWorkspaceReminders,
+} from "./workspace/load-live-context";
 
 type AssistantMode = "life_companion" | "chief_of_staff";
 
@@ -111,6 +115,8 @@ export function ChatV2Client({
           identityResult,
           peopleResult,
           memoriesResult,
+          agendaResult,
+          remindersResult,
         ] = await Promise.allSettled([
           getTodayBriefing(),
           getTodaysJournal(),
@@ -118,6 +124,8 @@ export function ChatV2Client({
           getIdentity(),
           listPeople(),
           listMemories(),
+          loadTodayWorkspaceAgenda(),
+          loadUpcomingWorkspaceReminders(),
         ]);
 
         if (cancelled) return;
@@ -139,6 +147,14 @@ export function ChatV2Client({
         const memories =
           memoriesResult.status === "fulfilled" && Array.isArray(memoriesResult.value)
             ? memoriesResult.value
+            : [];
+        const agenda =
+          agendaResult.status === "fulfilled" && Array.isArray(agendaResult.value)
+            ? agendaResult.value
+            : [];
+        const reminders =
+          remindersResult.status === "fulfilled" && Array.isArray(remindersResult.value)
+            ? remindersResult.value
             : [];
 
         const toWorkspaceGoal = (goal: (typeof goals)[number]) => ({
@@ -191,6 +207,11 @@ export function ChatV2Client({
                 typeof memory?.content === "string" ? memory.content : undefined,
               kind: typeof memory?.kind === "string" ? memory.kind : undefined,
             })),
+          todayAgenda: agenda,
+          upcomingReminders: reminders,
+          agendaStatus: agendaResult.status === "fulfilled" ? "ready" : "error",
+          remindersStatus:
+            remindersResult.status === "fulfilled" ? "ready" : "error",
           assistantName:
             typeof identity?.profile?.assistant_name === "string"
               ? identity.profile.assistant_name
@@ -207,6 +228,57 @@ export function ChatV2Client({
 
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refreshLiveWorkspaceCards() {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState !== "visible"
+      ) {
+        return;
+      }
+
+      const [agendaResult, remindersResult] = await Promise.allSettled([
+        loadTodayWorkspaceAgenda(),
+        loadUpcomingWorkspaceReminders(),
+      ]);
+
+      if (cancelled) return;
+
+      setWorkspaceContext((current) => ({
+        ...current,
+        todayAgenda:
+          agendaResult.status === "fulfilled" ? agendaResult.value : current.todayAgenda,
+        upcomingReminders:
+          remindersResult.status === "fulfilled"
+            ? remindersResult.value
+            : current.upcomingReminders,
+        agendaStatus: agendaResult.status === "fulfilled" ? "ready" : "error",
+        remindersStatus:
+          remindersResult.status === "fulfilled" ? "ready" : "error",
+      }));
+    }
+
+    const interval = window.setInterval(() => {
+      void refreshLiveWorkspaceCards();
+    }, 60000);
+
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        void refreshLiveWorkspaceCards();
+      }
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
 

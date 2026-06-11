@@ -257,6 +257,71 @@ async def list_memory_review(
 
 
 
+@router.get("/upcoming-reminders")
+async def list_upcoming_reminders(
+    limit: int = 5,
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    """Return the current user's future scheduled in-chat reminders."""
+
+    if limit < 1 or limit > 20:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="limit must be between 1 and 20",
+        )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    try:
+        result = await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("proactive_nudges")
+                .select("id,title,message,due_at,status")
+                .eq("user_id", user_id)
+                .eq("status", "scheduled")
+                .gte("due_at", now_iso)
+                .order("due_at")
+                .limit(limit)
+                .execute()
+            )
+        )
+    except Exception as exc:
+        log.warning(
+            "workspace reminders: load failed user=%s error_type=%s",
+            user_id[:8],
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load upcoming reminders",
+        ) from exc
+
+    items = []
+
+    for row in list(result.data or []):
+        title = str(row.get("title") or "").strip()
+        message = str(row.get("message") or "").strip()
+        due_at = str(row.get("due_at") or "").strip()
+
+        if not due_at:
+            continue
+
+        items.append(
+            {
+                "id": str(row.get("id") or ""),
+                "title": title or "Reminder",
+                "message": message or None,
+                "due_at": due_at,
+                "status": "scheduled",
+            }
+        )
+
+    return {
+        "items": items,
+        "count": len(items),
+    }
+
+
 # Pending Calendar candidates are hidden by default from the user interface.
 # They remain internal suggestions until chat confirmation accepts them.
 @router.get("/calendar-candidates")
