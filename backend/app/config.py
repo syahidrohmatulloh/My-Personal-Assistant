@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str | None = None
     GOOGLE_CALENDAR_REDIRECT_URI: str | None = None
     APP_FRONTEND_URL: str | None = None
+    GOOGLE_TOKEN_ENCRYPTION_KEYS: str | None = None
 
     # Conversation Style Profile safety/cost controls
     # Upload can be large, but only a representative bounded sample is sent to Claude.

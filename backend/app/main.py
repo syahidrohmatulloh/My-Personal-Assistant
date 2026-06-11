@@ -22,6 +22,7 @@ from app.routers import (
     voice,
 )
 from app.services import memory_health_scheduler, rate_limiter, proactive_nudges
+from app.services.token_crypto import token_encryption_configured
 
 app = FastAPI(
     title="My Assistant API",
@@ -98,6 +99,7 @@ async def health():
             and settings.GOOGLE_CLIENT_SECRET
             and settings.GOOGLE_CALENDAR_REDIRECT_URI
         ),
+        "google_token_encryption_configured": token_encryption_configured(),
         "voice_tts_configured": bool(getattr(settings, "ELEVENLABS_API_KEY", None)),
         "voice_stt_configured": bool(getattr(settings, "DEEPGRAM_API_KEY", None)),
     }

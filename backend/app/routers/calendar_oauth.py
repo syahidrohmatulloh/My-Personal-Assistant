@@ -20,6 +20,13 @@ from fastapi.responses import RedirectResponse
 from app.config import settings
 from app.core.auth import get_current_user_id
 from app.services.supabase_client import get_supabase, safe_execute
+from app.services.token_crypto import (
+    TokenCryptoError,
+    decrypt_token,
+    encrypt_token,
+    is_encrypted_token,
+    require_token_encryption_configured,
+)
 
 
 log = logging.getLogger(__name__)
@@ -260,6 +267,23 @@ def _mark_state_used(state: str) -> None:
     )
 
 
+def _google_oauth_error_code(response: httpx.Response) -> str | None:
+    try:
+        payload = response.json()
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    error = payload.get("error")
+    if isinstance(error, dict):
+        error = error.get("status") or error.get("message")
+
+    cleaned = str(error or "").strip()
+    return cleaned[:80] or None
+
+
 async def _exchange_code_for_token(
     *,
     code: str,
@@ -281,9 +305,9 @@ async def _exchange_code_for_token(
 
     if response.status_code >= 400:
         log.warning(
-            "calendar oauth: token exchange failed status=%s body=%s",
+            "calendar oauth: token exchange failed status=%s error=%s",
             response.status_code,
-            response.text[:200],
+            _google_oauth_error_code(response),
         )
         raise RuntimeError("Google token exchange failed")
 
@@ -313,25 +337,91 @@ def _store_connection(*, user_id: str, token_payload: dict[str, Any], email: str
     expires_in = int(token_payload.get("expires_in") or 3600)
     expires_at = (now + timedelta(seconds=expires_in)).isoformat()
 
+    encrypted_access_token = _encrypt_google_token(
+        token_payload.get("access_token")
+    )
+    if not encrypted_access_token:
+        raise RuntimeError("Google token exchange returned no access token")
+
     payload = {
         "user_id": user_id,
         "status": "active",
         "email": email,
         "scope": token_payload.get("scope"),
         "token_type": token_payload.get("token_type"),
-        "access_token": token_payload.get("access_token"),
-        "refresh_token": token_payload.get("refresh_token"),
+        "access_token": encrypted_access_token,
         "expires_at": expires_at,
         "connected_at": now.isoformat(),
         "disconnected_at": None,
         "updated_at": now.isoformat(),
     }
 
+    refresh_token = _encrypt_google_token(
+        token_payload.get("refresh_token")
+    )
+    if refresh_token:
+        payload["refresh_token"] = refresh_token
+
     safe_execute(
         lambda sb: sb.table("google_calendar_connections")
         .upsert(payload, on_conflict="user_id")
         .execute()
     )
+
+
+def _encrypt_google_token(value: Any) -> str | None:
+    try:
+        return encrypt_token(
+            str(value).strip() if value is not None else None
+        )
+    except TokenCryptoError as exc:
+        log.error(
+            "calendar oauth: token encryption failed error_type=%s",
+            type(exc).__name__,
+        )
+        raise RuntimeError(
+            "Google Calendar token encryption is unavailable"
+        ) from exc
+
+
+def _migrate_legacy_tokens(
+    *,
+    user_id: str,
+    raw_access_token: str,
+    raw_refresh_token: str,
+    access_token: str,
+    refresh_token: str,
+) -> None:
+    updates: dict[str, Any] = {}
+
+    if raw_access_token and not is_encrypted_token(raw_access_token):
+        updates["access_token"] = _encrypt_google_token(access_token)
+
+    if raw_refresh_token and not is_encrypted_token(raw_refresh_token):
+        updates["refresh_token"] = _encrypt_google_token(refresh_token)
+
+    if not updates:
+        return
+
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    try:
+        safe_execute(
+            lambda sb: sb.table("google_calendar_connections")
+            .update(updates)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception as exc:
+        log.error(
+            "calendar oauth: legacy token migration failed user=%s error_type=%s",
+            user_id[:8],
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to secure stored Google Calendar credentials",
+        ) from exc
 
 
 def _parse_dt(value: Any) -> datetime | None:
@@ -358,8 +448,36 @@ async def get_active_google_calendar_access_token(*, user_id: str) -> str:
             detail="Google Calendar is not connected",
         )
 
-    access_token = str(row.get("access_token") or "").strip()
-    refresh_token = str(row.get("refresh_token") or "").strip()
+    raw_access_token = str(row.get("access_token") or "").strip()
+    raw_refresh_token = str(row.get("refresh_token") or "").strip()
+
+    try:
+        require_token_encryption_configured()
+        access_token = str(
+            decrypt_token(raw_access_token) or ""
+        ).strip()
+        refresh_token = str(
+            decrypt_token(raw_refresh_token) or ""
+        ).strip()
+    except TokenCryptoError as exc:
+        log.error(
+            "calendar oauth: token decryption failed user=%s error_type=%s",
+            user_id[:8],
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Google Calendar credentials could not be accessed securely",
+        ) from exc
+
+    _migrate_legacy_tokens(
+        user_id=user_id,
+        raw_access_token=raw_access_token,
+        raw_refresh_token=raw_refresh_token,
+        access_token=access_token,
+        refresh_token=refresh_token,
+    )
+
     expires_at = _parse_dt(row.get("expires_at"))
 
     if access_token and expires_at and expires_at > datetime.now(timezone.utc) + timedelta(minutes=2):
@@ -420,9 +538,9 @@ async def _refresh_access_token(
 
     if response.status_code >= 400:
         log.warning(
-            "calendar oauth: token refresh failed status=%s body=%s",
+            "calendar oauth: token refresh failed status=%s error=%s",
             response.status_code,
-            response.text[:200],
+            _google_oauth_error_code(response),
         )
         raise RuntimeError("Google token refresh failed")
 
@@ -434,16 +552,28 @@ def _store_refreshed_token(*, user_id: str, token_payload: dict[str, Any]) -> No
     expires_in = int(token_payload.get("expires_in") or 3600)
     expires_at = (now + timedelta(seconds=expires_in)).isoformat()
 
+    encrypted_access_token = _encrypt_google_token(
+        token_payload.get("access_token")
+    )
+    if not encrypted_access_token:
+        raise RuntimeError("Google token refresh returned no access token")
+
+    updates: dict[str, Any] = {
+        "access_token": encrypted_access_token,
+        "token_type": token_payload.get("token_type"),
+        "expires_at": expires_at,
+        "updated_at": now.isoformat(),
+    }
+
+    refreshed_refresh_token = _encrypt_google_token(
+        token_payload.get("refresh_token")
+    )
+    if refreshed_refresh_token:
+        updates["refresh_token"] = refreshed_refresh_token
+
     safe_execute(
         lambda sb: sb.table("google_calendar_connections")
-        .update(
-            {
-                "access_token": token_payload.get("access_token"),
-                "token_type": token_payload.get("token_type"),
-                "expires_at": expires_at,
-                "updated_at": now.isoformat(),
-            }
-        )
+        .update(updates)
         .eq("user_id", user_id)
         .execute()
     )
