@@ -394,17 +394,6 @@ export function useChatStreamSender({
               dispatchAssistantModeForInstantBackground(event.assistant_mode)
             }
 
-            if (
-              event.assistant_mode === "chief_of_staff" ||
-              event.assistant_mode === "life_companion"
-            ) {
-              window.dispatchEvent(
-                new CustomEvent("assistant-companion-settings", {
-                  detail: { assistant_mode: event.assistant_mode },
-                }),
-              )
-            }
-
             if (event.calendar_snapshot_dirty) {
               calendarSnapshotDirtyRef.current = true
             }

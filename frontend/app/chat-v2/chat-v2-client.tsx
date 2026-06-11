@@ -4,20 +4,15 @@ import Link from "next/link";
 import {
   ArrowLeft,
   ArrowUp,
-  Brain,
   BriefcaseBusiness,
-  CalendarDays,
   CheckCircle2,
   CircleDot,
-  Compass,
   Expand,
   Heart,
-  Lightbulb,
   Minimize2,
-  Newspaper,
   Sparkles,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useChatStreamSender } from "@/components/chat/use-chat-stream-sender";
 import {
   getCompanionSettings,
@@ -25,11 +20,21 @@ import {
   getTodayBriefing,
   getTodaysJournal,
   listGoals,
+  listMemories,
   listMessages,
+  listPeople,
   patchCompanionSettings,
   type ChatStreamMeta,
   type Message,
 } from "@/lib/api";
+import {
+  ASSISTANT_MODE_EVENT,
+  changeAssistantMode,
+  extractAssistantMode,
+  extractAssistantName,
+} from "./mode-events";
+import type { WorkspaceContext } from "./workspace/types";
+import { WorkspacePanel } from "./workspace/workspace-panel";
 
 type AssistantMode = "life_companion" | "chief_of_staff";
 
@@ -39,39 +44,37 @@ type LocalMessage =
   | Message
   | { id: string; role: "assistant"; content: string; pending: true; created_at?: string };
 
-type WorkspaceContext = {
-  status: "loading" | "ready" | "error";
-  briefingContent?: string | null;
-  briefingOpenedAt?: string | null;
-  briefingConversationId?: string | null;
-  journaledToday?: boolean;
-  activeGoals?: Array<{ id?: string; title?: string; status?: string }>;
-  assistantName?: string | null;
-};
+function getModeCopy(mode: AssistantMode, assistantName: string | null) {
+  const name = assistantName && assistantName.trim() ? assistantName.trim() : null;
 
+  if (mode === "chief_of_staff") {
+    return {
+      eyebrow: "Calm executive cockpit",
+      title: "Chief of Staff",
+      description: `Structured, concise, and decision-oriented. ${
+        name ?? "Your assistant"
+      } helps prioritize, identify risks, and move execution forward.`,
+      input: name
+        ? `Ask ${name} to brief, prioritize, or structure next actions...`
+        : "Ask for a brief, priorities, or next actions...",
+      user: "Besok banyak agenda. Bantu aku prioritasin.",
+      assistant:
+        "Baik. Bottom line: kita pisahkan agenda menjadi keputusan, follow-up, dan deep work. Kirim daftar agendanya; aku susun prioritas, risiko, dan next action.",
+    };
+  }
 
-const modeCopy = {
-  life_companion: {
+  return {
     eyebrow: "Soft personal sanctuary",
     title: "Life Companion",
-    description:
-      "Warm, personal, and emotionally present. Aliyya helps you reflect, remember, and navigate life with continuity.",
-    input: "Cerita ke Aliyya...",
+    description: `Warm, personal, and emotionally present. ${
+      name ?? "Your assistant"
+    } helps you reflect, remember, and navigate life with continuity.`,
+    input: name ? `Cerita ke ${name}...` : "Cerita di sini...",
     user: "Aku capek hari ini, tapi pikiranku masih rame.",
     assistant:
       "Aku di sini. Kita pelan-pelan aja ya. Ceritain satu hal yang paling berat dulu, nanti aku bantu rapihin jadi langkah kecil.",
-  },
-  chief_of_staff: {
-    eyebrow: "Calm executive cockpit",
-    title: "Chief of Staff",
-    description:
-      "Structured, concise, and decision-oriented. Aliyya helps prioritize, identify risks, and move execution forward.",
-    input: "Ask Aliyya to brief, prioritize, or structure next actions...",
-    user: "Besok banyak agenda. Bantu aku prioritasin.",
-    assistant:
-      "Baik, Syahid. Bottom line: kita pisahkan agenda menjadi keputusan, follow-up, dan deep work. Kirim daftar agendanya; aku susun prioritas, risiko, dan next action.",
-  },
-};
+  };
+}
 
 export function ChatV2Client({
   conversationId,
@@ -91,6 +94,7 @@ export function ChatV2Client({
   const [workspaceContext, setWorkspaceContext] = useState<WorkspaceContext>({
     status: "loading",
   });
+  const [settingsAssistantName, setSettingsAssistantName] = useState<string | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
 
   const isChief = mode === "chief_of_staff";
@@ -100,13 +104,21 @@ export function ChatV2Client({
 
     async function hydrateWorkspaceContext() {
       try {
-        const [briefingResult, journalResult, goalsResult, identityResult] =
-          await Promise.allSettled([
-            getTodayBriefing(),
-            getTodaysJournal(),
-            listGoals("active"),
-            getIdentity(),
-          ]);
+        const [
+          briefingResult,
+          journalResult,
+          goalsResult,
+          identityResult,
+          peopleResult,
+          memoriesResult,
+        ] = await Promise.allSettled([
+          getTodayBriefing(),
+          getTodaysJournal(),
+          listGoals("all"),
+          getIdentity(),
+          listPeople(),
+          listMemories(),
+        ]);
 
         if (cancelled) return;
 
@@ -120,6 +132,20 @@ export function ChatV2Client({
             : [];
         const identity =
           identityResult.status === "fulfilled" ? identityResult.value : null;
+        const people =
+          peopleResult.status === "fulfilled" && Array.isArray(peopleResult.value)
+            ? peopleResult.value
+            : [];
+        const memories =
+          memoriesResult.status === "fulfilled" && Array.isArray(memoriesResult.value)
+            ? memoriesResult.value
+            : [];
+
+        const toWorkspaceGoal = (goal: (typeof goals)[number]) => ({
+          id: typeof goal?.id === "string" ? goal.id : undefined,
+          title: typeof goal?.title === "string" ? goal.title : undefined,
+          status: typeof goal?.status === "string" ? goal.status : undefined,
+        });
 
         setWorkspaceContext({
           status: "ready",
@@ -135,10 +161,35 @@ export function ChatV2Client({
           activeGoals: goals
             .filter((goal) => goal?.status === "active" || !goal?.status)
             .slice(0, 4)
-            .map((goal) => ({
-              id: typeof goal?.id === "string" ? goal.id : undefined,
-              title: typeof goal?.title === "string" ? goal.title : undefined,
-              status: typeof goal?.status === "string" ? goal.status : undefined,
+            .map(toWorkspaceGoal),
+          pausedGoals: goals
+            .filter((goal) => goal?.status === "paused")
+            .slice(0, 3)
+            .map(toWorkspaceGoal),
+          people: [...people]
+            .sort(
+              (a, b) =>
+                (Number(b?.importance) || 0) - (Number(a?.importance) || 0),
+            )
+            .slice(0, 4)
+            .map((person) => ({
+              id: typeof person?.id === "string" ? person.id : undefined,
+              name: typeof person?.name === "string" ? person.name : undefined,
+              relationship:
+                typeof person?.relationship === "string"
+                  ? person.relationship
+                  : null,
+            })),
+          recentMemories: [...memories]
+            .sort((a, b) =>
+              String(b?.created_at || "").localeCompare(String(a?.created_at || "")),
+            )
+            .slice(0, 3)
+            .map((memory) => ({
+              id: typeof memory?.id === "string" ? memory.id : undefined,
+              content:
+                typeof memory?.content === "string" ? memory.content : undefined,
+              kind: typeof memory?.kind === "string" ? memory.kind : undefined,
             })),
           assistantName:
             typeof identity?.profile?.assistant_name === "string"
@@ -164,6 +215,7 @@ export function ChatV2Client({
 
     async function hydrateWorkspaceState() {
       let nextMode: AssistantMode = "life_companion";
+      let nextName: string | null = null;
 
       try {
         const settings = await getCompanionSettings();
@@ -171,6 +223,10 @@ export function ChatV2Client({
           settings.assistant_mode === "chief_of_staff"
             ? "chief_of_staff"
             : "life_companion";
+        nextName =
+          typeof settings.assistant_name === "string" && settings.assistant_name.trim()
+            ? settings.assistant_name.trim()
+            : null;
       } catch {
         try {
           const savedMode = window.localStorage.getItem("aliyya.chatV2.mode");
@@ -183,6 +239,7 @@ export function ChatV2Client({
       if (cancelled) return;
 
       setModeState(nextMode);
+      if (nextName) setSettingsAssistantName(nextName);
 
       try {
         window.localStorage.setItem("aliyya.chatV2.mode", nextMode);
@@ -204,48 +261,50 @@ export function ChatV2Client({
 
   useEffect(() => {
     function onAssistantModeEvent(event: Event) {
-      const detail = (event as CustomEvent<{ assistant_mode?: unknown; preferences?: { assistant_mode?: unknown } }>).detail;
-      const eventMode = detail?.assistant_mode ?? detail?.preferences?.assistant_mode;
+      const detail = (event as CustomEvent<unknown>).detail;
+      const eventMode = extractAssistantMode(detail);
+      const eventName = extractAssistantName(detail);
 
-      if (eventMode === "chief_of_staff" || eventMode === "life_companion") {
+      // Apply only — never broadcast from inside this listener. Dispatching
+      // the event we are currently handling would synchronously recurse into
+      // this listener until the call stack overflows.
+      if (eventMode) {
         applyModeLocally(eventMode);
+      }
+      if (eventName) {
+        setSettingsAssistantName(eventName);
       }
     }
 
-    window.addEventListener("assistant-companion-settings", onAssistantModeEvent);
+    window.addEventListener(ASSISTANT_MODE_EVENT, onAssistantModeEvent);
 
     return () => {
-      window.removeEventListener("assistant-companion-settings", onAssistantModeEvent);
+      window.removeEventListener(ASSISTANT_MODE_EVENT, onAssistantModeEvent);
     };
   }, []);
 
+  // Updates this surface only: React state + localStorage. Chat V2 never
+  // dispatches the global event itself — the persistence layer (lib/api.ts on
+  // successful settings save) and the stream sender are the app's
+  // broadcasters, and this surface's listener applies whatever they announce.
   function applyModeLocally(nextMode: AssistantMode) {
     setModeState(nextMode);
 
     try {
       window.localStorage.setItem("aliyya.chatV2.mode", nextMode);
     } catch {}
-
-    window.dispatchEvent(
-      new CustomEvent("assistant-companion-settings", {
-        detail: { assistant_mode: nextMode },
-      }),
-    );
   }
 
   function setMode(nextMode: AssistantMode) {
-    applyModeLocally(nextMode);
-
-    void patchCompanionSettings({ assistant_mode: nextMode }).catch(() => {
-      void getCompanionSettings()
-        .then((settings) => {
-          applyModeLocally(
-            settings.assistant_mode === "chief_of_staff"
-              ? "chief_of_staff"
-              : "life_companion",
-          );
-        })
-        .catch(() => {});
+    void changeAssistantMode(nextMode, {
+      applyLocally: applyModeLocally,
+      persist: (mode) => patchCompanionSettings({ assistant_mode: mode }),
+      fetchServerMode: async () => {
+        const settings = await getCompanionSettings();
+        return settings.assistant_mode === "chief_of_staff"
+          ? "chief_of_staff"
+          : "life_companion";
+      },
     });
   }
 
@@ -295,6 +354,8 @@ export function ChatV2Client({
       return;
     }
 
+    // Apply only. The stream sender (useChatStreamSender) already broadcasts
+    // mode commands globally; re-broadcasting here duplicated the event.
     applyModeLocally(assistantMode);
   }, [streamMeta?.assistant_mode]);
 
@@ -339,15 +400,25 @@ export function ChatV2Client({
   }, [activeConversationId, sending]);
 
   const isExpanded = layout === "expanded";
-  const copy = modeCopy[mode];
-
-  const leftPanel = useMemo(() => {
-    return isChief ? (
-      <ChiefDeskPanel context={workspaceContext} />
-    ) : (
-      <CompanionDeskPanel context={workspaceContext} />
-    );
-  }, [isChief, workspaceContext]);
+  // Name precedence mirrors the app's architecture: stream meta is the
+  // freshest server-pushed value (in-chat renames), companion settings is the
+  // authoritative store, identity remains a legacy fallback.
+  const streamAssistantName =
+    typeof streamMeta?.assistant_name === "string" && streamMeta.assistant_name.trim()
+      ? streamMeta.assistant_name.trim()
+      : null;
+  const identityAssistantName =
+    typeof workspaceContext.assistantName === "string" &&
+    workspaceContext.assistantName.trim()
+      ? workspaceContext.assistantName.trim()
+      : null;
+  const assistantName =
+    streamAssistantName ?? settingsAssistantName ?? identityAssistantName;
+  const workspaceContextWithName: WorkspaceContext = {
+    ...workspaceContext,
+    assistantName,
+  };
+  const copy = getModeCopy(mode, assistantName);
 
   return (
     <main
@@ -392,8 +463,8 @@ export function ChatV2Client({
           ].join(" ")}
         >
           {!isExpanded ? (
-            <aside className="min-h-0">
-              <div className="mb-5">
+            <aside className="flex min-h-0 flex-col xl:h-[calc(100dvh-8.75rem)]">
+              <div className="mb-5 shrink-0">
                 <ModePill mode={mode} />
                 <h1 className="mt-5 max-w-2xl text-5xl font-semibold tracking-[-0.06em] sm:text-6xl lg:text-7xl">
                   {copy.title}
@@ -408,9 +479,13 @@ export function ChatV2Client({
                 </p>
               </div>
 
-              <ModeToggle mode={mode} setMode={setMode} />
+              <div className="shrink-0">
+                <ModeToggle mode={mode} setMode={setMode} />
+              </div>
 
-              <div className="mt-5">{leftPanel}</div>
+              <div className="mt-5 min-h-0 flex-1 xl:overflow-y-auto xl:overscroll-contain xl:pb-2 xl:pr-1 xl:[scrollbar-width:thin]">
+                <WorkspacePanel mode={mode} context={workspaceContextWithName} />
+              </div>
             </aside>
           ) : null}
 
@@ -464,6 +539,7 @@ export function ChatV2Client({
 
             <ChatFrame
               mode={mode}
+              assistantName={assistantName}
               isExpanded={isExpanded}
               messages={messages}
               conversationTitle={conversationTitle}
@@ -576,165 +652,9 @@ function ModeToggle({
   );
 }
 
-function truncateText(value: string | null | undefined, maxLength = 140): string | null {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
-  if (!text) return null;
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, maxLength - 1).trim()}…`;
-}
-
-function goalTitles(context: WorkspaceContext): string[] {
-  return (context.activeGoals || [])
-    .map((goal) => String(goal.title || "").trim())
-    .filter(Boolean)
-    .slice(0, 3);
-}
-
-function CompanionDeskPanel({ context }: { context: WorkspaceContext }) {
-  const goals = goalTitles(context);
-  const briefingSnippet = truncateText(context.briefingContent, 150);
-  const assistantName = context.assistantName || "Aliyya";
-
-  return (
-    <div className="grid gap-3">
-      <PanelCard tone="life" icon={<Heart className="h-4 w-4" />} title="Gentle check-in">
-        {context.status === "loading" ? (
-          <p>Preparing your personal context…</p>
-        ) : context.journaledToday ? (
-          <p>You have already opened today’s reflection. This space can continue from that thread gently.</p>
-        ) : (
-          <p>No journal entry yet today. This can become a calm place to close the loop or process what is on your mind.</p>
-        )}
-      </PanelCard>
-
-      <PanelCard tone="life" icon={<Lightbulb className="h-4 w-4" />} title="Personal ideas">
-        {goals.length > 0 ? (
-          <ul>
-            {goals.map((goal) => (
-              <li key={goal}>{goal}</li>
-            ))}
-          </ul>
-        ) : (
-          <p>Ideas, personal plans, and things to revisit will sit here without crowding the main chat.</p>
-        )}
-      </PanelCard>
-
-      <PanelCard tone="life" icon={<Brain className="h-4 w-4" />} title="Continuity signal">
-        <p>
-          {assistantName} can keep the conversation grounded in your journal, goals, family context, and recent threads while keeping the chat area quiet.
-        </p>
-      </PanelCard>
-
-      <PanelCard tone="life" icon={<Compass className="h-4 w-4" />} title="Soft briefing">
-        {briefingSnippet ? (
-          <p>{briefingSnippet}</p>
-        ) : (
-          <p>Later this can become a personal digest: family, ideas, health rhythm, or any topic you ask the assistant to track.</p>
-        )}
-      </PanelCard>
-    </div>
-  );
-}
-
-function ChiefDeskPanel({ context }: { context: WorkspaceContext }) {
-  const goals = goalTitles(context);
-  const briefingSnippet = truncateText(context.briefingContent, 150);
-  const briefingReady = Boolean(context.briefingContent);
-  const briefingOpened = Boolean(context.briefingOpenedAt || context.briefingConversationId);
-
-  return (
-    <div className="grid gap-3">
-      <PanelCard tone="chief" icon={<CalendarDays className="h-4 w-4" />} title="Today brief">
-        {context.status === "loading" ? (
-          <p>Loading today’s operating context…</p>
-        ) : briefingReady ? (
-          <ul>
-            <li>{briefingOpened ? "Briefing thread already opened" : "Briefing ready for review"}</li>
-            <li>{goals.length} active goal{goals.length === 1 ? "" : "s"} visible</li>
-            <li>{context.journaledToday ? "Journal signal available" : "No journal signal today"}</li>
-          </ul>
-        ) : (
-          <ul>
-            <li>No briefing content yet</li>
-            <li>{goals.length} active goal{goals.length === 1 ? "" : "s"} visible</li>
-            <li>Use chat to turn context into priorities</li>
-          </ul>
-        )}
-      </PanelCard>
-
-      <PanelCard tone="chief" icon={<CheckCircle2 className="h-4 w-4" />} title="Priority queue">
-        {goals.length > 0 ? (
-          <ul>
-            {goals.map((goal) => (
-              <li key={goal}>{goal}</li>
-            ))}
-          </ul>
-        ) : (
-          <p>No active goal is surfaced yet. This section will become your execution queue.</p>
-        )}
-      </PanelCard>
-
-      <PanelCard tone="chief" icon={<Newspaper className="h-4 w-4" />} title="Briefing topics">
-        {briefingSnippet ? (
-          <p>{briefingSnippet}</p>
-        ) : (
-          <p>Economy, banking, AI, tech, market news, or any custom topic you ask the assistant to track.</p>
-        )}
-      </PanelCard>
-
-      <PanelCard tone="chief" icon={<CircleDot className="h-4 w-4" />} title="Risks & blockers">
-        <p>
-          Keep visual experiments isolated in Chat V2 until the workspace is proven stable enough to replace the main chat.
-        </p>
-      </PanelCard>
-    </div>
-  );
-}
-
-function PanelCard({
-  tone,
-  icon,
-  title,
-  children,
-}: {
-  tone: "life" | "chief";
-  icon: React.ReactNode;
-  title: string;
-  children: React.ReactNode;
-}) {
-  const isChief = tone === "chief";
-
-  return (
-    <div
-      className={[
-        "rounded-3xl border p-4 shadow-sm backdrop-blur",
-        isChief
-          ? "border-white/10 bg-white/[0.045] text-slate-300"
-          : "border-white/70 bg-white/52 text-stone-600",
-      ].join(" ")}
-    >
-      <div className="mb-3 flex items-center gap-2">
-        <span
-          className={[
-            "grid h-8 w-8 place-items-center rounded-full",
-            isChief ? "bg-teal-200/[0.08] text-teal-100" : "bg-white/70 text-stone-500",
-          ].join(" ")}
-        >
-          {icon}
-        </span>
-        <h2 className={isChief ? "font-semibold text-white" : "font-semibold text-stone-950"}>
-          {title}
-        </h2>
-      </div>
-      <div className="text-sm leading-6 [&_ul]:space-y-1 [&_li]:list-inside [&_li]:list-disc">
-        {children}
-      </div>
-    </div>
-  );
-}
-
 function ChatFrame({
   mode,
+  assistantName,
   isExpanded,
   messages,
   conversationTitle,
@@ -746,6 +666,7 @@ function ChatFrame({
   messagesScrollRef,
 }: {
   mode: AssistantMode;
+  assistantName: string | null;
   isExpanded: boolean;
   messages: LocalMessage[];
   conversationTitle?: string | null;
@@ -757,7 +678,7 @@ function ChatFrame({
   messagesScrollRef: { current: HTMLDivElement | null };
 }) {
   const isChief = mode === "chief_of_staff";
-  const copy = modeCopy[mode];
+  const copy = getModeCopy(mode, assistantName);
 
   return (
     <div
