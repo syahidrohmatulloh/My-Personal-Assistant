@@ -21,6 +21,7 @@ from app.services.claude import get_claude
 from app.services.embeddings import embed_document
 from app.services.supabase_client import safe_execute
 from app.services import calendar_intent
+from app.services import calendar_pending_actions
 from app.services.google_calendar_payload import build_google_event_body
 from app.routers.calendar_oauth import (
     get_active_google_calendar_access_token,
@@ -367,6 +368,15 @@ async def apply_chat_calendar_draft_action(
     if not is_calendar_draft_action_request(user_message):
         return {"attempted": False, "updated": False, "deleted": False, "reason": "not_calendar_action"}
 
+    if calendar_pending_actions.is_recurring_scope_only_reply(
+        user_message
+    ):
+        return await _resume_pending_recurring_action(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            user_message=user_message,
+        )
+
     records, google_read_failed = await _load_calendar_action_records(
         user_id=user_id,
         client_context=client_context,
@@ -415,8 +425,9 @@ async def apply_chat_calendar_draft_action(
         }
 
     if target.get("_record_source") == "google":
-        return await _apply_direct_google_calendar_action(
+        return await _apply_direct_google_action_with_pending_scope(
             user_id=user_id,
+            conversation_id=conversation_id,
             target=target,
             action=action,
         )
@@ -480,6 +491,170 @@ async def apply_chat_calendar_draft_action(
 
     return {"attempted": True, "updated": False, "deleted": False, "reason": "unsupported_action"}
 
+
+
+async def _apply_direct_google_action_with_pending_scope(
+    *,
+    user_id: str,
+    conversation_id: str,
+    target: dict[str, Any],
+    action: dict[str, Any],
+) -> dict[str, Any]:
+    result = await _apply_direct_google_calendar_action(
+        user_id=user_id,
+        target=target,
+        action=action,
+    )
+
+    if result.get("reason") != "recurring_scope_required":
+        return result
+
+    try:
+        pending = (
+            calendar_pending_actions
+            .create_pending_recurring_action(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                target=target,
+                action=action,
+            )
+        )
+    except Exception as exc:
+        log.warning(
+            "calendar_draft_actions: pending recurring action "
+            "store failed error_type=%s",
+            type(exc).__name__,
+        )
+        return {
+            **result,
+            "pending_action_saved": False,
+        }
+
+    return {
+        **result,
+        "pending_action_saved": True,
+        "pending_action_id": pending.get("id"),
+        "pending_action_expires_at": pending.get("expires_at"),
+    }
+
+
+async def _resume_pending_recurring_action(
+    *,
+    user_id: str,
+    conversation_id: str,
+    user_message: str,
+) -> dict[str, Any]:
+    recurring_scope = (
+        calendar_pending_actions.parse_recurring_scope(
+            user_message
+        )
+    )
+
+    if not recurring_scope:
+        return {
+            "attempted": True,
+            "success": False,
+            "updated": False,
+            "deleted": False,
+            "action": "unknown",
+            "source": "google",
+            "reason": "invalid_recurring_scope_reply",
+        }
+
+    try:
+        pending = (
+            calendar_pending_actions
+            .load_pending_recurring_action(
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
+        )
+    except Exception as exc:
+        log.warning(
+            "calendar_draft_actions: pending recurring action "
+            "load failed error_type=%s",
+            type(exc).__name__,
+        )
+        return {
+            "attempted": True,
+            "success": False,
+            "updated": False,
+            "deleted": False,
+            "action": "unknown",
+            "source": "google",
+            "reason": "pending_recurring_action_load_failed",
+        }
+
+    if not pending:
+        return {
+            "attempted": True,
+            "success": False,
+            "updated": False,
+            "deleted": False,
+            "action": "unknown",
+            "source": "google",
+            "reason": "no_pending_recurring_action",
+            "recurring_scope": recurring_scope,
+        }
+
+    target = pending.get("target_snapshot")
+    action = pending.get("requested_action")
+
+    if not isinstance(target, dict) or not isinstance(
+        action,
+        dict,
+    ):
+        return {
+            "attempted": True,
+            "success": False,
+            "updated": False,
+            "deleted": False,
+            "action": str(
+                pending.get("action_type") or "unknown"
+            ),
+            "source": "google",
+            "reason": "invalid_pending_recurring_action",
+            "pending_action_id": pending.get("id"),
+        }
+
+    resumed_action = {
+        **action,
+        "action": str(
+            action.get("action")
+            or pending.get("action_type")
+            or ""
+        ),
+        "recurring_scope": recurring_scope,
+    }
+
+    result = await _apply_direct_google_calendar_action(
+        user_id=user_id,
+        target=target,
+        action=resumed_action,
+    )
+
+    result = {
+        **result,
+        "pending_action_id": pending.get("id"),
+    }
+
+    if calendar_action_succeeded(result):
+        try:
+            calendar_pending_actions                .mark_pending_recurring_action_completed(
+                    pending_action_id=str(pending["id"]),
+                    user_id=user_id,
+                )
+        except Exception as exc:
+            log.warning(
+                "calendar_draft_actions: pending recurring action "
+                "completion failed error_type=%s",
+                type(exc).__name__,
+            )
+            result["pending_completion_saved"] = False
+        else:
+            result["pending_completion_saved"] = True
+
+    return result
 
 
 async def _apply_direct_google_calendar_action(
@@ -813,20 +988,46 @@ def render_calendar_action_result_context(
             lines.append(f"- {key}: {value}")
 
     if reason == "recurring_scope_required":
+        pending_saved = bool(result.get("pending_action_saved"))
+
         lines.extend(
             [
                 "- This is a recurring Google Calendar event.",
                 "- No update or deletion was performed.",
                 "- Ask the user to choose: this occurrence only, this and following, or the entire series.",
-                "- A short reply such as 'hari ini saja' means this_instance.",
             ]
         )
+
+        if pending_saved:
+            lines.append(
+                "- The pending request was saved. A short reply such as 'hari ini saja' can continue it safely."
+            )
+        else:
+            lines.append(
+                "- The pending request could not be saved. Ask the user to repeat the full request together with the desired scope."
+            )
     elif reason == "recurring_scope_not_supported_yet":
         lines.extend(
             [
                 "- No update or deletion was performed.",
                 "- Only changing or deleting this occurrence is currently supported safely.",
                 "- Ask the user whether to apply it to this occurrence only.",
+            ]
+        )
+    elif reason == "no_pending_recurring_action":
+        lines.extend(
+            [
+                "- No Calendar action was performed.",
+                "- The previous recurring request is missing or expired.",
+                "- Ask the user to repeat the full update or delete request and include the desired recurring scope.",
+            ]
+        )
+    elif reason == "pending_recurring_action_load_failed":
+        lines.extend(
+            [
+                "- No Calendar action was performed.",
+                "- The saved recurring request could not be loaded.",
+                "- Ask the user to repeat the full request.",
             ]
         )
     elif success:
