@@ -321,3 +321,136 @@ def test_action_loader_prefers_direct_google_over_exact_local_duplicate(
     assert records[0]["_record_source"] == "google"
     assert records[0]["id"] == "google:google-event-1"
 
+def _recurring_direct_record():
+    return {
+        **_direct_record(),
+        "id": "google:instance-1",
+        "google_calendar_event_id": "instance-1",
+        "google_recurring_event_id": "series-1",
+        "google_original_start_at": (
+            "2026-06-12T15:30:00+07:00"
+        ),
+        "calendar_event_is_recurring": True,
+    }
+
+
+def test_scope_only_reply_enters_calendar_action_flow():
+    assert calendar_draft_actions.is_calendar_draft_action_request(
+        "hari ini saja"
+    )
+    assert calendar_draft_actions.is_calendar_draft_action_request(
+        "seluruh rangkaian"
+    )
+
+
+def test_recurring_direct_update_without_scope_is_blocked(
+    monkeypatch,
+):
+    token_called = False
+
+    async def fake_token(**kwargs):
+        nonlocal token_called
+        token_called = True
+        return "access-token"
+
+    monkeypatch.setattr(
+        calendar_draft_actions,
+        "get_active_google_calendar_access_token",
+        fake_token,
+    )
+
+    result = asyncio.run(
+        calendar_draft_actions._apply_direct_google_calendar_action(
+            user_id="user-1",
+            target=_recurring_direct_record(),
+            action={
+                "action": "update",
+                "start_at": "2026-06-12T16:00:00+07:00",
+                "end_at": "2026-06-12T16:30:00+07:00",
+            },
+        )
+    )
+
+    assert result["success"] is False
+    assert result["reason"] == "recurring_scope_required"
+    assert token_called is False
+
+
+def test_recurring_direct_update_this_instance_is_allowed(
+    monkeypatch,
+):
+    async def fake_token(**kwargs):
+        return "access-token"
+
+    captured = {}
+
+    async def fake_patch(**kwargs):
+        captured.update(kwargs)
+        return {
+            "id": "instance-1",
+            "summary": "Learning reminder",
+        }
+
+    monkeypatch.setattr(
+        calendar_draft_actions,
+        "get_active_google_calendar_access_token",
+        fake_token,
+    )
+    monkeypatch.setattr(
+        calendar_draft_actions,
+        "_patch_direct_google_calendar_event",
+        fake_patch,
+    )
+
+    result = asyncio.run(
+        calendar_draft_actions._apply_direct_google_calendar_action(
+            user_id="user-1",
+            target=_recurring_direct_record(),
+            action={
+                "action": "update",
+                "start_at": "2026-06-12T16:00:00+07:00",
+                "end_at": "2026-06-12T16:30:00+07:00",
+                "recurring_scope": "this_instance",
+            },
+        )
+    )
+
+    assert result["success"] is True
+    assert result["recurring_scope"] == "this_instance"
+    assert captured["google_event_id"] == "instance-1"
+
+
+def test_recurring_entire_series_is_not_mutated_yet(
+    monkeypatch,
+):
+    token_called = False
+
+    async def fake_token(**kwargs):
+        nonlocal token_called
+        token_called = True
+        return "access-token"
+
+    monkeypatch.setattr(
+        calendar_draft_actions,
+        "get_active_google_calendar_access_token",
+        fake_token,
+    )
+
+    result = asyncio.run(
+        calendar_draft_actions._apply_direct_google_calendar_action(
+            user_id="user-1",
+            target=_recurring_direct_record(),
+            action={
+                "action": "delete",
+                "recurring_scope": "entire_series",
+            },
+        )
+    )
+
+    assert result["success"] is False
+    assert (
+        result["reason"]
+        == "recurring_scope_not_supported_yet"
+    )
+    assert token_called is False
+

@@ -940,6 +940,20 @@ def _normalize_google_calendar_event(
     html_link = str(item.get("htmlLink") or "").strip() or None
     event_status = str(item.get("status") or "").strip() or "confirmed"
 
+    recurring_event_id = str(
+        item.get("recurringEventId") or ""
+    ).strip() or None
+
+    original_start = item.get("originalStartTime")
+    if not isinstance(original_start, dict):
+        original_start = {}
+
+    original_start_at = str(
+        original_start.get("dateTime")
+        or original_start.get("date")
+        or ""
+    ).strip() or None
+
     return {
         "id": event_id,
         "title": title[:250],
@@ -951,6 +965,9 @@ def _normalize_google_calendar_event(
         "html_link": html_link,
         "status": event_status,
         "source": "google",
+        "is_recurring": bool(recurring_event_id),
+        "recurring_event_id": recurring_event_id,
+        "original_start_at": original_start_at,
     }
 
 

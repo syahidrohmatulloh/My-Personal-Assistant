@@ -52,6 +52,9 @@ def test_normalize_timed_google_event_returns_only_sanitized_fields():
         "html_link": "https://calendar.google.com/event?eid=1",
         "status": "confirmed",
         "source": "google",
+        "is_recurring": False,
+        "recurring_event_id": None,
+        "original_start_at": None,
     }
     assert "description" not in event
     assert "attendees" not in event
@@ -206,3 +209,32 @@ def test_invalid_iana_timezone_is_rejected():
         )
 
     assert exc_info.value.status_code == 400
+
+def test_normalize_recurring_google_instance_preserves_series_metadata():
+    event = calendar_oauth._normalize_google_calendar_event(
+        {
+            "id": "instance-1",
+            "recurringEventId": "series-1",
+            "summary": "Learning reminder",
+            "status": "confirmed",
+            "start": {
+                "dateTime": "2026-06-12T12:00:00+07:00"
+            },
+            "end": {
+                "dateTime": "2026-06-12T12:30:00+07:00"
+            },
+            "originalStartTime": {
+                "dateTime": "2026-06-12T12:00:00+07:00"
+            },
+        },
+        time_zone="Asia/Jakarta",
+    )
+
+    assert event is not None
+    assert event["is_recurring"] is True
+    assert event["recurring_event_id"] == "series-1"
+    assert (
+        event["original_start_at"]
+        == "2026-06-12T12:00:00+07:00"
+    )
+

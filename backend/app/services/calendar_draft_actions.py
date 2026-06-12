@@ -79,6 +79,22 @@ _DELETE_TERMS = (
     "arsipkan",
 )
 
+_RECURRING_SCOPE_TERMS = (
+    "yang ini saja",
+    "hari ini saja",
+    "kejadian ini saja",
+    "jadwal ini saja",
+    "ini dan seterusnya",
+    "mulai ini ke depan",
+    "semua jadwal",
+    "semua rangkaian",
+    "seluruh rangkaian",
+    "entire series",
+    "this instance",
+    "this and following",
+)
+
+
 _CALENDAR_TERMS = (
     "calendar",
     "kalender",
@@ -119,6 +135,7 @@ Schema:
   "end_at": "YYYY-MM-DDTHH:MM:SS+07:00"|null,
   "all_day": true/false|null,
   "location": string|null,
+  "recurring_scope": "this_instance"|"this_and_following"|"entire_series"|null,
   "confidence": number,
   "reason": string
 }
@@ -134,6 +151,11 @@ Rules:
 - Preserve any field not changed by the user by returning null for that field. If the user asks for a more detailed event title/description, improve title/location using recent context and the target record.
 - If changing start_at but end_at is not specified, infer a 1-hour duration unless the original record has a duration.
 - Use browser local time context and recent chat context for relative times like "jam 3", "besok", "nanti", "yang tadi".
+- For recurring events, set recurring_scope only when the user states it explicitly or is clearly replying to a recurring-scope question.
+- "yang ini saja", "hari ini saja", or "kejadian ini saja" means this_instance.
+- "ini dan seterusnya", "mulai ini ke depan", or equivalent means this_and_following.
+- "semua", "seluruh rangkaian", or equivalent means entire_series.
+- Never guess a recurring scope from an ordinary update/delete request.
 - The caller executes the selected action. Return the intended action and exact target only; do not invent success.
 """
 
@@ -146,8 +168,21 @@ def is_calendar_draft_action_request(text: str | None) -> bool:
     has_update = any(term in normalized for term in _UPDATE_TERMS)
     has_delete = any(term in normalized for term in _DELETE_TERMS)
     has_soft_update = any(term in normalized for term in _SOFT_UPDATE_TERMS)
-    if not (has_update or has_delete or has_soft_update):
+    has_recurring_scope = any(
+        term in normalized
+        for term in _RECURRING_SCOPE_TERMS
+    )
+
+    if not (
+        has_update
+        or has_delete
+        or has_soft_update
+        or has_recurring_scope
+    ):
         return False
+
+    if has_recurring_scope:
+        return True
 
     has_calendar = any(term in normalized for term in _CALENDAR_TERMS)
     has_target_hint = any(term in normalized for term in _TARGET_HINTS)
@@ -471,6 +506,57 @@ async def _apply_direct_google_calendar_action(
             "reason": "direct_google_missing_event_id",
         }
 
+    is_recurring = bool(
+        target.get("calendar_event_is_recurring")
+        or target.get("google_recurring_event_id")
+    )
+    recurring_scope = str(
+        action.get("recurring_scope") or ""
+    ).strip() or None
+
+    if is_recurring and not recurring_scope:
+        return {
+            "attempted": True,
+            "success": False,
+            "updated": False,
+            "deleted": False,
+            "action": action.get("action"),
+            "source": "google",
+            "target_id": target.get("id"),
+            "google_event_id": google_event_id,
+            "title": _title_from_target(target),
+            "reason": "recurring_scope_required",
+            "recurring": True,
+            "recurring_scope": None,
+            "allowed_recurring_scopes": [
+                "this_instance",
+                "this_and_following",
+                "entire_series",
+            ],
+        }
+
+    if (
+        is_recurring
+        and recurring_scope != "this_instance"
+    ):
+        return {
+            "attempted": True,
+            "success": False,
+            "updated": False,
+            "deleted": False,
+            "action": action.get("action"),
+            "source": "google",
+            "target_id": target.get("id"),
+            "google_event_id": google_event_id,
+            "title": _title_from_target(target),
+            "reason": "recurring_scope_not_supported_yet",
+            "recurring": True,
+            "recurring_scope": recurring_scope,
+            "allowed_recurring_scopes": [
+                "this_instance",
+            ],
+        }
+
     try:
         access_token = await get_active_google_calendar_access_token(
             user_id=user_id
@@ -524,6 +610,7 @@ async def _apply_direct_google_calendar_action(
             "google_event_id": google_event_id,
             "title": _title_from_target(target),
             "reason": None,
+            "recurring_scope": recurring_scope,
         }
 
     if action["action"] == "update":
@@ -588,6 +675,7 @@ async def _apply_direct_google_calendar_action(
                 or target.get("google_calendar_event_link")
             ),
             "reason": None,
+            "recurring_scope": recurring_scope,
         }
 
     return {
@@ -724,7 +812,24 @@ def render_calendar_action_result_context(
         if value:
             lines.append(f"- {key}: {value}")
 
-    if success:
+    if reason == "recurring_scope_required":
+        lines.extend(
+            [
+                "- This is a recurring Google Calendar event.",
+                "- No update or deletion was performed.",
+                "- Ask the user to choose: this occurrence only, this and following, or the entire series.",
+                "- A short reply such as 'hari ini saja' means this_instance.",
+            ]
+        )
+    elif reason == "recurring_scope_not_supported_yet":
+        lines.extend(
+            [
+                "- No update or deletion was performed.",
+                "- Only changing or deleting this occurrence is currently supported safely.",
+                "- Ask the user whether to apply it to this occurrence only.",
+            ]
+        )
+    elif success:
         lines.extend(
             [
                 "- The Calendar action has completed successfully.",
@@ -1224,6 +1329,16 @@ def _direct_google_event_to_action_record(
         "google_calendar_event_id": google_event_id,
         "google_calendar_event_link": event.get("html_link"),
         "google_calendar_id": "primary",
+        "google_recurring_event_id": event.get(
+            "recurring_event_id"
+        ),
+        "google_original_start_at": event.get(
+            "original_start_at"
+        ),
+        "calendar_event_is_recurring": bool(
+            event.get("is_recurring")
+            or event.get("recurring_event_id")
+        ),
         "archived": False,
         "superseded": False,
     }
@@ -1304,6 +1419,17 @@ def _normalise_action(raw: dict[str, Any] | None, records: list[dict[str, Any]])
     location = _clean_optional_text(raw.get("location"))
     if location:
         action["location"] = location[:180]
+
+    recurring_scope = str(
+        raw.get("recurring_scope") or ""
+    ).strip()
+
+    if recurring_scope in {
+        "this_instance",
+        "this_and_following",
+        "entire_series",
+    }:
+        action["recurring_scope"] = recurring_scope
 
     return action
 
@@ -1392,6 +1518,16 @@ def _compact_record(row: dict[str, Any]) -> dict[str, Any]:
             else "local"
         ),
         "google_event_id": row.get("google_calendar_event_id"),
+        "is_recurring": bool(
+            row.get("calendar_event_is_recurring")
+            or row.get("google_recurring_event_id")
+        ),
+        "recurring_event_id": row.get(
+            "google_recurring_event_id"
+        ),
+        "original_start_at": row.get(
+            "google_original_start_at"
+        ),
         "is_synced_google": _is_synced_google(row),
         "updated_at": row.get("updated_at"),
     }
