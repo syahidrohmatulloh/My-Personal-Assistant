@@ -212,13 +212,37 @@ function handoffCalendarWarningToChat(event: CalendarEvent, warning: string, pre
 }
 
 
-function StatusDot({ status }: { status: CalendarEvent["status"] }) {
-  const className =
-    (status === "synced_google" || status === "google")
-      ? "bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]"
-      : "bg-indigo-500 shadow-[0_0_0_4px_rgba(99,102,241,0.12)]"
+function calendarSourceLabel(
+  source: CalendarEvent["source"],
+): "Local" | "Synced" | "Google" {
+  if (source === "google") {
+    return "Google"
+  }
 
-  return <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${className}`} />
+  if (source === "synced") {
+    return "Synced"
+  }
+
+  return "Local"
+}
+
+function SourceDot({
+  source,
+}: {
+  source: CalendarEvent["source"]
+}) {
+  const className =
+    source === "google"
+      ? "bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]"
+      : source === "synced"
+        ? "bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.12)]"
+        : "bg-indigo-500 shadow-[0_0_0_4px_rgba(99,102,241,0.12)]"
+
+  return (
+    <span
+      className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${className}`}
+    />
+  )
 }
 
 export default function CalendarPage() {
@@ -424,7 +448,7 @@ export default function CalendarPage() {
                           className="group relative rounded-r-2xl border-b border-border/60 px-2 py-3 transition hover:bg-fg/[0.025]"
                         >
                           <span className="absolute -left-[22px] top-5 sm:-left-[26px]">
-                            <StatusDot status={event.status} />
+                            <SourceDot source={event.source} />
                           </span>
 
                           <div className="flex items-start gap-4 sm:gap-3">
@@ -443,7 +467,7 @@ export default function CalendarPage() {
                                       {event.title}
                                     </h4>
                                     <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-fg-muted/75">
-                                      {event.status === "synced_google" ? "Google" : "Local"}
+                                      {calendarSourceLabel(event.source)}
                                     </span>
                                   </div>
 
@@ -477,7 +501,7 @@ export default function CalendarPage() {
                                   ) : null}
                                 </div>
 
-                                {event.googleLink ? (
+                                {event.source !== "local" && event.googleLink ? (
                                   <a
                                     href={event.googleLink}
                                     target="_blank"
@@ -489,7 +513,7 @@ export default function CalendarPage() {
                                 ) : null}
                               </div>
 
-                              {event.googleLink ? (
+                              {event.source !== "local" && event.googleLink ? (
                                 <a
                                   href={event.googleLink}
                                   target="_blank"
