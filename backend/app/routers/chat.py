@@ -1383,7 +1383,9 @@ async def _stream_claude_response(
         )
 
     # Calendar draft actions from chat — can update/delete local drafts and synced Google events.
-    should_apply_calendar_draft_action = is_calendar_draft_action_turn
+    should_apply_calendar_draft_action = calendar_draft_actions.is_calendar_draft_action_request(
+        user_message
+    )
     if should_apply_calendar_draft_action:
         add_safe_background_task(background_tasks, 
             calendar_draft_actions.apply_chat_calendar_draft_action,

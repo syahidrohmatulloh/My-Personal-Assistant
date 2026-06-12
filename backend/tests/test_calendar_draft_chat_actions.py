@@ -96,3 +96,14 @@ def test_chat_has_user_facing_calendar_action_guidance():
     assert "Do not say 'sudah aku update'" in CHAT
     assert "Aku proses update-nya di Calendar ya" in CHAT
     assert "Aku proses penghapusannya ya" in CHAT
+
+def test_stream_recomputes_calendar_action_detector_in_its_own_scope():
+    assert (
+        "should_apply_calendar_draft_action = "
+        "calendar_draft_actions.is_calendar_draft_action_request(" in CHAT
+    )
+    assert (
+        "should_apply_calendar_draft_action = is_calendar_draft_action_turn"
+        not in CHAT
+    )
+
