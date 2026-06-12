@@ -77,3 +77,23 @@ def test_action_turn_skips_pending_confirmation_router():
         "calendar_confirmation_actions.apply_calendar_confirmation_decision"
         in CHAT
     )
+
+
+def test_calendar_action_reply_cannot_infer_other_schedule_context():
+    assert (
+        "use only facts explicitly present in the authoritative result"
+        in CHAT
+    )
+    assert (
+        "Do not use chronology, memories, workspace cards"
+        in CHAT
+    )
+    assert (
+        "Do not mention another meeting or reminder"
+        in CHAT
+    )
+    assert (
+        "do not add conversational embellishment"
+        in CHAT
+    )
+

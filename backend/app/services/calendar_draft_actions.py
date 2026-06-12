@@ -970,6 +970,11 @@ def render_calendar_action_result_context(
 
     lines = [
         "Calendar action result — authoritative:",
+        "- Grounded receipt rule: use only the Calendar action facts listed in this result.",
+        "- Do not use conversation history, chronology, memories, or other Calendar items to add schedule commentary.",
+        "- Do not mention or infer another meeting, agenda, reminder, free period, sequence, overlap, travel time, or schedule compatibility.",
+        "- Do not say 'pas banget', 'setelah meeting', 'sebelum meeting', 'bentrok', 'masih sempat', or equivalent unless an explicit conflict-analysis result is included.",
+        "- No conflict-analysis result is included in this Calendar action receipt.",
         f"- success: {'true' if success else 'false'}",
         f"- action: {action}",
         f"- source: {source}",
@@ -1034,6 +1039,8 @@ def render_calendar_action_result_context(
         lines.extend(
             [
                 "- The Calendar action has completed successfully.",
+                "- Keep the user-facing reply brief: one confirmation sentence plus the changed Calendar details.",
+                "- Do not append observations, recommendations, encouragement, jokes, or commentary about the user's wider schedule.",
                 "- You may clearly say it was updated or deleted.",
                 "- Do not describe it as merely pending or still being processed.",
             ]

@@ -454,3 +454,29 @@ def test_recurring_entire_series_is_not_mutated_yet(
     )
     assert token_called is False
 
+
+def test_authoritative_result_context_blocks_ungrounded_schedule_commentary():
+    context = (
+        calendar_draft_actions
+        .render_calendar_action_result_context(
+            {
+                "success": True,
+                "updated": True,
+                "action": "update",
+                "source": "google",
+                "title": "Learning Reminder",
+                "date": "2026-06-12",
+                "start_at": "2026-06-12T17:00:00+07:00",
+                "end_at": "2026-06-12T17:30:00+07:00",
+                "recurring_scope": "this_instance",
+            }
+        )
+    )
+
+    assert "use only the Calendar action facts" in context
+    assert "Do not use conversation history" in context
+    assert "Do not mention or infer another meeting" in context
+    assert "Do not say 'pas banget'" in context
+    assert "No conflict-analysis result is included" in context
+    assert "Keep the user-facing reply brief" in context
+
