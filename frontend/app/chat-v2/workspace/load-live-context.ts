@@ -49,6 +49,7 @@ export async function loadTodayWorkspaceAgenda(): Promise<WorkspaceAgendaItem[]>
       endAt: event.endAt,
       allDay: event.allDay,
       status: event.status,
+      location: event.location ?? null,
     }));
 }
 

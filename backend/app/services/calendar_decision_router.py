@@ -162,6 +162,7 @@ def _compact_suggestion(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row.get("id"),
         "title": row.get("calendar_event_title") or _title_from_row(row),
+        "location": row.get("calendar_event_location"),
         "date": row.get("calendar_event_date") or row.get("due_date"),
         "start_at": row.get("calendar_event_start_at"),
         "end_at": row.get("calendar_event_end_at"),

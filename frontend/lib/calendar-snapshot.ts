@@ -14,6 +14,7 @@ export type RawCalendarItem = {
   calendar_event_start_at?: string | null
   calendar_event_end_at?: string | null
   calendar_event_all_day?: boolean | null
+  calendar_event_location?: string | null
   google_calendar_event_id?: string | null
   google_calendar_event_link?: string | null
   calendar_sync_error?: string | null
@@ -26,6 +27,7 @@ export type CalendarEvent = {
   startAt: string | null
   endAt: string | null
   allDay: boolean
+  location: string | null
   status: "confirmed_local" | "synced_google"
   googleLink: string | null
   syncError: string | null
@@ -66,6 +68,11 @@ export function normalizeCalendarTitle(item: RawCalendarItem): string {
   return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : "Calendar event"
 }
 
+export function normalizeCalendarLocation(item: RawCalendarItem): string | null {
+  const raw = String(item.calendar_event_location || "").replace(/\s+/g, " ").trim()
+  return raw ? raw.slice(0, 180) : null
+}
+
 export function normalizeCalendarEvent(item: RawCalendarItem): CalendarEvent | null {
   const status = item.calendar_event_status
 
@@ -87,6 +94,7 @@ export function normalizeCalendarEvent(item: RawCalendarItem): CalendarEvent | n
     startAt: item.calendar_event_start_at || null,
     endAt: item.calendar_event_end_at || null,
     allDay: Boolean(item.calendar_event_all_day),
+    location: normalizeCalendarLocation(item),
     status,
     googleLink: item.google_calendar_event_link || null,
     syncError: item.calendar_sync_error || null,
@@ -110,6 +118,7 @@ export function isCalendarEvent(value: unknown): value is CalendarEvent {
     typeof item.id === "string" &&
     typeof item.title === "string" &&
     typeof item.date === "string" &&
+    (item.location === undefined || item.location === null || typeof item.location === "string") &&
     (item.status === "confirmed_local" || item.status === "synced_google")
   )
 }

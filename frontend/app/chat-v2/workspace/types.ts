@@ -40,6 +40,7 @@ export type WorkspaceAgendaItem = {
   endAt?: string | null;
   allDay?: boolean;
   status?: string;
+  location?: string | null;
 };
 
 export type WorkspaceReminder = {

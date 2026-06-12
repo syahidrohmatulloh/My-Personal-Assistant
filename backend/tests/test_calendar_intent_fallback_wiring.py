@@ -48,7 +48,7 @@ def test_candidate_from_intent_draft_keeps_location_in_content():
     assert candidate.event_date == "2026-05-23"
     assert candidate.start_at == "2026-05-23T14:00:00+07:00"
     assert "Gajah Mada Plaza" in candidate.content
-    assert "location=Gajah Mada Plaza" in candidate.structured_value
+    assert "location Gajah Mada Plaza" in candidate.structured_value
 
 
 def test_chat_passes_recent_messages_to_calendar_intent_fallback():

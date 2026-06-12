@@ -14,6 +14,7 @@ from typing import Any
 from app.routers.calendar_oauth import get_active_google_calendar_access_token
 from app.services import calendar_decision_router
 from app.services.supabase_client import safe_execute
+from app.services.google_calendar_payload import build_google_event_body
 
 log = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ async def load_pending_calendar_suggestions(
                 sb.table("memories")
                 .select(
                     "id, content, structured_value, due_date, source_conversation_id, "
-                    "calendar_candidate, calendar_event_status, calendar_event_title, "
+                    "calendar_candidate, calendar_event_status, calendar_event_title, calendar_event_location, "
                     "calendar_event_date, calendar_event_start_at, calendar_event_end_at, "
                     "calendar_event_all_day, archived, superseded, updated_at, created_at"
                 )
@@ -173,6 +174,7 @@ async def _accept_pending_suggestion_local(
         "calendar_event_start_at": row.get("calendar_event_start_at"),
         "calendar_event_end_at": row.get("calendar_event_end_at"),
         "calendar_event_all_day": bool(row.get("calendar_event_all_day")),
+        "calendar_event_location": row.get("calendar_event_location"),
         "updated_at": now,
     }
 
@@ -218,6 +220,7 @@ async def _accept_pending_suggestion_to_google(
         description="Created by Aliyya from chat confirmation.",
         start_at=row.get("calendar_event_start_at"),
         end_at=row.get("calendar_event_end_at"),
+        location=row.get("calendar_event_location"),
     )
 
     google_event_id = created.get("id")
@@ -233,6 +236,7 @@ async def _accept_pending_suggestion_to_google(
         "calendar_event_start_at": row.get("calendar_event_start_at"),
         "calendar_event_end_at": row.get("calendar_event_end_at"),
         "calendar_event_all_day": bool(row.get("calendar_event_all_day")),
+        "calendar_event_location": row.get("calendar_event_location"),
         "google_calendar_event_id": google_event_id,
         "google_calendar_event_link": created.get("htmlLink"),
         "google_calendar_id": "primary",
@@ -306,22 +310,20 @@ async def _create_google_calendar_event(
     description: str,
     start_at: str | None = None,
     end_at: str | None = None,
+    location: str | None = None,
     calendar_id: str = "primary",
 ) -> dict[str, Any]:
     import httpx
     from urllib.parse import quote
 
-    event: dict[str, Any] = {
-        "summary": title,
-        "description": description,
-    }
-
-    if start_at and end_at:
-        event["start"] = {"dateTime": start_at}
-        event["end"] = {"dateTime": end_at}
-    else:
-        event["start"] = {"date": event_date}
-        event["end"] = {"date": event_date}
+    event = build_google_event_body(
+        title=title,
+        event_date=event_date,
+        description=description,
+        start_at=start_at,
+        end_at=end_at,
+        location=location,
+    )
 
     url = f"https://www.googleapis.com/calendar/v3/calendars/{quote(calendar_id, safe='')}/events"
 

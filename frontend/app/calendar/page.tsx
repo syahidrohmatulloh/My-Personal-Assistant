@@ -458,6 +458,12 @@ export default function CalendarPage() {
                                     </span>
                                   </div>
 
+                                  {event.location ? (
+                                    <p className="mt-0.5 min-w-0 break-words text-[11px] leading-4 text-fg-muted/75">
+                                      {event.location}
+                                    </p>
+                                  ) : null}
+
                                   {event.syncError ? (
                                     <p className="mt-2 inline-flex rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300">
                                       Sync note: {event.syncError}

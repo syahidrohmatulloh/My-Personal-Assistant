@@ -22,7 +22,7 @@ def test_extracts_tomorrow_afternoon_meeting():
     assert cand.start_at == "2026-05-22T15:00:00+07:00"
     assert cand.end_at == "2026-05-22T16:00:00+07:00"
     assert cand.all_day is False
-    assert "due_date=2026-05-22" in cand.structured_value
+    assert "date 2026-05-22" in cand.structured_value
 
 
 def test_extracts_lusa_all_day_presentation():

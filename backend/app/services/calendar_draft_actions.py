@@ -21,6 +21,7 @@ from app.services.claude import get_claude
 from app.services.embeddings import embed_document
 from app.services.supabase_client import safe_execute
 from app.services import calendar_intent
+from app.services.google_calendar_payload import build_google_event_body
 from app.routers.calendar_oauth import get_active_google_calendar_access_token
 
 log = logging.getLogger(__name__)
@@ -242,6 +243,7 @@ async def create_google_calendar_event_from_chat(
         description=_google_event_description_from_draft(draft),
         start_at=str(start_at) if start_at else None,
         end_at=str(end_at) if end_at else None,
+        location=_clean_optional_text(draft.get("location")),
     )
 
     google_event_id = created.get("id")
@@ -288,6 +290,7 @@ async def create_google_calendar_event_from_chat(
         "calendar_event_start_at": str(start_at) if start_at else None,
         "calendar_event_end_at": str(end_at) if end_at else None,
         "calendar_event_all_day": all_day or not bool(start_at),
+        "calendar_event_location": _clean_optional_text(draft.get("location")),
         "calendar_event_created_at": now,
         "google_calendar_event_id": google_event_id,
         "google_calendar_event_link": google_event_link,
@@ -486,6 +489,7 @@ async def _apply_synced_google_calendar_action(
                 description=_google_event_description_from_payload(payload),
                 start_at=payload.get("calendar_event_start_at"),
                 end_at=payload.get("calendar_event_end_at"),
+                location=payload.get("calendar_event_location"),
             )
         except Exception as exc:
             log.warning("calendar_draft_actions: google patch failed: %s", exc)
@@ -546,22 +550,20 @@ async def _create_google_calendar_event(
     description: str,
     start_at: str | None = None,
     end_at: str | None = None,
+    location: str | None = None,
     calendar_id: str = "primary",
 ) -> dict[str, Any]:
     import httpx
     from urllib.parse import quote
 
-    event: dict[str, Any] = {
-        "summary": title,
-        "description": description,
-    }
-
-    if start_at and end_at:
-        event["start"] = {"dateTime": start_at}
-        event["end"] = {"dateTime": end_at}
-    else:
-        event["start"] = {"date": event_date}
-        event["end"] = {"date": event_date}
+    event = build_google_event_body(
+        title=title,
+        event_date=event_date,
+        description=description,
+        start_at=start_at,
+        end_at=end_at,
+        location=location,
+    )
 
     url = f"https://www.googleapis.com/calendar/v3/calendars/{quote(calendar_id, safe='')}/events"
 
@@ -586,21 +588,19 @@ async def _patch_google_calendar_event(
     description: str,
     start_at: str | None = None,
     end_at: str | None = None,
+    location: str | None = None,
 ) -> dict[str, Any]:
     import httpx
     from urllib.parse import quote
 
-    event: dict[str, Any] = {
-        "summary": title,
-        "description": description,
-    }
-
-    if start_at and end_at:
-        event["start"] = {"dateTime": start_at}
-        event["end"] = {"dateTime": end_at}
-    else:
-        event["start"] = {"date": event_date}
-        event["end"] = {"date": event_date}
+    event = build_google_event_body(
+        title=title,
+        event_date=event_date,
+        description=description,
+        start_at=start_at,
+        end_at=end_at,
+        location=location,
+    )
 
     url = (
         "https://www.googleapis.com/calendar/v3/calendars/"
@@ -666,7 +666,7 @@ async def _load_recent_calendar_records(*, user_id: str) -> list[dict[str, Any]]
             lambda sb: sb.table("memories")
             .select(
                 "id, content, structured_value, due_date, updated_at, created_at, "
-                "calendar_candidate, calendar_event_status, calendar_event_title, "
+                "calendar_candidate, calendar_event_status, calendar_event_title, calendar_event_location, "
                 "calendar_event_date, calendar_event_start_at, calendar_event_end_at, "
                 "calendar_event_all_day, google_calendar_event_id, google_calendar_event_link, "
                 "archived, superseded"
@@ -781,7 +781,16 @@ def _build_update_payload(target: dict[str, Any], action: dict[str, Any]) -> dic
     if not title or not event_date:
         return {}
 
-    location = action.get("location")
+    # Location semantics (this phase): only a non-empty new location replaces
+    # the existing one. Omitted, null, empty, or whitespace-only values all
+    # preserve the stored location. Explicit clearing is intentionally not
+    # supported yet, so local state can never go empty while Google still
+    # holds the previous location.
+    new_location = action.get("location")
+    new_location = str(new_location).strip()[:180] if new_location else None
+    existing_location = target.get("calendar_event_location")
+    existing_location = str(existing_location).strip()[:180] if existing_location else None
+    location = new_location or existing_location
     structured_value = _structured_value(
         title=str(title),
         event_date=str(event_date),
@@ -806,6 +815,7 @@ def _build_update_payload(target: dict[str, Any], action: dict[str, Any]) -> dic
         "calendar_event_start_at": str(start_at) if start_at else None,
         "calendar_event_end_at": str(end_at) if end_at else None,
         "calendar_event_all_day": bool(all_day) if all_day is not None else not bool(start_at),
+        "calendar_event_location": location,
         "updated_at": now,
     }
 
@@ -825,6 +835,7 @@ def _compact_record(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row.get("id"),
         "title": row.get("calendar_event_title") or _title_from_target(row),
+        "location": row.get("calendar_event_location"),
         "content": row.get("content"),
         "structured_value": row.get("structured_value"),
         "event_date": row.get("calendar_event_date") or row.get("due_date"),

@@ -156,6 +156,7 @@ class CalendarCandidate:
     evidence: list[str]
     confidence: float
     reason: str
+    location: str | None = None
 
 
 def has_calendar_signal(text: str | None) -> bool:
@@ -280,6 +281,7 @@ def extract_candidate(
     is_reminder = _is_reminder_request(normalized)
     title = _clean_reminder_title(text) if is_reminder else _build_title(text)
     event_date_iso = event_date.isoformat()
+    location = None if is_reminder else _extract_location_hint(text)
 
     value_parts = [
         title,
@@ -289,6 +291,16 @@ def extract_candidate(
         value_parts.append(f"start_at={start_at}")
     if end_at:
         value_parts.append(f"end_at={end_at}")
+    if location:
+        value_parts.append(f"location={location}")
+
+    content = (
+        f"User wants a reminder: {title} on {event_date_iso}"
+        if is_reminder
+        else f"User has a scheduled event: {title} on {event_date_iso}"
+    )
+    if location:
+        content += f" at {location}"
 
     return CalendarCandidate(
         title=title,
@@ -296,15 +308,12 @@ def extract_candidate(
         start_at=start_at,
         end_at=end_at,
         all_day=all_day,
-        structured_value=human_calendar_structured_value(title=title, event_date=event_date_iso, start_at=start_at, end_at=end_at),
-        content=(
-            f"User wants a reminder: {title} on {event_date_iso}"
-            if is_reminder
-            else f"User has a scheduled event: {title} on {event_date_iso}"
-        ),
+        structured_value=human_calendar_structured_value(title=title, event_date=event_date_iso, start_at=start_at, end_at=end_at, location=location),
+        content=content,
         evidence=[text[:220]],
         confidence=0.9 if is_reminder and local_time else 0.86 if local_time else 0.78,
         reason="deterministic_reminder_candidate" if is_reminder else "deterministic_calendar_candidate",
+        location=location,
     )
 
 
@@ -377,6 +386,7 @@ async def extract_and_persist(
         "calendar_event_start_at": candidate.start_at,
         "calendar_event_end_at": candidate.end_at,
         "calendar_event_all_day": candidate.all_day,
+        "calendar_event_location": candidate.location,
         "lifecycle_type": "time_bound",
     }
 
@@ -395,7 +405,8 @@ def _candidate_from_intent_draft(draft: dict[str, Any], source_text: str) -> Cal
     start_at = draft.get("start_at")
     end_at = draft.get("end_at")
     all_day = bool(draft.get("all_day"))
-    location = draft.get("location")
+    raw_location = str(draft.get("location") or "").strip()
+    location = raw_location[:180] if raw_location else _extract_location_hint(source_text)
     confidence = float(draft.get("confidence") or 0.72)
     reason = str(draft.get("reason") or "haiku_calendar_intent").strip()
 
@@ -429,6 +440,7 @@ def _candidate_from_intent_draft(draft: dict[str, Any], source_text: str) -> Cal
         evidence=[source_text[:220]],
         confidence=max(0.62, min(confidence, 0.94)),
         reason=reason or "haiku_calendar_intent",
+        location=str(location) if location else None,
     )
 
 
@@ -451,7 +463,7 @@ async def _find_existing_calendar_item(
         result = safe_execute(
             lambda sb: sb.table("memories")
             .select(
-                "id, calendar_event_title, structured_value, content, due_date, "
+                "id, calendar_event_title, calendar_event_location, structured_value, content, due_date, "
                 "calendar_event_date, calendar_event_start_at, calendar_event_end_at, "
                 "calendar_candidate, calendar_event_status, archived, superseded"
             )
@@ -512,6 +524,63 @@ def _same_calendar_time_for_dedupe(
     return True
 
 
+
+
+_LOCATION_STOPWORDS = {
+    "hari",
+    "tanggal",
+    "tgl",
+    "jam",
+    "pukul",
+    "bulan",
+    "tahun",
+    "minggu",
+    "senin",
+    "selasa",
+    "rabu",
+    "kamis",
+    "jumat",
+    "sabtu",
+    "sana",
+    "sini",
+    "situ",
+    "mana",
+}
+
+
+def _extract_location_hint(value: str | None) -> str | None:
+    """Conservatively extract an event location from free text.
+
+    Matches `di/at <Proper Noun Phrase>` and stops before companions/times
+    (`dengan`, `sama`, `with`, `jam`, `tee off`, ...). Requires the location
+    to start with an uppercase letter so people-free generic words ("di
+    rumah", "di sana") and day names ("di hari Minggu") are never captured.
+    Returns None when nothing matches confidently.
+    """
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not text:
+        return None
+
+    pattern = re.compile(
+        r"\b(?:di|at)\s+"
+        r"(?P<location>[^,;()\n]{2,80}?)"
+        r"(?=\s+(?:dengan|sama|bersama|with|jam|pukul|tee\s*off|mulai|start\w*|sekitar|on|pada)\b"
+        r"|[,;()\n]|[.!?]\s|$)",
+        flags=re.IGNORECASE,
+    )
+
+    for match in pattern.finditer(text):
+        location = match.group("location").strip().rstrip(".!?")
+        if not location or len(location) > 80:
+            continue
+        if not location[0].isupper():
+            continue
+        first_token = location.split()[0].lower()
+        if first_token in _LOCATION_STOPWORDS:
+            continue
+        return location
+
+    return None
 
 
 def _extract_canonical_calendar_title_hint(value: str) -> str:
