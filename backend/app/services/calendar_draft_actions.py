@@ -126,6 +126,8 @@ Schema:
 Rules:
 - You are acting on local Calendar records and direct Google Calendar events supplied in calendar_records.
 - Pick exactly one target from the provided calendar_records. Treat target_memory_id as an opaque record id; it may represent a local memory or a direct Google event.
+- A record with source="google" is the authoritative direct Google Calendar event.
+- If local and Google records describe the same title, date, start, and end, always choose the Google record.
 - action="update" when the user asks to change time/date/title/location, or asks to make an event more detailed/specific/jelas/detil.
 - action="delete" when the user asks to remove, cancel, hapus, batalin, delete, or archive an agenda/event.
 - Return action="none" and confidence below 0.6 if the target is ambiguous.
@@ -1067,7 +1069,105 @@ async def _load_calendar_action_records(
             type(exc).__name__,
         )
 
-    return [*local_records, *direct_records], google_read_failed
+    local_records = (
+        _drop_local_records_duplicated_by_direct_google(
+            local_records,
+            direct_records,
+        )
+    )
+
+    return [*direct_records, *local_records], google_read_failed
+
+
+def _canonical_action_datetime(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    try:
+        parsed = datetime.fromisoformat(
+            raw.replace("Z", "+00:00")
+        )
+    except Exception:
+        return raw
+
+    if parsed.tzinfo is None:
+        return parsed.isoformat()
+
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+def _calendar_action_fingerprint(
+    row: dict[str, Any],
+) -> tuple[str, str, bool, str, str] | None:
+    title = _norm(_title_from_target(row))
+    event_date = str(
+        row.get("calendar_event_date")
+        or row.get("due_date")
+        or ""
+    ).strip()
+
+    if not title or not event_date:
+        return None
+
+    all_day = bool(row.get("calendar_event_all_day"))
+
+    return (
+        title,
+        event_date,
+        all_day,
+        (
+            ""
+            if all_day
+            else _canonical_action_datetime(
+                row.get("calendar_event_start_at")
+            )
+        ),
+        (
+            ""
+            if all_day
+            else _canonical_action_datetime(
+                row.get("calendar_event_end_at")
+            )
+        ),
+    )
+
+
+def _drop_local_records_duplicated_by_direct_google(
+    local_records: list[dict[str, Any]],
+    direct_records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    direct_fingerprints = {
+        fingerprint
+        for row in direct_records
+        for fingerprint in [
+            _calendar_action_fingerprint(row)
+        ]
+        if fingerprint is not None
+    }
+
+    filtered: list[dict[str, Any]] = []
+
+    for row in local_records:
+        # A linked memory row represents a deliberately synced event and must
+        # remain available to its existing Google + local update path.
+        if row.get("google_calendar_event_id"):
+            filtered.append(row)
+            continue
+
+        fingerprint = _calendar_action_fingerprint(row)
+
+        # An unlinked local row that exactly mirrors a direct Google event
+        # must not compete with Google during action target resolution.
+        if (
+            fingerprint is not None
+            and fingerprint in direct_fingerprints
+        ):
+            continue
+
+        filtered.append(row)
+
+    return filtered
 
 
 def _calendar_action_search_window(

@@ -219,3 +219,105 @@ def test_authoritative_result_context_allows_success_claim_only_on_success():
     assert "success: false" in failure
     assert "did not complete successfully" in failure
     assert "Do not claim it was updated" in failure
+
+def test_exact_local_duplicate_is_suppressed_for_google_action():
+    local = {
+        "id": "local-1",
+        "calendar_event_title": "Direct Google Read Test",
+        "calendar_event_date": "2026-06-12",
+        "calendar_event_start_at": "2026-06-12T15:30:00+07:00",
+        "calendar_event_end_at": "2026-06-12T16:00:00+07:00",
+        "calendar_event_all_day": False,
+        "google_calendar_event_id": None,
+    }
+    direct = _direct_record()
+
+    filtered = (
+        calendar_draft_actions
+        ._drop_local_records_duplicated_by_direct_google(
+            [local],
+            [direct],
+        )
+    )
+
+    assert filtered == []
+
+
+def test_distinct_same_title_local_event_is_preserved():
+    local = {
+        "id": "local-1",
+        "calendar_event_title": "Direct Google Read Test",
+        "calendar_event_date": "2026-06-12",
+        "calendar_event_start_at": "2026-06-12T17:00:00+07:00",
+        "calendar_event_end_at": "2026-06-12T17:30:00+07:00",
+        "calendar_event_all_day": False,
+        "google_calendar_event_id": None,
+    }
+
+    filtered = (
+        calendar_draft_actions
+        ._drop_local_records_duplicated_by_direct_google(
+            [local],
+            [_direct_record()],
+        )
+    )
+
+    assert filtered == [local]
+
+
+def test_action_loader_prefers_direct_google_over_exact_local_duplicate(
+    monkeypatch,
+):
+    local = {
+        "id": "local-1",
+        "calendar_event_title": "Direct Google Read Test",
+        "calendar_event_date": "2026-06-12",
+        "calendar_event_start_at": "2026-06-12T15:30:00+07:00",
+        "calendar_event_end_at": "2026-06-12T16:00:00+07:00",
+        "calendar_event_all_day": False,
+        "google_calendar_event_id": None,
+    }
+
+    async def fake_local_records(**kwargs):
+        return [local]
+
+    async def fake_google_events(**kwargs):
+        return [
+            {
+                "id": "google-event-1",
+                "title": "Direct Google Read Test",
+                "event_date": "2026-06-12",
+                "start_at": "2026-06-12T15:30:00+07:00",
+                "end_at": "2026-06-12T16:00:00+07:00",
+                "all_day": False,
+                "location": "Menara Mandiri",
+                "html_link": "https://calendar.google.com/event",
+            }
+        ]
+
+    monkeypatch.setattr(
+        calendar_draft_actions,
+        "_load_recent_calendar_records",
+        fake_local_records,
+    )
+    monkeypatch.setattr(
+        calendar_draft_actions,
+        "list_google_calendar_events_for_action",
+        fake_google_events,
+    )
+
+    records, failed = asyncio.run(
+        calendar_draft_actions._load_calendar_action_records(
+            user_id="user-1",
+            client_context={
+                "local_time": "2026-06-12T11:00:00+07:00",
+                "timezone": "Asia/Jakarta",
+            },
+        )
+    )
+
+    assert failed is False
+    assert len(records) == 1
+    assert records[0]["_record_source"] == "google"
+    assert records[0]["id"] == "google:google-event-1"
+
