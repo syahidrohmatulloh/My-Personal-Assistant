@@ -828,6 +828,62 @@ async def chat(
     messages = trim_history(messages)
     history_elapsed_ms = round((time.perf_counter() - history_started_at) * 1000, 1)
 
+    # Calendar update/delete actions must complete before Claude writes the
+    # user-facing response. The result below becomes authoritative prompt
+    # context, so success wording always follows actual persistence.
+    is_calendar_draft_action_turn = (
+        calendar_draft_actions.is_calendar_draft_action_request(
+            body.message
+        )
+    )
+    calendar_action_result: dict[str, Any] | None = None
+
+    if is_calendar_draft_action_turn:
+        try:
+            calendar_action_result = (
+                await calendar_draft_actions.apply_chat_calendar_draft_action(
+                    user_id=user_id,
+                    conversation_id=body.conversation_id,
+                    user_message=body.message,
+                    client_context=body.client_context,
+                    recent_messages=messages,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "chat: authoritative calendar action failed "
+                "user=%s conversation=%s error_type=%s",
+                user_id[:8],
+                body.conversation_id[:8],
+                type(exc).__name__,
+            )
+            calendar_action_result = {
+                "attempted": True,
+                "success": False,
+                "updated": False,
+                "deleted": False,
+                "action": "unknown",
+                "source": "unknown",
+                "reason": "calendar_action_exception",
+            }
+
+    calendar_action_success = (
+        calendar_draft_actions.calendar_action_succeeded(
+            calendar_action_result
+        )
+    )
+    calendar_action_reason = str(
+        (calendar_action_result or {}).get("reason") or ""
+    )
+    calendar_action_snapshot_dirty = bool(
+        calendar_action_success
+        or calendar_action_reason
+        in {
+            "local_update_after_google_patch_failed",
+            "local_archive_after_google_delete_failed",
+        }
+    )
+
     # === Build prompt with cached base + volatile context ===
     volatile_context = render_context(context)
     if chronology_context:
@@ -846,9 +902,9 @@ async def chat(
         "\n- Ask for confirmation first: 'Beb, ini kayaknya agenda kalender. Mau aku masukin ke Calendar?'"
         "\n- Summarize Acara, Tanggal, Waktu, and Lokasi if available."
         "\n- Never use user-facing terms like 'agenda kalender', 'agenda kalender', 'Calendar event', or 'calendar event'."
-        "\n- A clear confirmation or explicit request authorizes processing, but does not prove database persistence succeeded."
-        "\n- Calendar actions for this turn run after the reply is generated, so never claim they already succeeded."
-        "\n- Use future/process wording such as: 'Aku proses update-nya di Calendar ya.'"
+        "\n- Never infer Calendar action success from user wording alone."
+        "\n- If an authoritative Calendar action result is present, follow it exactly."
+        "\n- Without an authoritative success result, never claim an update or deletion succeeded."
     )
     pending_calendar_confirmation_context = await calendar_confirmation_actions.render_pending_calendar_confirmation_context(
         user_id=user_id,
@@ -870,9 +926,6 @@ async def chat(
         "\\n- Do not say you have no access to Goals."
         "\\n- Do not claim the goal is already active/saved unless a direct create-goal action has explicitly succeeded in the current request."
         "\\n- Preferred wording: Aku bantu siapkan ini sebagai kandidat goal di Goals."
-    )
-    is_calendar_draft_action_turn = (
-        calendar_draft_actions.is_calendar_draft_action_request(body.message)
     )
     is_calendar_candidate_turn = (
         not is_calendar_draft_action_turn
@@ -897,13 +950,19 @@ async def chat(
     if is_calendar_draft_action_turn:
         volatile_context += (
             "\n\nCalendar draft action capability state — authoritative:"
-            "\n- The user appears to be asking to edit, reschedule, remove, cancel, or delete a Calendar item."
-            "\n- The app can update or remove local Calendar drafts from chat when the target is clear. If the target is already synced to Google Calendar, the app can update/delete the linked Google Calendar event too."
-            "\n- The action executes in the background after this reply, so do not claim the update or deletion has already succeeded."
-            "\n- Do not say 'sudah aku update', 'sudah aku hapus', or equivalent completed wording in this reply."
-            "\n- Use process wording such as: Aku proses update-nya di Calendar ya, or Aku proses penghapusannya ya."
-            "\n- If the target is ambiguous, say you will try to identify it; never invent a successful result."
+            "\n- The user asked to edit, reschedule, remove, cancel, or delete a Calendar item."
+            "\n- The Calendar action has already been attempted before this reply."
+            "\n- Follow the authoritative Calendar action result below exactly."
+            "\n- Say the action succeeded only when success is true."
+            "\n- If success is false, briefly explain that the change could not be completed."
+            "\n- Do not replace a failure result with optimistic or process wording."
             "\n- Do not use the phrase 'Calendar event' in user-facing replies."
+        )
+        volatile_context += (
+            "\n\n"
+            + calendar_draft_actions.render_calendar_action_result_context(
+                calendar_action_result
+            )
         )
 
     if is_calendar_candidate_turn:
@@ -1163,6 +1222,8 @@ async def chat(
             assistant_name=assistant_name,
             user_mood_context=user_mood_ctx,
             assistant_mode=assistant_mode,
+            calendar_action_turn=is_calendar_draft_action_turn,
+            calendar_action_snapshot_dirty=calendar_action_snapshot_dirty,
         ),
         media_type="text/event-stream",
         headers={
@@ -1209,6 +1270,8 @@ async def _stream_claude_response(
     assistant_name: str = "Assistant",
     user_mood_context=None,
     assistant_mode: str = "life_companion",
+    calendar_action_turn: bool = False,
+    calendar_action_snapshot_dirty: bool = False,
 ) -> AsyncIterator[str]:
     claude = get_claude()
     supabase = get_supabase()
@@ -1358,18 +1421,21 @@ async def _stream_claude_response(
             assistant_response=assistant_text,
         )
 
-    # LLM-routed Calendar confirmation — accepts/dismisses the latest hidden pending suggestion.
-    add_safe_background_task(background_tasks, 
-        calendar_confirmation_actions.apply_calendar_confirmation_decision,
-        user_id=user_id,
-        conversation_id=conversation_id,
-        user_message=user_message,
-        client_context=client_context,
-        recent_messages=[
-            *messages,
-            {"role": "assistant", "content": assistant_text},
-        ],
-    )
+    # A direct update/delete turn has already been handled authoritatively.
+    # Do not also route it as confirmation for an unrelated pending suggestion.
+    if not calendar_action_turn:
+        add_safe_background_task(
+            background_tasks,
+            calendar_confirmation_actions.apply_calendar_confirmation_decision,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            user_message=user_message,
+            client_context=client_context,
+            recent_messages=[
+                *messages,
+                {"role": "assistant", "content": assistant_text},
+            ],
+        )
 
     should_schedule_proactive_nudge = proactive_nudges.should_attempt_proactive_nudge(user_message)
     if should_schedule_proactive_nudge:
@@ -1382,22 +1448,9 @@ async def _stream_claude_response(
             assistant_response=assistant_text,
         )
 
-    # Calendar draft actions from chat — can update/delete local drafts and synced Google events.
-    should_apply_calendar_draft_action = calendar_draft_actions.is_calendar_draft_action_request(
-        user_message
-    )
-    if should_apply_calendar_draft_action:
-        add_safe_background_task(background_tasks, 
-            calendar_draft_actions.apply_chat_calendar_draft_action,
-            user_id=user_id,
-            conversation_id=conversation_id,
-            user_message=user_message,
-            client_context=client_context,
-            recent_messages=[
-                *messages,
-                {"role": "assistant", "content": assistant_text},
-            ],
-        )
+    # Calendar update/delete actions were already executed before streaming.
+    # Keep this flag only to suppress candidate extraction for the same turn.
+    should_apply_calendar_draft_action = calendar_action_turn
 
     # Direct Google Calendar create from chat — only when the user explicitly asks for Google Calendar.
     should_create_google_calendar_event = calendar_draft_actions.is_google_calendar_create_request(
@@ -1440,7 +1493,7 @@ async def _stream_claude_response(
         )
 
     calendar_snapshot_dirty = bool(
-        should_apply_calendar_draft_action
+        calendar_action_snapshot_dirty
         or should_create_google_calendar_event
         or should_extract_calendar_candidate
     )

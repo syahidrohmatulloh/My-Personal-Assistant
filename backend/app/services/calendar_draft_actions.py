@@ -22,7 +22,10 @@ from app.services.embeddings import embed_document
 from app.services.supabase_client import safe_execute
 from app.services import calendar_intent
 from app.services.google_calendar_payload import build_google_event_body
-from app.routers.calendar_oauth import get_active_google_calendar_access_token
+from app.routers.calendar_oauth import (
+    get_active_google_calendar_access_token,
+    list_google_calendar_events_for_action,
+)
 
 log = logging.getLogger(__name__)
 
@@ -101,7 +104,7 @@ _TARGET_HINTS = (
     "dance",
 )
 
-SYSTEM_PROMPT = """You perform local Calendar draft actions for a personal assistant app.
+SYSTEM_PROMPT = """You perform Calendar actions for a personal assistant app.
 
 Return ONLY one JSON object. No markdown. No prose.
 
@@ -121,15 +124,15 @@ Schema:
 }
 
 Rules:
-- You are acting on local Calendar drafts shown in Memories → Calendar.
-- Pick exactly one target from the provided calendar_records.
+- You are acting on local Calendar records and direct Google Calendar events supplied in calendar_records.
+- Pick exactly one target from the provided calendar_records. Treat target_memory_id as an opaque record id; it may represent a local memory or a direct Google event.
 - action="update" when the user asks to change time/date/title/location, or asks to make an event more detailed/specific/jelas/detil.
 - action="delete" when the user asks to remove, cancel, hapus, batalin, delete, or archive an agenda/event.
 - Return action="none" and confidence below 0.6 if the target is ambiguous.
 - Preserve any field not changed by the user by returning null for that field. If the user asks for a more detailed event title/description, improve title/location using recent context and the target record.
 - If changing start_at but end_at is not specified, infer a 1-hour duration unless the original record has a duration.
 - Use browser local time context and recent chat context for relative times like "jam 3", "besok", "nanti", "yang tadi".
-- Never claim to update or delete Google Calendar. This system only updates local Calendar drafts.
+- The caller executes the selected action. Return the intended action and exact target only; do not invent success.
 """
 
 
@@ -327,9 +330,22 @@ async def apply_chat_calendar_draft_action(
     if not is_calendar_draft_action_request(user_message):
         return {"attempted": False, "updated": False, "deleted": False, "reason": "not_calendar_action"}
 
-    records = await _load_recent_calendar_records(user_id=user_id)
+    records, google_read_failed = await _load_calendar_action_records(
+        user_id=user_id,
+        client_context=client_context,
+    )
     if not records:
-        return {"attempted": True, "updated": False, "deleted": False, "reason": "no_calendar_records"}
+        return {
+            "attempted": True,
+            "success": False,
+            "updated": False,
+            "deleted": False,
+            "reason": (
+                "google_read_failed"
+                if google_read_failed
+                else "no_calendar_records"
+            ),
+        }
 
     raw_action = await _extract_action(
         user_message=user_message,
@@ -339,11 +355,34 @@ async def apply_chat_calendar_draft_action(
     )
     action = _normalise_action(raw_action, records)
     if not action:
-        return {"attempted": True, "updated": False, "deleted": False, "reason": "no_confident_action"}
+        return {
+            "attempted": True,
+            "success": False,
+            "updated": False,
+            "deleted": False,
+            "reason": (
+                "google_read_failed"
+                if google_read_failed
+                else "no_confident_action"
+            ),
+        }
 
     target = next((row for row in records if str(row.get("id")) == action["target_memory_id"]), None)
     if not target:
-        return {"attempted": True, "updated": False, "deleted": False, "reason": "target_not_found"}
+        return {
+            "attempted": True,
+            "success": False,
+            "updated": False,
+            "deleted": False,
+            "reason": "target_not_found",
+        }
+
+    if target.get("_record_source") == "google":
+        return await _apply_direct_google_calendar_action(
+            user_id=user_id,
+            target=target,
+            action=action,
+        )
 
     if _is_synced_google(target):
         return await _apply_synced_google_calendar_action(
@@ -404,6 +443,303 @@ async def apply_chat_calendar_draft_action(
 
     return {"attempted": True, "updated": False, "deleted": False, "reason": "unsupported_action"}
 
+
+
+async def _apply_direct_google_calendar_action(
+    *,
+    user_id: str,
+    target: dict[str, Any],
+    action: dict[str, Any],
+) -> dict[str, Any]:
+    google_event_id = str(
+        target.get("google_calendar_event_id") or ""
+    ).strip()
+    calendar_id = str(
+        target.get("google_calendar_id") or "primary"
+    ).strip() or "primary"
+
+    if not google_event_id:
+        return {
+            "attempted": True,
+            "success": False,
+            "updated": False,
+            "deleted": False,
+            "action": action.get("action"),
+            "source": "google",
+            "reason": "direct_google_missing_event_id",
+        }
+
+    try:
+        access_token = await get_active_google_calendar_access_token(
+            user_id=user_id
+        )
+    except Exception as exc:
+        log.warning(
+            "calendar_draft_actions: direct google token failed error_type=%s",
+            type(exc).__name__,
+        )
+        return {
+            "attempted": True,
+            "success": False,
+            "updated": False,
+            "deleted": False,
+            "action": action.get("action"),
+            "source": "google",
+            "reason": "google_access_failed",
+        }
+
+    if action["action"] == "delete":
+        try:
+            await _delete_google_calendar_event(
+                access_token=access_token,
+                google_event_id=google_event_id,
+                calendar_id=calendar_id,
+            )
+        except Exception as exc:
+            log.warning(
+                "calendar_draft_actions: direct google delete failed error_type=%s",
+                type(exc).__name__,
+            )
+            return {
+                "attempted": True,
+                "success": False,
+                "updated": False,
+                "deleted": False,
+                "action": "delete",
+                "source": "google",
+                "target_id": target.get("id"),
+                "reason": "google_delete_failed",
+            }
+
+        return {
+            "attempted": True,
+            "success": True,
+            "updated": False,
+            "deleted": True,
+            "action": "delete",
+            "source": "google",
+            "target_id": target.get("id"),
+            "google_event_id": google_event_id,
+            "title": _title_from_target(target),
+            "reason": None,
+        }
+
+    if action["action"] == "update":
+        patch = _build_direct_google_patch(target, action)
+        if not patch:
+            return {
+                "attempted": True,
+                "success": False,
+                "updated": False,
+                "deleted": False,
+                "action": "update",
+                "source": "google",
+                "target_id": target.get("id"),
+                "reason": "empty_update",
+            }
+
+        try:
+            patched = await _patch_direct_google_calendar_event(
+                access_token=access_token,
+                google_event_id=google_event_id,
+                calendar_id=calendar_id,
+                patch=patch,
+            )
+        except Exception as exc:
+            log.warning(
+                "calendar_draft_actions: direct google patch failed error_type=%s",
+                type(exc).__name__,
+            )
+            return {
+                "attempted": True,
+                "success": False,
+                "updated": False,
+                "deleted": False,
+                "action": "update",
+                "source": "google",
+                "target_id": target.get("id"),
+                "reason": "google_patch_failed",
+            }
+
+        merged = _build_update_payload(target, action)
+
+        return {
+            "attempted": True,
+            "success": True,
+            "updated": True,
+            "deleted": False,
+            "action": "update",
+            "source": "google",
+            "target_id": target.get("id"),
+            "google_event_id": google_event_id,
+            "title": (
+                patched.get("summary")
+                or merged.get("calendar_event_title")
+                or _title_from_target(target)
+            ),
+            "date": merged.get("calendar_event_date"),
+            "start_at": merged.get("calendar_event_start_at"),
+            "end_at": merged.get("calendar_event_end_at"),
+            "location": merged.get("calendar_event_location"),
+            "google_event_link": (
+                patched.get("htmlLink")
+                or target.get("google_calendar_event_link")
+            ),
+            "reason": None,
+        }
+
+    return {
+        "attempted": True,
+        "success": False,
+        "updated": False,
+        "deleted": False,
+        "action": action.get("action"),
+        "source": "google",
+        "reason": "unsupported_direct_google_action",
+    }
+
+
+def _build_direct_google_patch(
+    target: dict[str, Any],
+    action: dict[str, Any],
+) -> dict[str, Any]:
+    merged = _build_update_payload(target, action)
+    if not merged:
+        return {}
+
+    patch: dict[str, Any] = {}
+
+    if "title" in action:
+        patch["summary"] = str(
+            merged["calendar_event_title"]
+        )[:250]
+
+    changes_time = any(
+        key in action
+        for key in (
+            "event_date",
+            "start_at",
+            "end_at",
+            "all_day",
+        )
+    )
+
+    if changes_time:
+        event_body = build_google_event_body(
+            title=str(merged["calendar_event_title"]),
+            event_date=str(merged["calendar_event_date"]),
+            description="",
+            start_at=merged.get("calendar_event_start_at"),
+            end_at=merged.get("calendar_event_end_at"),
+            location=None,
+        )
+        patch["start"] = event_body["start"]
+        patch["end"] = event_body["end"]
+
+    if "location" in action:
+        location = _clean_optional_text(action.get("location"))
+        if location:
+            patch["location"] = location[:180]
+
+    return patch
+
+
+async def _patch_direct_google_calendar_event(
+    *,
+    access_token: str,
+    google_event_id: str,
+    calendar_id: str,
+    patch: dict[str, Any],
+) -> dict[str, Any]:
+    import httpx
+    from urllib.parse import quote
+
+    url = (
+        "https://www.googleapis.com/calendar/v3/calendars/"
+        f"{quote(calendar_id or 'primary', safe='')}/events/"
+        f"{quote(google_event_id, safe='')}"
+    )
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.patch(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            json=patch,
+        )
+
+    response.raise_for_status()
+    payload = response.json()
+    return payload if isinstance(payload, dict) else {}
+
+
+def calendar_action_succeeded(
+    result: dict[str, Any] | None,
+) -> bool:
+    if not isinstance(result, dict):
+        return False
+
+    return bool(
+        result.get("success")
+        or result.get("updated")
+        or result.get("deleted")
+    )
+
+
+def render_calendar_action_result_context(
+    result: dict[str, Any] | None,
+) -> str:
+    result = result if isinstance(result, dict) else {}
+    success = calendar_action_succeeded(result)
+    action = str(result.get("action") or "").strip()
+
+    if not action:
+        if result.get("deleted"):
+            action = "delete"
+        elif result.get("updated"):
+            action = "update"
+        else:
+            action = "unknown"
+
+    source = str(result.get("source") or "local").strip()
+    reason = str(result.get("reason") or "").strip() or "none"
+
+    lines = [
+        "Calendar action result — authoritative:",
+        f"- success: {'true' if success else 'false'}",
+        f"- action: {action}",
+        f"- source: {source}",
+        f"- reason: {reason}",
+    ]
+
+    for key in (
+        "title",
+        "date",
+        "start_at",
+        "end_at",
+        "location",
+    ):
+        value = result.get(key)
+        if value:
+            lines.append(f"- {key}: {value}")
+
+    if success:
+        lines.extend(
+            [
+                "- The Calendar action has completed successfully.",
+                "- You may clearly say it was updated or deleted.",
+                "- Do not describe it as merely pending or still being processed.",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "- The Calendar action did not complete successfully.",
+                "- Do not claim it was updated or deleted.",
+                "- State briefly that the change could not be completed.",
+            ]
+        )
+
+    return "\n".join(lines)
 
 
 async def _apply_synced_google_calendar_action(
@@ -688,6 +1024,111 @@ async def _load_recent_calendar_records(*, user_id: str) -> list[dict[str, Any]]
     return list(result.data or [])
 
 
+async def _load_calendar_action_records(
+    *,
+    user_id: str,
+    client_context: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], bool]:
+    local_records = await _load_recent_calendar_records(
+        user_id=user_id
+    )
+
+    direct_records: list[dict[str, Any]] = []
+    google_read_failed = False
+
+    try:
+        start_dt, end_dt, time_zone = _calendar_action_search_window(
+            client_context
+        )
+        google_events = await list_google_calendar_events_for_action(
+            user_id=user_id,
+            start_dt=start_dt,
+            end_dt=end_dt,
+            time_zone=time_zone,
+        )
+
+        linked_google_ids = {
+            str(row.get("google_calendar_event_id") or "").strip()
+            for row in local_records
+            if row.get("google_calendar_event_id")
+        }
+
+        direct_records = [
+            _direct_google_event_to_action_record(event)
+            for event in google_events
+            if str(event.get("id") or "").strip()
+            and str(event.get("id") or "").strip()
+            not in linked_google_ids
+        ]
+    except Exception as exc:
+        google_read_failed = True
+        log.warning(
+            "calendar_draft_actions: direct google read failed error_type=%s",
+            type(exc).__name__,
+        )
+
+    return [*local_records, *direct_records], google_read_failed
+
+
+def _calendar_action_search_window(
+    client_context: Any,
+) -> tuple[datetime, datetime, str | None]:
+    context = _client_context_dict(client_context)
+    base = datetime.now(timezone.utc)
+
+    raw_local_time = str(
+        context.get("local_time") or ""
+    ).strip()
+
+    if raw_local_time:
+        try:
+            parsed = datetime.fromisoformat(
+                raw_local_time.replace("Z", "+00:00")
+            )
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            base = parsed.astimezone(timezone.utc)
+        except Exception:
+            pass
+
+    time_zone_name = str(
+        context.get("timezone") or ""
+    ).strip() or None
+
+    return (
+        base - timedelta(days=7),
+        base + timedelta(days=24),
+        time_zone_name,
+    )
+
+
+def _direct_google_event_to_action_record(
+    event: dict[str, Any],
+) -> dict[str, Any]:
+    google_event_id = str(event.get("id") or "").strip()
+
+    return {
+        "id": f"google:{google_event_id}",
+        "_record_source": "google",
+        "content": event.get("title"),
+        "structured_value": event.get("title"),
+        "due_date": event.get("event_date"),
+        "calendar_candidate": False,
+        "calendar_event_status": "direct_google",
+        "calendar_event_title": event.get("title"),
+        "calendar_event_date": event.get("event_date"),
+        "calendar_event_start_at": event.get("start_at"),
+        "calendar_event_end_at": event.get("end_at"),
+        "calendar_event_all_day": bool(event.get("all_day")),
+        "calendar_event_location": event.get("location"),
+        "google_calendar_event_id": google_event_id,
+        "google_calendar_event_link": event.get("html_link"),
+        "google_calendar_id": "primary",
+        "archived": False,
+        "superseded": False,
+    }
+
+
 async def _extract_action(
     *,
     user_message: str,
@@ -845,6 +1286,12 @@ def _compact_record(row: dict[str, Any]) -> dict[str, Any]:
         "end_at": row.get("calendar_event_end_at"),
         "all_day": row.get("calendar_event_all_day"),
         "status": row.get("calendar_event_status"),
+        "source": row.get("_record_source") or (
+            "synced_google"
+            if _is_synced_google(row)
+            else "local"
+        ),
+        "google_event_id": row.get("google_calendar_event_id"),
         "is_synced_google": _is_synced_google(row),
         "updated_at": row.get("updated_at"),
     }

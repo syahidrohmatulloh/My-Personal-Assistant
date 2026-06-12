@@ -14,9 +14,9 @@ def test_calendar_event_draft_response_guidance_is_in_volatile_context():
     assert "Aku catat ke Calendar ya beb" in CHAT or "aku catat" in CHAT.lower()
     assert "is_calendar_candidate_turn = (" in CHAT
     assert "not is_calendar_draft_action_turn" in CHAT
-    assert "Calendar actions for this turn run after the reply is generated" in CHAT
-    assert "Do not say 'sudah aku update'" in CHAT
-    assert "Aku proses update-nya di Calendar ya" in CHAT
+    assert "Never infer Calendar action success from user wording alone" in CHAT
+    assert "If an authoritative Calendar action result is present" in CHAT
+    assert "Without an authoritative success result" in CHAT
 
 
 def test_calendar_user_facing_language_rule_blocks_old_candidate_wording():

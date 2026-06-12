@@ -651,6 +651,31 @@ async def google_calendar_oauth_events(
     }
 
 
+async def list_google_calendar_events_for_action(
+    *,
+    user_id: str,
+    start_dt: datetime,
+    end_dt: datetime,
+    time_zone: str | None,
+) -> list[dict[str, Any]]:
+    """Return sanitized primary-calendar events for chat action resolution."""
+
+    connection = _get_connection(user_id=user_id)
+    if not connection or connection.get("status") != "active":
+        return []
+
+    access_token = await get_active_google_calendar_access_token(
+        user_id=user_id
+    )
+    events, _truncated = await _list_google_calendar_events(
+        access_token=access_token,
+        start_dt=start_dt,
+        end_dt=end_dt,
+        time_zone=time_zone,
+    )
+    return events
+
+
 def _parse_google_events_range_datetime(
     value: str,
     *,

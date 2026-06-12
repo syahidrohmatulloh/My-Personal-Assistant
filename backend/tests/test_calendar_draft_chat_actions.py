@@ -82,28 +82,39 @@ def test_synced_google_detection_blocks_silent_chat_delete():
     assert calendar_draft_actions._is_synced_google(row) is True
 
 
-def test_chat_wires_calendar_draft_actions_background_task():
-    assert "calendar_draft_actions," in CHAT
-    assert "calendar_draft_actions.apply_chat_calendar_draft_action" in CHAT
-    assert "Calendar draft actions from chat" in CHAT
-    assert "can update/delete local drafts and synced Google events" in CHAT
-    assert "not should_apply_calendar_draft_action" in CHAT
 
+def test_chat_executes_calendar_draft_actions_authoritatively_before_stream():
+    assert "calendar_draft_actions," in CHAT
+    assert (
+        "await calendar_draft_actions.apply_chat_calendar_draft_action("
+        in CHAT
+    )
+    assert (
+        "Calendar update/delete actions must complete before Claude writes"
+        in CHAT
+    )
+    assert (
+        "calendar_draft_actions.apply_chat_calendar_draft_action,"
+        not in CHAT
+    )
 
 def test_chat_has_user_facing_calendar_action_guidance():
     assert "Calendar draft action capability state — authoritative" in CHAT
-    assert "The action executes in the background after this reply" in CHAT
-    assert "Do not say 'sudah aku update'" in CHAT
-    assert "Aku proses update-nya di Calendar ya" in CHAT
-    assert "Aku proses penghapusannya ya" in CHAT
+    assert "The Calendar action has already been attempted before this reply" in CHAT
+    assert "Follow the authoritative Calendar action result below exactly" in CHAT
+    assert "Say the action succeeded only when success is true" in CHAT
+    assert "render_calendar_action_result_context" in CHAT
 
-def test_stream_recomputes_calendar_action_detector_in_its_own_scope():
+
+def test_stream_uses_precomputed_calendar_action_state():
+    assert "calendar_action_turn: bool = False" in CHAT
     assert (
-        "should_apply_calendar_draft_action = "
-        "calendar_draft_actions.is_calendar_draft_action_request(" in CHAT
+        "should_apply_calendar_draft_action = calendar_action_turn"
+        in CHAT
     )
     assert (
-        "should_apply_calendar_draft_action = is_calendar_draft_action_turn"
+        "should_apply_calendar_draft_action = "
+        "calendar_draft_actions.is_calendar_draft_action_request("
         not in CHAT
     )
 
