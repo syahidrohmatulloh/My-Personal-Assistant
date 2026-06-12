@@ -288,8 +288,12 @@ def _json_safe_dict(value: Any) -> dict[str, Any]:
 
 
 def _normalize(value: str | None) -> str:
-    return re.sub(
+    normalized = re.sub(
         r"\s+",
         " ",
         str(value or "").casefold(),
     ).strip()
+
+    # Indonesian colloquial continuation replies commonly use
+    # "aja" instead of "saja", for example "hari ini aja".
+    return re.sub(r"\baja\b", "saja", normalized)

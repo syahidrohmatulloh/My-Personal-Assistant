@@ -118,3 +118,18 @@ def test_stream_uses_precomputed_calendar_action_state():
         not in CHAT
     )
 
+
+def test_colloquial_recurring_scope_reply_enters_action_flow():
+    assert (
+        calendar_draft_actions
+        .is_calendar_draft_action_request(
+            "hari ini aja"
+        )
+    )
+    assert (
+        calendar_draft_actions
+        .is_calendar_draft_action_request(
+            "yang ini aja"
+        )
+    )
+

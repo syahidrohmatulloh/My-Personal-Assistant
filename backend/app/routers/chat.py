@@ -1441,7 +1441,12 @@ async def _stream_claude_response(
             ],
         )
 
-    should_schedule_proactive_nudge = proactive_nudges.should_attempt_proactive_nudge(user_message)
+    should_schedule_proactive_nudge = (
+        not calendar_action_turn
+        and proactive_nudges.should_attempt_proactive_nudge(
+            user_message
+        )
+    )
     if should_schedule_proactive_nudge:
         add_safe_background_task(background_tasks, 
             proactive_nudges.schedule_from_chat,

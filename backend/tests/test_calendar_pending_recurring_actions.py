@@ -232,3 +232,25 @@ def test_missing_or_expired_pending_action_is_safe(monkeypatch):
 
     assert result["success"] is False
     assert result["reason"] == "no_pending_recurring_action"
+
+
+def test_colloquial_aja_scope_reply_is_supported():
+    assert (
+        calendar_pending_actions.parse_recurring_scope(
+            "hari ini aja"
+        )
+        == "this_instance"
+    )
+    assert (
+        calendar_pending_actions.parse_recurring_scope(
+            "yang ini aja"
+        )
+        == "this_instance"
+    )
+    assert (
+        calendar_pending_actions
+        .is_recurring_scope_only_reply(
+            "hari ini aja"
+        )
+    )
+

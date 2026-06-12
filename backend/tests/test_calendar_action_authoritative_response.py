@@ -97,3 +97,20 @@ def test_calendar_action_reply_cannot_infer_other_schedule_context():
         in CHAT
     )
 
+
+def test_calendar_action_turn_cannot_schedule_proactive_nudge():
+    start = CHAT.index(
+        "should_schedule_proactive_nudge = ("
+    )
+    end = CHAT.index(
+        "\n    if should_schedule_proactive_nudge:",
+        start,
+    )
+    block = CHAT[start:end]
+
+    assert "not calendar_action_turn" in block
+    assert (
+        "proactive_nudges.should_attempt_proactive_nudge"
+        in block
+    )
+

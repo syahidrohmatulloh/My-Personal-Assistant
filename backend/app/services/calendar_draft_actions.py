@@ -169,9 +169,10 @@ def is_calendar_draft_action_request(text: str | None) -> bool:
     has_update = any(term in normalized for term in _UPDATE_TERMS)
     has_delete = any(term in normalized for term in _DELETE_TERMS)
     has_soft_update = any(term in normalized for term in _SOFT_UPDATE_TERMS)
-    has_recurring_scope = any(
-        term in normalized
-        for term in _RECURRING_SCOPE_TERMS
+    has_recurring_scope = bool(
+        calendar_pending_actions.parse_recurring_scope(
+            normalized
+        )
     )
 
     if not (
