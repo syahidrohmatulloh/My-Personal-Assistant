@@ -5,7 +5,7 @@ import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 
 import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label"
 import { createClient } from "@/lib/supabase/client"
-import { type CalendarEvent, type RawCalendarItem, CALENDAR_SNAPSHOT_INVALIDATED_EVENT, calendarSnapshotKeyForUser, LEGACY_CALENDAR_EVENTS_CACHE_KEY, normalizeCalendarEvent, readCalendarEventsSnapshot, sortCalendarEvents as sortEvents, writeCalendarEventsSnapshot } from "@/lib/calendar-snapshot"
+import { type CalendarEvent, CALENDAR_SNAPSHOT_INVALIDATED_EVENT, buildCalendarReadRange, calendarSnapshotKeyForUser, LEGACY_CALENDAR_EVENTS_CACHE_KEY, loadMergedCalendarEvents, readCalendarEventsSnapshot, sortCalendarEvents as sortEvents, writeCalendarEventsSnapshot } from "@/lib/calendar-snapshot"
 
 
 
@@ -214,7 +214,7 @@ function handoffCalendarWarningToChat(event: CalendarEvent, warning: string, pre
 
 function StatusDot({ status }: { status: CalendarEvent["status"] }) {
   const className =
-    status === "synced_google"
+    (status === "synced_google" || status === "google")
       ? "bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]"
       : "bg-indigo-500 shadow-[0_0_0_4px_rgba(99,102,241,0.12)]"
 
@@ -233,25 +233,14 @@ export default function CalendarPage() {
     setError(null)
 
     try {
-      const response = await fetch("/api/memory-review/calendar-candidates", {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
+      const range = buildCalendarReadRange({
+        daysBefore: 7,
+        daysAfter: 24,
       })
+      const mergedEvents = await loadMergedCalendarEvents(range)
 
-      if (!response.ok) {
-        throw new Error(`Calendar request failed: ${response.status}`)
-      }
-
-      const data = await response.json()
-      const items = Array.isArray(data?.items) ? data.items : []
-      const normalized = items
-        .map((item: RawCalendarItem) => normalizeCalendarEvent(item))
-        .filter(Boolean) as CalendarEvent[]
-
-      const sortedEvents = normalized.sort(sortEvents)
-      setEvents(sortedEvents)
-      writeCalendarEventsSnapshot(sortedEvents, snapshotKey)
+      setEvents(mergedEvents)
+      writeCalendarEventsSnapshot(mergedEvents, snapshotKey)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load Calendar"
       setError(message)
@@ -350,15 +339,15 @@ export default function CalendarPage() {
             <p className="mt-2 text-3xl font-semibold">{events.length}</p>
           </div>
           <div className="rounded-3xl border border-border bg-fg/[0.035] p-5">
-            <p className="text-sm text-fg-muted">Google synced</p>
+            <p className="text-sm text-fg-muted">Google events</p>
             <p className="mt-2 text-3xl font-semibold">
-              {events.filter((event) => event.status === "synced_google").length}
+              {events.filter((event) => event.source !== "local").length}
             </p>
           </div>
           <div className="rounded-3xl border border-border bg-fg/[0.035] p-5">
             <p className="text-sm text-fg-muted">Local only</p>
             <p className="mt-2 text-3xl font-semibold">
-              {events.filter((event) => event.status === "confirmed_local").length}
+              {events.filter((event) => event.source === "local").length}
             </p>
           </div>
         </section>

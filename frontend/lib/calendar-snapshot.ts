@@ -20,6 +20,19 @@ export type RawCalendarItem = {
   calendar_sync_error?: string | null
 }
 
+export type RawGoogleCalendarEvent = {
+  id?: string
+  title?: string
+  event_date?: string
+  start_at?: string | null
+  end_at?: string | null
+  all_day?: boolean
+  location?: string | null
+  html_link?: string | null
+  status?: string | null
+  source?: string
+}
+
 export type CalendarEvent = {
   id: string
   title: string
@@ -28,9 +41,17 @@ export type CalendarEvent = {
   endAt: string | null
   allDay: boolean
   location: string | null
-  status: "confirmed_local" | "synced_google"
+  status: "confirmed_local" | "synced_google" | "google"
+  source: "local" | "synced" | "google"
+  googleEventId: string | null
   googleLink: string | null
   syncError: string | null
+}
+
+export type CalendarReadRange = {
+  start: string
+  end: string
+  timeZone: string
 }
 
 export const LEGACY_CALENDAR_EVENTS_CACHE_KEY = "app:calendar-events-cache:v1"
@@ -96,9 +117,216 @@ export function normalizeCalendarEvent(item: RawCalendarItem): CalendarEvent | n
     allDay: Boolean(item.calendar_event_all_day),
     location: normalizeCalendarLocation(item),
     status,
+    source: status === "synced_google" ? "synced" : "local",
+    googleEventId: item.google_calendar_event_id || null,
     googleLink: item.google_calendar_event_link || null,
     syncError: item.calendar_sync_error || null,
   }
+}
+
+export function normalizeGoogleCalendarEvent(
+  item: RawGoogleCalendarEvent,
+): CalendarEvent | null {
+  const googleEventId = String(item.id || "").trim()
+  const date = String(item.event_date || "").trim()
+
+  if (!googleEventId || !date) {
+    return null
+  }
+
+  const title = String(item.title || "Untitled event")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 250) || "Untitled event"
+
+  const location = String(item.location || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180) || null
+
+  return {
+    id: `google:${googleEventId}`,
+    title,
+    date,
+    startAt: item.start_at || null,
+    endAt: item.end_at || null,
+    allDay: Boolean(item.all_day),
+    location,
+    status: "google",
+    source: "google",
+    googleEventId,
+    googleLink: item.html_link || null,
+    syncError: null,
+  }
+}
+
+function canonicalEventTime(value: string | null): string {
+  if (!value) {
+    return ""
+  }
+
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString()
+}
+
+function calendarEventFingerprint(event: CalendarEvent): string {
+  const title = event.title
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  return [
+    title,
+    event.date,
+    event.allDay ? "all-day" : canonicalEventTime(event.startAt),
+    event.allDay ? "" : canonicalEventTime(event.endAt),
+  ].join("|")
+}
+
+export function mergeCalendarEvents(
+  localEvents: CalendarEvent[],
+  googleEvents: CalendarEvent[],
+): CalendarEvent[] {
+  const merged = [...localEvents]
+
+  const localIndexByGoogleId = new Map<string, number>()
+  const localIndexByFingerprint = new Map<string, number>()
+
+  merged.forEach((event, index) => {
+    if (event.googleEventId) {
+      localIndexByGoogleId.set(event.googleEventId, index)
+    }
+
+    const fingerprint = calendarEventFingerprint(event)
+    if (!localIndexByFingerprint.has(fingerprint)) {
+      localIndexByFingerprint.set(fingerprint, index)
+    }
+  })
+
+  for (const googleEvent of googleEvents) {
+    const googleEventId = googleEvent.googleEventId
+    const idMatch =
+      googleEventId ? localIndexByGoogleId.get(googleEventId) : undefined
+
+    if (idMatch !== undefined) {
+      const localEvent = merged[idMatch]
+
+      merged[idMatch] = {
+        ...localEvent,
+        title: googleEvent.title,
+        date: googleEvent.date,
+        startAt: googleEvent.startAt,
+        endAt: googleEvent.endAt,
+        allDay: googleEvent.allDay,
+        location: googleEvent.location ?? localEvent.location,
+        status: "synced_google",
+        source: "synced",
+        googleEventId,
+        googleLink: googleEvent.googleLink ?? localEvent.googleLink,
+      }
+      continue
+    }
+
+    const fingerprint = calendarEventFingerprint(googleEvent)
+    const fingerprintMatch = localIndexByFingerprint.get(fingerprint)
+
+    if (fingerprintMatch !== undefined) {
+      merged[fingerprintMatch] = googleEvent
+      continue
+    }
+
+    merged.push(googleEvent)
+  }
+
+  return merged.sort(sortCalendarEvents)
+}
+
+export function buildCalendarReadRange({
+  daysBefore = 7,
+  daysAfter = 24,
+  now = new Date(),
+}: {
+  daysBefore?: number
+  daysAfter?: number
+  now?: Date
+} = {}): CalendarReadRange {
+  const start = new Date(now)
+  start.setHours(0, 0, 0, 0)
+  start.setDate(start.getDate() - daysBefore)
+
+  const end = new Date(now)
+  end.setHours(0, 0, 0, 0)
+  end.setDate(end.getDate() + daysAfter)
+
+  const timeZone =
+    Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+
+  return {
+    start: start.toISOString(),
+    end: end.toISOString(),
+    timeZone,
+  }
+}
+
+export async function loadMergedCalendarEvents(
+  range: CalendarReadRange,
+): Promise<CalendarEvent[]> {
+  const googleParams = new URLSearchParams({
+    start: range.start,
+    end: range.end,
+    time_zone: range.timeZone,
+  })
+
+  const localRequest = fetch("/api/memory-review/calendar-candidates", {
+    method: "GET",
+    credentials: "include",
+    cache: "no-store",
+  })
+
+  const googleRequest = fetch(
+    `/api/calendar/oauth/events?${googleParams.toString()}`,
+    {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+    },
+  ).catch(() => null)
+
+  const [localResponse, googleResponse] = await Promise.all([
+    localRequest,
+    googleRequest,
+  ])
+
+  if (!localResponse.ok) {
+    throw new Error(`Calendar request failed: ${localResponse.status}`)
+  }
+
+  const localPayload = await localResponse.json()
+  const localItems = Array.isArray(localPayload?.items)
+    ? localPayload.items
+    : []
+
+  const localEvents = localItems
+    .map((item: RawCalendarItem) => normalizeCalendarEvent(item))
+    .filter(Boolean) as CalendarEvent[]
+
+  let googleEvents: CalendarEvent[] = []
+
+  if (googleResponse?.ok) {
+    const googlePayload = await googleResponse.json()
+    const googleItems = Array.isArray(googlePayload?.events)
+      ? googlePayload.events
+      : []
+
+    googleEvents = googleItems
+      .map((item: RawGoogleCalendarEvent) =>
+        normalizeGoogleCalendarEvent(item),
+      )
+      .filter(Boolean) as CalendarEvent[]
+  }
+
+  return mergeCalendarEvents(localEvents, googleEvents)
 }
 
 export function sortCalendarEvents(a: CalendarEvent, b: CalendarEvent): number {
@@ -119,7 +347,22 @@ export function isCalendarEvent(value: unknown): value is CalendarEvent {
     typeof item.title === "string" &&
     typeof item.date === "string" &&
     (item.location === undefined || item.location === null || typeof item.location === "string") &&
-    (item.status === "confirmed_local" || item.status === "synced_google")
+    (
+      item.status === "confirmed_local" ||
+      item.status === "synced_google" ||
+      item.status === "google"
+    ) &&
+    (
+      item.source === undefined ||
+      item.source === "local" ||
+      item.source === "synced" ||
+      item.source === "google"
+    ) &&
+    (
+      item.googleEventId === undefined ||
+      item.googleEventId === null ||
+      typeof item.googleEventId === "string"
+    )
   )
 }
 
@@ -137,7 +380,15 @@ export function readCalendarEventsSnapshot(
     { maxAgeMs: SNAPSHOT_MAX_AGE_MS.calendar },
   )
 
-  return snapshot?.data.sort(sortCalendarEvents) ?? []
+  return (
+    snapshot?.data.map((event) => ({
+      ...event,
+      source:
+        event.source ||
+        (event.status === "synced_google" ? "synced" : "local"),
+      googleEventId: event.googleEventId ?? null,
+    })).sort(sortCalendarEvents) ?? []
+  )
 }
 
 export function writeCalendarEventsSnapshot(

@@ -237,6 +237,15 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
               <li key={event.id || `${event.title}-${index}`}>
                 <span className="font-medium">{time}</span>
                 {event.title ? ` — ${event.title}` : ""}
+                {event.source === "google" ? (
+                  <span className="ml-2 text-[10px] uppercase tracking-wide opacity-60">
+                    Google
+                  </span>
+                ) : event.source === "synced" ? (
+                  <span className="ml-2 text-[10px] uppercase tracking-wide opacity-60">
+                    Synced
+                  </span>
+                ) : null}
                 {event.location ? (
                   <span className="block truncate pl-0.5 text-xs opacity-70">{event.location}</span>
                 ) : null}

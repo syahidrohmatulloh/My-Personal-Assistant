@@ -1,8 +1,6 @@
 import {
-  normalizeCalendarEvent,
-  sortCalendarEvents,
-  type CalendarEvent,
-  type RawCalendarItem,
+  buildCalendarReadRange,
+  loadMergedCalendarEvents,
 } from "@/lib/calendar-snapshot";
 import type {
   WorkspaceAgendaItem,
@@ -17,26 +15,12 @@ function localDateKey(date = new Date()): string {
 }
 
 export async function loadTodayWorkspaceAgenda(): Promise<WorkspaceAgendaItem[]> {
-  const response = await fetch("/api/memory-review/calendar-candidates", {
-    method: "GET",
-    credentials: "include",
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error(`Workspace agenda request failed: ${response.status}`);
-  }
-
-  const payload = await response.json();
-  const rawItems = Array.isArray(payload?.items) ? payload.items : [];
-
-  const events = (
-    rawItems
-      .map((item: RawCalendarItem) => normalizeCalendarEvent(item))
-      .filter(Boolean) as CalendarEvent[]
-  ).sort(sortCalendarEvents);
-
-  const today = localDateKey();
+  const range = buildCalendarReadRange({
+    daysBefore: 0,
+    daysAfter: 1,
+  })
+  const events = await loadMergedCalendarEvents(range)
+  const today = localDateKey()
 
   return events
     .filter((event) => event.date === today)
@@ -49,8 +33,10 @@ export async function loadTodayWorkspaceAgenda(): Promise<WorkspaceAgendaItem[]>
       endAt: event.endAt,
       allDay: event.allDay,
       status: event.status,
+      source: event.source,
+      googleEventId: event.googleEventId,
       location: event.location ?? null,
-    }));
+    }))
 }
 
 export async function loadUpcomingWorkspaceReminders(): Promise<WorkspaceReminder[]> {

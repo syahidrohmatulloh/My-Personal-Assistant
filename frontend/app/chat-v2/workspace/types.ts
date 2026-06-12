@@ -40,6 +40,8 @@ export type WorkspaceAgendaItem = {
   endAt?: string | null;
   allDay?: boolean;
   status?: string;
+  source?: "local" | "synced" | "google";
+  googleEventId?: string | null;
   location?: string | null;
 };
 
