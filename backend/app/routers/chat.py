@@ -846,7 +846,9 @@ async def chat(
         "\n- Ask for confirmation first: 'Beb, ini kayaknya agenda kalender. Mau aku masukin ke Calendar?'"
         "\n- Summarize Acara, Tanggal, Waktu, and Lokasi if available."
         "\n- Never use user-facing terms like 'agenda kalender', 'agenda kalender', 'Calendar event', or 'calendar event'."
-        "\n- Only say the event was added/synced/updated/deleted after the user clearly confirms and the backend action is expected to run."
+        "\n- A clear confirmation or explicit request authorizes processing, but does not prove database persistence succeeded."
+        "\n- Calendar actions for this turn run after the reply is generated, so never claim they already succeeded."
+        "\n- Use future/process wording such as: 'Aku proses update-nya di Calendar ya.'"
     )
     pending_calendar_confirmation_context = await calendar_confirmation_actions.render_pending_calendar_confirmation_context(
         user_id=user_id,
@@ -869,7 +871,17 @@ async def chat(
         "\\n- Do not claim the goal is already active/saved unless a direct create-goal action has explicitly succeeded in the current request."
         "\\n- Preferred wording: Aku bantu siapkan ini sebagai kandidat goal di Goals."
     )
-    if calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(body.message):
+    is_calendar_draft_action_turn = (
+        calendar_draft_actions.is_calendar_draft_action_request(body.message)
+    )
+    is_calendar_candidate_turn = (
+        not is_calendar_draft_action_turn
+        and calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(
+            body.message
+        )
+    )
+
+    if is_calendar_candidate_turn:
         volatile_context += (
             "\\n\\nCalendar event capability state — authoritative:"
             "\\n- The user message appears to contain a schedule/calendar event request."
@@ -882,18 +894,19 @@ async def chat(
             "\\n- Summarize the event naturally with Acara, Tanggal, Waktu, and Lokasi if available from the user's message."
             "\\n- Preferred Indonesian wording for implicit schedule mentions: Beb, ini kayaknya agenda kalender. Mau aku masukin ke Calendar?"
         )
-    if calendar_draft_actions.is_calendar_draft_action_request(body.message):
+    if is_calendar_draft_action_turn:
         volatile_context += (
             "\n\nCalendar draft action capability state — authoritative:"
             "\n- The user appears to be asking to edit, reschedule, remove, cancel, or delete a Calendar item."
             "\n- The app can update or remove local Calendar drafts from chat when the target is clear. If the target is already synced to Google Calendar, the app can update/delete the linked Google Calendar event too."
-            "\n- You may say the Google Calendar event will be updated/deleted when the user's request clearly targets a synced Google Calendar event."
-            "\n- If the event is already synced to Google Calendar, say changes/deletion may require confirmation from Memories → Calendar."
-            "\n- Use natural wording like: Aku update di Calendar ya, or Aku hapus dari Calendar ya."
+            "\n- The action executes in the background after this reply, so do not claim the update or deletion has already succeeded."
+            "\n- Do not say 'sudah aku update', 'sudah aku hapus', or equivalent completed wording in this reply."
+            "\n- Use process wording such as: Aku proses update-nya di Calendar ya, or Aku proses penghapusannya ya."
+            "\n- If the target is ambiguous, say you will try to identify it; never invent a successful result."
             "\n- Do not use the phrase 'Calendar event' in user-facing replies."
         )
 
-    if calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(body.message):
+    if is_calendar_candidate_turn:
         volatile_context += (
             "\n\nCalendar scheduling contract for this user turn — highest priority:"
             "\n- The current user message appears to contain schedule/event details."
@@ -1370,9 +1383,7 @@ async def _stream_claude_response(
         )
 
     # Calendar draft actions from chat — can update/delete local drafts and synced Google events.
-    should_apply_calendar_draft_action = calendar_draft_actions.is_calendar_draft_action_request(
-        user_message
-    )
+    should_apply_calendar_draft_action = is_calendar_draft_action_turn
     if should_apply_calendar_draft_action:
         add_safe_background_task(background_tasks, 
             calendar_draft_actions.apply_chat_calendar_draft_action,

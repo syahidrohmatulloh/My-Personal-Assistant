@@ -9,6 +9,15 @@ def test_calendar_draft_action_request_detection():
     assert calendar_draft_actions.is_calendar_draft_action_request("ubah yang jemput Aneira jadi jam 3 sore")
     assert calendar_draft_actions.is_calendar_draft_action_request("ganti lokasi padel jadi Plaza Festival")
     assert calendar_draft_actions.is_calendar_draft_action_request("reschedule bowling ke besok jam 10")
+    assert calendar_draft_actions.is_calendar_draft_action_request(
+        "beb tolong revisi kalender, golf dengan Indosat itu mulai di 05.52 dan selesai di jam 13.00"
+    )
+    assert calendar_draft_actions.is_calendar_draft_action_request(
+        "koreksi jadwal meeting besok jadi jam 9"
+    )
+    assert not calendar_draft_actions.is_calendar_draft_action_request(
+        "tolong revisi tulisan ini"
+    )
     assert calendar_draft_actions.is_calendar_draft_action_request("hapus jadwal jemput Aneira")
     assert calendar_draft_actions.is_calendar_draft_action_request("batalin agenda padel nanti sore")
     assert not calendar_draft_actions.is_calendar_draft_action_request("hai beb")
@@ -83,5 +92,7 @@ def test_chat_wires_calendar_draft_actions_background_task():
 
 def test_chat_has_user_facing_calendar_action_guidance():
     assert "Calendar draft action capability state — authoritative" in CHAT
-    assert "You may say the Google Calendar event will be updated/deleted" in CHAT
-    assert "Aku hapus dari Calendar ya" in CHAT
+    assert "The action executes in the background after this reply" in CHAT
+    assert "Do not say 'sudah aku update'" in CHAT
+    assert "Aku proses update-nya di Calendar ya" in CHAT
+    assert "Aku proses penghapusannya ya" in CHAT

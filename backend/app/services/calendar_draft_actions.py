@@ -33,6 +33,8 @@ _UPDATE_TERMS = (
     "ganti",
     "edit",
     "update",
+    "revisi",
+    "koreksi",
     "reschedule",
     "jadwal ulang",
     "mundurin",
