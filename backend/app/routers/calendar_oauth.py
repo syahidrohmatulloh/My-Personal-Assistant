@@ -12,6 +12,7 @@ import logging
 import secrets
 from typing import Any
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -577,3 +578,307 @@ def _store_refreshed_token(*, user_id: str, token_payload: dict[str, Any]) -> No
         .eq("user_id", user_id)
         .execute()
     )
+
+GOOGLE_CALENDAR_EVENTS_MAX_RANGE_DAYS = 31
+GOOGLE_CALENDAR_EVENTS_PAGE_SIZE = 250
+GOOGLE_CALENDAR_EVENTS_MAX_RESULTS = 500
+
+
+@router.get("/events")
+async def google_calendar_oauth_events(
+    start: str = Query(..., min_length=1, max_length=80),
+    end: str = Query(..., min_length=1, max_length=80),
+    time_zone: str | None = Query(default=None, max_length=100),
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    """Read sanitized events directly from the user's primary Google Calendar."""
+
+    start_dt = _parse_google_events_range_datetime(start, field_name="start")
+    end_dt = _parse_google_events_range_datetime(end, field_name="end")
+
+    if end_dt <= start_dt:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google Calendar event range end must be after start",
+        )
+
+    if end_dt - start_dt > timedelta(days=GOOGLE_CALENDAR_EVENTS_MAX_RANGE_DAYS):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Google Calendar event range cannot exceed "
+                f"{GOOGLE_CALENDAR_EVENTS_MAX_RANGE_DAYS} days"
+            ),
+        )
+
+    clean_time_zone = _validate_google_events_time_zone(time_zone)
+
+    connection = _get_connection(user_id=user_id)
+    if not connection or connection.get("status") != "active":
+        return {
+            "connected": False,
+            "events": [],
+            "truncated": False,
+        }
+
+    try:
+        access_token = await get_active_google_calendar_access_token(
+            user_id=user_id
+        )
+        events, truncated = await _list_google_calendar_events(
+            access_token=access_token,
+            start_dt=start_dt,
+            end_dt=end_dt,
+            time_zone=clean_time_zone,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "calendar oauth: event read failed user=%s error_type=%s",
+            user_id[:8],
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to read Google Calendar",
+        ) from exc
+
+    return {
+        "connected": True,
+        "events": events,
+        "truncated": truncated,
+    }
+
+
+def _parse_google_events_range_datetime(
+    value: str,
+    *,
+    field_name: str,
+) -> datetime:
+    cleaned = str(value or "").strip()
+
+    try:
+        parsed = datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{field_name} must be a valid ISO datetime",
+        ) from exc
+
+    if parsed.tzinfo is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{field_name} must include a timezone offset",
+        )
+
+    return parsed.astimezone(timezone.utc)
+
+
+def _validate_google_events_time_zone(value: str | None) -> str | None:
+    cleaned = str(value or "").strip()
+
+    if not cleaned:
+        return None
+
+    try:
+        ZoneInfo(cleaned)
+    except ZoneInfoNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="time_zone must be a valid IANA timezone",
+        ) from exc
+
+    return cleaned
+
+
+def _build_google_calendar_events_params(
+    *,
+    start_dt: datetime,
+    end_dt: datetime,
+    time_zone: str | None,
+    page_token: str | None = None,
+) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "timeMin": start_dt.astimezone(timezone.utc).isoformat().replace(
+            "+00:00", "Z"
+        ),
+        "timeMax": end_dt.astimezone(timezone.utc).isoformat().replace(
+            "+00:00", "Z"
+        ),
+        "singleEvents": "true",
+        "orderBy": "startTime",
+        "showDeleted": "false",
+        "maxResults": GOOGLE_CALENDAR_EVENTS_PAGE_SIZE,
+    }
+
+    if time_zone:
+        params["timeZone"] = time_zone
+
+    if page_token:
+        params["pageToken"] = page_token
+
+    return params
+
+
+async def _list_google_calendar_events(
+    *,
+    access_token: str,
+    start_dt: datetime,
+    end_dt: datetime,
+    time_zone: str | None,
+) -> tuple[list[dict[str, Any]], bool]:
+    events: list[dict[str, Any]] = []
+    page_token: str | None = None
+    truncated = False
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        while len(events) < GOOGLE_CALENDAR_EVENTS_MAX_RESULTS:
+            params = _build_google_calendar_events_params(
+                start_dt=start_dt,
+                end_dt=end_dt,
+                time_zone=time_zone,
+                page_token=page_token,
+            )
+
+            response = await client.get(
+                GOOGLE_CALENDAR_EVENTS_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+                params=params,
+            )
+
+            if response.status_code >= 400:
+                log.warning(
+                    "calendar oauth: event list failed status=%s error=%s",
+                    response.status_code,
+                    _google_oauth_error_code(response),
+                )
+                raise RuntimeError("Google Calendar event list failed")
+
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise RuntimeError("Google Calendar returned an invalid payload")
+
+            raw_items = payload.get("items")
+            if not isinstance(raw_items, list):
+                raw_items = []
+
+            remaining = GOOGLE_CALENDAR_EVENTS_MAX_RESULTS - len(events)
+
+            normalized_page = [
+                normalized
+                for item in raw_items
+                if isinstance(item, dict)
+                for normalized in [
+                    _normalize_google_calendar_event(
+                        item,
+                        time_zone=time_zone,
+                    )
+                ]
+                if normalized is not None
+            ]
+
+            if len(normalized_page) > remaining:
+                events.extend(normalized_page[:remaining])
+                truncated = True
+                break
+
+            events.extend(normalized_page)
+
+            next_page_token = str(
+                payload.get("nextPageToken") or ""
+            ).strip()
+
+            if not next_page_token:
+                break
+
+            if len(events) >= GOOGLE_CALENDAR_EVENTS_MAX_RESULTS:
+                truncated = True
+                break
+
+            page_token = next_page_token
+
+    return events, truncated
+
+
+def _normalize_google_calendar_event(
+    item: dict[str, Any],
+    *,
+    time_zone: str | None,
+) -> dict[str, Any] | None:
+    if str(item.get("status") or "").strip().lower() == "cancelled":
+        return None
+
+    event_id = str(item.get("id") or "").strip()
+    if not event_id:
+        return None
+
+    start = item.get("start")
+    end = item.get("end")
+
+    if not isinstance(start, dict):
+        return None
+
+    if not isinstance(end, dict):
+        end = {}
+
+    start_date = str(start.get("date") or "").strip()
+
+    if start_date:
+        event_date = start_date
+        start_at = None
+        end_at = None
+        all_day = True
+    else:
+        start_at = str(start.get("dateTime") or "").strip() or None
+        end_at = str(end.get("dateTime") or "").strip() or None
+
+        if not start_at:
+            return None
+
+        event_date = _google_event_local_date(
+            start_at,
+            time_zone=time_zone,
+        )
+        all_day = False
+
+    title = str(item.get("summary") or "").strip() or "Untitled event"
+    location = str(item.get("location") or "").strip() or None
+    html_link = str(item.get("htmlLink") or "").strip() or None
+    event_status = str(item.get("status") or "").strip() or "confirmed"
+
+    return {
+        "id": event_id,
+        "title": title[:250],
+        "event_date": event_date,
+        "start_at": start_at,
+        "end_at": end_at,
+        "all_day": all_day,
+        "location": location[:180] if location else None,
+        "html_link": html_link,
+        "status": event_status,
+        "source": "google",
+    }
+
+
+def _google_event_local_date(
+    start_at: str,
+    *,
+    time_zone: str | None,
+) -> str:
+    try:
+        parsed = datetime.fromisoformat(
+            str(start_at).replace("Z", "+00:00")
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "Google Calendar returned an invalid event start datetime"
+        ) from exc
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    if time_zone:
+        parsed = parsed.astimezone(ZoneInfo(time_zone))
+
+    return parsed.date().isoformat()
