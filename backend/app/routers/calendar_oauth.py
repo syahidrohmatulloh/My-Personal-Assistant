@@ -32,6 +32,11 @@ from app.services.token_crypto import (
 
 log = logging.getLogger(__name__)
 
+
+class GoogleCalendarReauthRequiredError(RuntimeError):
+    """Google authorization must be renewed by the user."""
+
+
 router = APIRouter(prefix="/calendar/oauth", tags=["calendar_oauth"])
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -51,17 +56,26 @@ async def google_calendar_oauth_status(
     user_id: str = Depends(get_current_user_id),
 ) -> dict[str, Any]:
     row = _get_connection(user_id=user_id)
+    connection_status = str(
+        row.get("status") or ""
+    ).strip() if row else ""
 
-    if not row or row.get("status") != "active":
+    if connection_status != "active":
         return {
             "connected": False,
-            "email": None,
+            "reauth_required": (
+                connection_status == "reauth_required"
+            ),
+            "email": row.get("email") if row else None,
             "expires_at": None,
-            "scope": None,
+            "scope": row.get("scope") if row else None,
+            "connected_at": row.get("connected_at") if row else None,
+            "updated_at": row.get("updated_at") if row else None,
         }
 
     return {
         "connected": True,
+        "reauth_required": False,
         "email": row.get("email"),
         "expires_at": row.get("expires_at"),
         "scope": row.get("scope"),
@@ -491,11 +505,15 @@ async def get_active_google_calendar_access_token(*, user_id: str) -> str:
         )
 
     client_id, client_secret, _redirect_uri = _require_google_oauth_config()
-    refreshed = await _refresh_access_token(
-        refresh_token=refresh_token,
-        client_id=client_id,
-        client_secret=client_secret,
-    )
+    try:
+        refreshed = await _refresh_access_token(
+            refresh_token=refresh_token,
+            client_id=client_id,
+            client_secret=client_secret,
+        )
+    except GoogleCalendarReauthRequiredError:
+        _mark_connection_reauth_required(user_id=user_id)
+        raise
 
     new_access_token = str(refreshed.get("access_token") or "").strip()
     if not new_access_token:
@@ -538,14 +556,40 @@ async def _refresh_access_token(
         )
 
     if response.status_code >= 400:
+        error_code = _google_oauth_error_code(response)
         log.warning(
             "calendar oauth: token refresh failed status=%s error=%s",
             response.status_code,
-            _google_oauth_error_code(response),
+            error_code,
         )
+
+        if error_code == "invalid_grant":
+            raise GoogleCalendarReauthRequiredError(
+                "Google Calendar authorization must be renewed"
+            )
+
         raise RuntimeError("Google token refresh failed")
 
     return response.json()
+
+
+def _mark_connection_reauth_required(*, user_id: str) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+
+    safe_execute(
+        lambda sb: sb.table("google_calendar_connections")
+        .update(
+            {
+                "status": "reauth_required",
+                "access_token": None,
+                "refresh_token": None,
+                "expires_at": None,
+                "updated_at": now,
+            }
+        )
+        .eq("user_id", user_id)
+        .execute()
+    )
 
 
 def _store_refreshed_token(*, user_id: str, token_payload: dict[str, Any]) -> None:
@@ -614,9 +658,16 @@ async def google_calendar_oauth_events(
     clean_time_zone = _validate_google_events_time_zone(time_zone)
 
     connection = _get_connection(user_id=user_id)
-    if not connection or connection.get("status") != "active":
+    connection_status = str(
+        connection.get("status") or ""
+    ).strip() if connection else ""
+
+    if connection_status != "active":
         return {
             "connected": False,
+            "reauth_required": (
+                connection_status == "reauth_required"
+            ),
             "events": [],
             "truncated": False,
         }
@@ -631,6 +682,13 @@ async def google_calendar_oauth_events(
             end_dt=end_dt,
             time_zone=clean_time_zone,
         )
+    except GoogleCalendarReauthRequiredError:
+        return {
+            "connected": False,
+            "reauth_required": True,
+            "events": [],
+            "truncated": False,
+        }
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -646,6 +704,7 @@ async def google_calendar_oauth_events(
 
     return {
         "connected": True,
+        "reauth_required": False,
         "events": events,
         "truncated": truncated,
     }
@@ -661,7 +720,16 @@ async def list_google_calendar_events_for_action(
     """Return sanitized primary-calendar events for chat action resolution."""
 
     connection = _get_connection(user_id=user_id)
-    if not connection or connection.get("status") != "active":
+    connection_status = str(
+        connection.get("status") or ""
+    ).strip() if connection else ""
+
+    if connection_status == "reauth_required":
+        raise GoogleCalendarReauthRequiredError(
+            "Google Calendar authorization must be renewed"
+        )
+
+    if connection_status != "active":
         return []
 
     access_token = await get_active_google_calendar_access_token(

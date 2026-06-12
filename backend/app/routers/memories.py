@@ -25,14 +25,14 @@ router = APIRouter(prefix="/memories", tags=["memories"])
 class MemoryOut(BaseModel):
     id: str
     content: str
-    kind: Literal["fact", "preference", "context"]
+    kind: Literal["fact", "preference", "context", "plan"]
     source: Literal["auto", "manual"]
     created_at: datetime
 
 
 class CreateMemoryIn(BaseModel):
     content: str = Field(min_length=3, max_length=500)
-    kind: Literal["fact", "preference", "context"] = "fact"
+    kind: Literal["fact", "preference", "context", "plan"] = "fact"
 
 
 # ---------------------------------------------------------------------------

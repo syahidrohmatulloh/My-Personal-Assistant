@@ -108,6 +108,7 @@ def test_disconnected_user_gets_empty_non_error_response(monkeypatch):
 
     assert result == {
         "connected": False,
+        "reauth_required": False,
         "events": [],
         "truncated": False,
     }
