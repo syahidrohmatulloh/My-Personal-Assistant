@@ -13,6 +13,7 @@ type PinStatus = {
 
 type CalendarOAuthStatus = {
   connected: boolean
+  reauth_required?: boolean
   email?: string | null
   expires_at?: string | null
   scope?: string | null
@@ -269,7 +270,7 @@ export default function SecuritySettingsPage() {
                     Google Calendar
                   </h2>
                   <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-                    Connect Google Calendar so future approved calendar candidates can be synced as real events.
+                    Connect Google Calendar so Aliyya can securely read and manage your approved calendar events.
                   </p>
                 </div>
 
@@ -281,7 +282,13 @@ export default function SecuritySettingsPage() {
                   ) : (
                     <CalendarDays className="h-4 w-4 text-amber-600 dark:text-amber-300" />
                   )}
-                  {calendarLoading ? "Checking..." : calendarStatus?.connected ? "Connected" : "Not connected"}
+                  {calendarLoading
+                    ? "Checking..."
+                    : calendarStatus?.connected
+                      ? "Connected"
+                      : calendarStatus?.reauth_required
+                        ? "Reconnect required"
+                        : "Not connected"}
                 </div>
               </div>
 
@@ -313,10 +320,38 @@ export default function SecuritySettingsPage() {
                     Disconnect
                   </button>
                 </div>
+              ) : calendarStatus?.reauth_required ? (
+                <div className="mt-5 rounded-[1.5rem] border border-amber-300/60 bg-amber-50/80 p-4 text-sm leading-6 text-amber-900 shadow-xl shadow-amber-900/5 dark:border-amber-300/20 dark:bg-amber-500/10 dark:text-amber-100 dark:shadow-black/20">
+                  <p className="font-medium">
+                    Google Calendar authorization needs to be renewed.
+                  </p>
+                  <p className="mt-1 text-amber-800/80 dark:text-amber-100/70">
+                    Your existing Google permission is no longer valid. Reconnect to resume reading and managing Google Calendar events.
+                  </p>
+
+                  {calendarStatus.email ? (
+                    <p className="mt-2 text-xs text-amber-800/70 dark:text-amber-100/60">
+                      Previously connected account: {calendarStatus.email}
+                    </p>
+                  ) : null}
+
+                  <button
+                    onClick={() => void connectGoogleCalendar()}
+                    disabled={saving}
+                    className="mt-4 inline-flex items-center justify-center gap-2 rounded-full bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {saving ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <CalendarDays className="h-4 w-4" />
+                    )}
+                    Reconnect Google Calendar
+                  </button>
+                </div>
               ) : (
                 <div className="mt-5 rounded-[1.5rem] border border-slate-200/70 bg-slate-50/80 p-4 text-sm leading-6 text-slate-600 shadow-xl shadow-slate-900/5 dark:border-white/10 dark:bg-white/[0.03] dark:text-zinc-400 dark:shadow-black/20">
                   <p>
-                    This only connects your account. It will not create events automatically.
+                    Connect your account to let Aliyya read and manage approved Google Calendar events.
                   </p>
                   <button
                     onClick={() => void connectGoogleCalendar()}
