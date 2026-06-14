@@ -20,6 +20,7 @@ from typing import Any
 from app.services.claude import get_claude
 from app.services.embeddings import embed_document
 from app.services.supabase_client import safe_execute
+from app.services import calendar_conflicts
 from app.services import calendar_intent
 from app.services import calendar_pending_actions
 from app.services.google_calendar_payload import build_google_event_body
@@ -431,6 +432,7 @@ async def apply_chat_calendar_draft_action(
             conversation_id=conversation_id,
             target=target,
             action=action,
+            calendar_records=records,
         )
 
     if _is_synced_google(target):
@@ -500,11 +502,13 @@ async def _apply_direct_google_action_with_pending_scope(
     conversation_id: str,
     target: dict[str, Any],
     action: dict[str, Any],
+    calendar_records: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     result = await _apply_direct_google_calendar_action(
         user_id=user_id,
         target=target,
         action=action,
+        calendar_records=calendar_records,
     )
 
     if result.get("reason") != "recurring_scope_required":
@@ -628,10 +632,18 @@ async def _resume_pending_recurring_action(
         "recurring_scope": recurring_scope,
     }
 
+    calendar_records, _google_read_failed = (
+        await _load_calendar_action_records(
+            user_id=user_id,
+            client_context=None,
+        )
+    )
+
     result = await _apply_direct_google_calendar_action(
         user_id=user_id,
         target=target,
         action=resumed_action,
+        calendar_records=calendar_records,
     )
 
     result = {
@@ -663,6 +675,7 @@ async def _apply_direct_google_calendar_action(
     user_id: str,
     target: dict[str, Any],
     action: dict[str, Any],
+    calendar_records: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     google_event_id = str(
         target.get("google_calendar_event_id") or ""
@@ -827,6 +840,11 @@ async def _apply_direct_google_calendar_action(
             }
 
         merged = _build_update_payload(target, action)
+        conflict_analysis = _detect_conflicts_for_calendar_payload(
+            target=target,
+            payload=merged,
+            calendar_records=calendar_records or [],
+        )
 
         return {
             "attempted": True,
@@ -852,6 +870,7 @@ async def _apply_direct_google_calendar_action(
             ),
             "reason": None,
             "recurring_scope": recurring_scope,
+            "conflict_analysis": conflict_analysis,
         }
 
     return {
@@ -863,6 +882,36 @@ async def _apply_direct_google_calendar_action(
         "source": "google",
         "reason": "unsupported_direct_google_action",
     }
+
+
+def _detect_conflicts_for_calendar_payload(
+    *,
+    target: dict[str, Any],
+    payload: dict[str, Any],
+    calendar_records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    proposed_record = {
+        **target,
+        **payload,
+        "id": target.get("id"),
+        "google_calendar_event_id": target.get(
+            "google_calendar_event_id"
+        ),
+        "_record_source": target.get("_record_source") or "google",
+    }
+
+    return calendar_conflicts.detect_calendar_conflicts(
+        proposed_record=proposed_record,
+        candidate_records=calendar_records,
+        exclude_ids={
+            str(target.get("id") or "").strip(),
+        },
+        exclude_google_event_ids={
+            str(
+                target.get("google_calendar_event_id") or ""
+            ).strip(),
+        },
+    )
 
 
 def _build_direct_google_patch(
@@ -968,6 +1017,14 @@ def render_calendar_action_result_context(
 
     source = str(result.get("source") or "local").strip()
     reason = str(result.get("reason") or "").strip() or "none"
+    conflict_analysis = result.get("conflict_analysis")
+    if not isinstance(conflict_analysis, dict):
+        conflict_analysis = {}
+    conflicts = [
+        conflict
+        for conflict in conflict_analysis.get("conflicts", [])
+        if isinstance(conflict, dict)
+    ]
 
     lines = [
         "Calendar action result — authoritative:",
@@ -975,7 +1032,11 @@ def render_calendar_action_result_context(
         "- Do not use conversation history, chronology, memories, or other Calendar items to add schedule commentary.",
         "- Do not mention or infer another meeting, agenda, reminder, free period, sequence, overlap, travel time, or schedule compatibility.",
         "- Do not say 'pas banget', 'setelah meeting', 'sebelum meeting', 'bentrok', 'masih sempat', or equivalent unless an explicit conflict-analysis result is included.",
-        "- No conflict-analysis result is included in this Calendar action receipt.",
+        (
+            "- Conflict-analysis result is included in this Calendar action receipt."
+            if conflicts
+            else "- No conflict-analysis result is included in this Calendar action receipt."
+        ),
         f"- success: {'true' if success else 'false'}",
         f"- action: {action}",
         f"- source: {source}",
@@ -992,6 +1053,19 @@ def render_calendar_action_result_context(
         value = result.get(key)
         if value:
             lines.append(f"- {key}: {value}")
+
+    if conflicts:
+        lines.append("- conflict_analysis: has_conflicts=true")
+        for conflict in conflicts[:3]:
+            title = str(conflict.get("title") or "Untitled event")
+            start_at = str(conflict.get("start_at") or "")
+            end_at = str(conflict.get("end_at") or "")
+            source_value = str(conflict.get("source") or "calendar")
+            lines.append(
+                "- conflict: "
+                f"{title} | start_at={start_at} | "
+                f"end_at={end_at} | source={source_value}"
+            )
 
     if reason == "recurring_scope_required":
         pending_saved = bool(result.get("pending_action_saved"))
