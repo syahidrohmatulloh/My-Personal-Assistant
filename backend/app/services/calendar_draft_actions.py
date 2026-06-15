@@ -496,6 +496,16 @@ def _mark_memory_as_synced_google(
         .execute()
     )
 
+    duplicate_cleanup = _archive_duplicate_calendar_memories_for_event(
+        user_id=user_id,
+        keep_memory_id=memory_id,
+        title=title,
+        event_date=event_date,
+        start_at=start_at,
+        end_at=end_at,
+        location=location,
+    )
+
     return {
         "attempted": True,
         "created": source_reason == "synced_existing_local_event",
@@ -503,6 +513,7 @@ def _mark_memory_as_synced_google(
         "memory_id": memory_id,
         "google_event_id": google_event_id,
         "google_event_link": google_event_link,
+        "duplicate_cleanup": duplicate_cleanup,
         "data": result.data,
     }
 
@@ -573,6 +584,106 @@ def _insert_synced_memory_for_existing_google_event(
         "google_event_id": google_event.get("id"),
         "google_event_link": google_event.get("html_link"),
         "data": result.data,
+    }
+
+
+def _archive_duplicate_calendar_memories_for_event(
+    *,
+    user_id: str,
+    keep_memory_id: str,
+    title: str,
+    event_date: str,
+    start_at: str | None,
+    end_at: str | None,
+    location: str | None,
+) -> dict[str, Any]:
+    try:
+        result = safe_execute(
+            lambda sb: sb.table("memories")
+            .select(
+                "id, content, structured_value, due_date, "
+                "calendar_event_status, calendar_event_title, "
+                "calendar_event_date, calendar_event_start_at, "
+                "calendar_event_end_at, calendar_event_all_day, "
+                "calendar_event_location, google_calendar_event_id, "
+                "google_calendar_event_link, archived, superseded, "
+                "created_at, updated_at"
+            )
+            .eq("user_id", user_id)
+            .eq("archived", False)
+            .eq("superseded", False)
+            .eq("calendar_event_date", event_date)
+            .or_("calendar_event_status.in.(confirmed_local,synced_google)")
+            .limit(50)
+            .execute()
+        )
+    except Exception as exc:
+        log.warning(
+            "calendar_draft_actions: duplicate cleanup lookup failed: %s",
+            exc,
+        )
+        return {
+            "attempted": True,
+            "archived_count": 0,
+            "reason": "lookup_failed",
+        }
+
+    duplicate_ids: list[str] = []
+    for row in list(result.data or []):
+        row_id = str(row.get("id") or "").strip()
+        if not row_id or row_id == keep_memory_id:
+            continue
+
+        if _calendar_memory_matches_draft(
+            row,
+            title=title,
+            event_date=event_date,
+            start_at=start_at,
+            end_at=end_at,
+            location=location,
+        ):
+            duplicate_ids.append(row_id)
+
+    if not duplicate_ids:
+        return {
+            "attempted": True,
+            "archived_count": 0,
+            "reason": "no_duplicates",
+        }
+
+    now = _now_iso()
+
+    try:
+        update_result = safe_execute(
+            lambda sb: sb.table("memories")
+            .update(
+                {
+                    "archived": True,
+                    "superseded": True,
+                    "updated_at": now,
+                }
+            )
+            .in_("id", duplicate_ids)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception as exc:
+        log.warning(
+            "calendar_draft_actions: duplicate cleanup update failed: %s",
+            exc,
+        )
+        return {
+            "attempted": True,
+            "archived_count": 0,
+            "reason": "update_failed",
+            "duplicate_ids": duplicate_ids,
+        }
+
+    return {
+        "attempted": True,
+        "archived_count": len(list(update_result.data or [])),
+        "reason": "archived_duplicates",
+        "duplicate_ids": duplicate_ids,
     }
 
 
@@ -751,12 +862,31 @@ async def create_google_calendar_event_from_chat(
         )
 
     result = safe_execute(lambda sb: sb.table("memories").insert(row).execute())
+    inserted_rows = list(result.data or [])
+    inserted_id = (
+        str(inserted_rows[0].get("id"))
+        if inserted_rows and inserted_rows[0].get("id")
+        else ""
+    )
+
+    duplicate_cleanup = None
+    if inserted_id:
+        duplicate_cleanup = _archive_duplicate_calendar_memories_for_event(
+            user_id=user_id,
+            keep_memory_id=inserted_id,
+            title=title,
+            event_date=event_date,
+            start_at=start_at_text,
+            end_at=end_at_text,
+            location=location_text,
+        )
 
     return {
         "attempted": True,
         "created": True,
         "google_event_id": google_event_id,
         "google_event_link": google_event_link,
+        "duplicate_cleanup": duplicate_cleanup,
         "data": result.data,
     }
 

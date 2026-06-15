@@ -184,6 +184,64 @@ function calendarEventFingerprint(event: CalendarEvent): string {
   ].join("|")
 }
 
+
+function calendarEventDisplayPriority(event: CalendarEvent): number {
+  if (event.source === "synced" && event.googleEventId) return 50
+  if (event.source === "google" && event.googleEventId) return 40
+  if (event.source === "synced") return 30
+  if (event.source === "local") return 10
+  return 0
+}
+
+function pickDisplayCalendarEvent(
+  current: CalendarEvent,
+  candidate: CalendarEvent,
+): CalendarEvent {
+  const currentPriority = calendarEventDisplayPriority(current)
+  const candidatePriority = calendarEventDisplayPriority(candidate)
+
+  if (candidatePriority > currentPriority) {
+    return candidate
+  }
+
+  if (candidatePriority < currentPriority) {
+    return current
+  }
+
+  if (!current.location && candidate.location) {
+    return candidate
+  }
+
+  if (!current.googleLink && candidate.googleLink) {
+    return candidate
+  }
+
+  if (!current.googleEventId && candidate.googleEventId) {
+    return candidate
+  }
+
+  return current
+}
+
+export function dedupeCalendarEventsForDisplay(
+  events: CalendarEvent[],
+): CalendarEvent[] {
+  const byFingerprint = new Map<string, CalendarEvent>()
+
+  for (const event of events) {
+    const fingerprint = calendarEventFingerprint(event)
+    const existing = byFingerprint.get(fingerprint)
+
+    byFingerprint.set(
+      fingerprint,
+      existing ? pickDisplayCalendarEvent(existing, event) : event,
+    )
+  }
+
+  return Array.from(byFingerprint.values())
+}
+
+
 export function mergeCalendarEvents(
   localEvents: CalendarEvent[],
   googleEvents: CalendarEvent[],
@@ -239,7 +297,7 @@ export function mergeCalendarEvents(
     merged.push(googleEvent)
   }
 
-  return merged.sort(sortCalendarEvents)
+  return dedupeCalendarEventsForDisplay(merged).sort(sortCalendarEvents)
 }
 
 export function buildCalendarReadRange({

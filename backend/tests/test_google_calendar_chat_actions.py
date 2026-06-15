@@ -69,3 +69,9 @@ def test_google_create_from_chat_reuses_existing_google_event():
     assert "linked_existing_google_event" in SERVICE
     assert "list_google_calendar_events_for_action" in SERVICE
 
+
+def test_google_create_from_chat_archives_duplicate_calendar_memories():
+    assert "_archive_duplicate_calendar_memories_for_event" in SERVICE
+    assert "duplicate_cleanup" in SERVICE
+    assert "archived_duplicates" in SERVICE
+
