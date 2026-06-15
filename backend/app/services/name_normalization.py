@@ -217,3 +217,32 @@ def extract_explicit_names(
         assistant_name=None,
     )
 
+# Final assistant-name cleanup:
+# Handles explicit rename phrases such as:
+# - "nama kamu sekarang Andini" -> "Andini"
+# - "nama kamu jadi Dina" -> "Dina"
+# This runs after the existing normalizer so old behavior stays intact.
+import re as _assistant_name_timeword_re
+
+_original_normalize_assistant_name_strip_leading_timewords = normalize_assistant_name
+
+def _strip_assistant_name_leading_timewords(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    cleaned = str(value).strip()
+    cleaned = _assistant_name_timeword_re.sub(
+        r"^(?:sekarang|jadi|menjadi|adalah|namanya|itu)\s+",
+        "",
+        cleaned,
+        flags=_assistant_name_timeword_re.IGNORECASE,
+    ).strip(" .,:;!?\"'`")
+
+    return cleaned or None
+
+def normalize_assistant_name(value: str | None) -> str | None:
+    cleaned = _original_normalize_assistant_name_strip_leading_timewords(value)
+    stripped = _strip_assistant_name_leading_timewords(cleaned)
+    if not stripped:
+        return None
+    return _original_normalize_assistant_name_strip_leading_timewords(stripped)

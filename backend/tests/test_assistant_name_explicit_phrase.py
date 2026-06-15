@@ -38,3 +38,18 @@ def test_manual_memory_does_not_store_panggil_kamu_beb_as_assistant_name():
 
 def test_manual_memory_stores_nama_kamu_as_assistant_name():
     assert manual_memory_structure._detect_assistant_name("nama kamu Aliyya") == "Aliyya"
+
+def test_assistant_name_strips_sekarang_from_explicit_rename():
+    names = name_normalization.extract_explicit_names("nama kamu sekarang Andini")
+    assert names.assistant_name == "Andini"
+
+
+def test_assistant_name_strips_jadi_from_explicit_rename():
+    names = name_normalization.extract_explicit_names("nama kamu jadi Dina")
+    assert names.assistant_name == "Dina"
+
+
+def test_assistant_name_strips_sekarang_after_ganti_phrase():
+    names = name_normalization.extract_explicit_names("ganti nama kamu jadi Aliyya")
+    assert names.assistant_name == "Aliyya"
+

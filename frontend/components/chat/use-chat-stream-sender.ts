@@ -399,14 +399,31 @@ export function useChatStreamSender({
             }
 
             if (event.assistant_name) {
-              qc.setQueryData<Identity | undefined>(["identity"], (old) => ({
-                profile: {
-                  ...(old?.profile ?? {}),
-                  assistant_name: event.assistant_name,
-                },
-                narrative: old?.narrative ?? null,
-                updated_at: old?.updated_at ?? null,
-              }))
+              const assistantName = String(event.assistant_name).trim()
+
+              if (assistantName) {
+                try {
+                  window.localStorage.setItem("app:assistant-name", assistantName)
+                } catch {}
+
+                window.dispatchEvent(
+                  new CustomEvent("assistant-companion-settings", {
+                    detail: {
+                      assistant_name: assistantName,
+                      assistant_mode: event.assistant_mode,
+                    },
+                  }),
+                )
+
+                qc.setQueryData<Identity | undefined>(["identity"], (old) => ({
+                  profile: {
+                    ...(old?.profile ?? {}),
+                    assistant_name: assistantName,
+                  },
+                  narrative: old?.narrative ?? null,
+                  updated_at: old?.updated_at ?? null,
+                }))
+              }
             }
 
             if (

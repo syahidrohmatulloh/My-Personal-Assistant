@@ -9,7 +9,10 @@ const COMPANION_SETTINGS_EVENT = "assistant-companion-settings";
 
 function cleanAssistantName(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  const cleaned = value.trim();
+  const cleaned = value
+    .trim()
+    .replace(/^(sekarang|jadi|menjadi|adalah|namanya|itu)\s+/i, "")
+    .trim();
   return cleaned.length > 0 ? cleaned : null;
 }
 

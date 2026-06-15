@@ -45,7 +45,10 @@ const ASSISTANT_NAME_CACHE_KEY = "app:assistant-name";
 
 function cleanAssistantName(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  const cleaned = value.trim();
+  const cleaned = value
+    .trim()
+    .replace(/^(sekarang|jadi|menjadi|adalah|namanya|itu)\s+/i, "")
+    .trim();
   return cleaned.length > 0 ? cleaned : null;
 }
 
@@ -106,6 +109,20 @@ function getModeCopy(mode: AssistantMode, assistantName: string | null) {
     assistant:
       "Aku di sini. Kita pelan-pelan aja ya. Ceritain satu hal yang paling berat dulu, nanti aku bantu rapihin jadi langkah kecil.",
   };
+}
+
+function formatConversationTitle(
+  conversationTitle: string | null | undefined,
+  assistantName: string | null,
+  isExpanded: boolean,
+): string {
+  const title = String(conversationTitle || "").trim();
+  const name = cleanAssistantName(assistantName) || "your assistant";
+
+  if (!title) return isExpanded ? "Expanded chat" : "Split assistant desk";
+  if (title.startsWith("Main Chat -")) return `Main Chat - ${name}`;
+
+  return title;
 }
 
 export function ChatV2Client({
@@ -480,6 +497,14 @@ export function ChatV2Client({
     // mode commands globally; re-broadcasting here duplicated the event.
     applyModeLocally(assistantMode);
   }, [streamMeta?.assistant_mode]);
+
+  useEffect(() => {
+    const nextName = cleanAssistantName(streamMeta?.assistant_name);
+    if (!nextName) return;
+
+    setSettingsAssistantName(nextName);
+    writeCachedAssistantName(nextName);
+  }, [streamMeta?.assistant_name]);
 
   useEffect(() => {
     setMessages(initialMessages);
@@ -858,7 +883,7 @@ function ChatFrame({
             Live workspace
           </p>
           <p className={isChief ? "mt-1 text-sm text-slate-400" : "mt-1 text-sm text-stone-500"}>
-            {conversationTitle || (isExpanded ? "Expanded chat" : "Split assistant desk")}
+            {formatConversationTitle(conversationTitle, assistantName, isExpanded)}
           </p>
         </div>
 
