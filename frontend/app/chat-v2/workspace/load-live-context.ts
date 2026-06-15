@@ -35,6 +35,7 @@ export async function loadTodayWorkspaceAgenda(): Promise<WorkspaceAgendaItem[]>
       status: event.status,
       source: event.source,
       googleEventId: event.googleEventId,
+      googleLink: event.googleLink,
       location: event.location ?? null,
     }))
 }

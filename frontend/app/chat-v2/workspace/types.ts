@@ -42,6 +42,7 @@ export type WorkspaceAgendaItem = {
   status?: string;
   source?: "local" | "synced" | "google";
   googleEventId?: string | null;
+  googleLink?: string | null;
   location?: string | null;
 };
 

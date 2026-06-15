@@ -1,14 +1,44 @@
 "use client"
 
+import {
+  ArrowUpRight,
+  Bot,
+  CalendarDays,
+  CheckCircle2,
+  ChevronRight,
+  Clock3,
+  ExternalLink,
+  Filter,
+  Loader2,
+  MapPin,
+  RefreshCcw,
+  Sparkles,
+  Sunrise,
+  Zap,
+} from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
-import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 
-import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label"
+import { BackToLastChat } from "@/components/navigation/back-to-last-chat"
 import { createClient } from "@/lib/supabase/client"
-import { type CalendarEvent, CALENDAR_SNAPSHOT_INVALIDATED_EVENT, buildCalendarReadRange, calendarSnapshotKeyForUser, LEGACY_CALENDAR_EVENTS_CACHE_KEY, loadMergedCalendarEvents, readCalendarEventsSnapshot, sortCalendarEvents as sortEvents, writeCalendarEventsSnapshot } from "@/lib/calendar-snapshot"
+import {
+  type CalendarEvent,
+  CALENDAR_SNAPSHOT_INVALIDATED_EVENT,
+  LEGACY_CALENDAR_EVENTS_CACHE_KEY,
+  buildCalendarReadRange,
+  calendarSnapshotKeyForUser,
+  loadMergedCalendarEvents,
+  readCalendarEventsSnapshot,
+  sortCalendarEvents,
+  writeCalendarEventsSnapshot,
+} from "@/lib/calendar-snapshot"
 
+type ViewFilter = "today" | "upcoming" | "all"
+type SourceFilter = "all" | "aliyya" | "google"
 
-
+type AgendaGroup = {
+  date: string
+  events: CalendarEvent[]
+}
 
 type TimelineRow =
   | {
@@ -25,16 +55,20 @@ type TimelineRow =
       endAt: string
     }
 
+const GOOGLE_CALENDAR_URL = "https://calendar.google.com/calendar/u/0/r"
+const CALENDAR_CHAT_HANDOFF_DRAFT_KEY = "app:calendar-chat-handoff-draft"
+const LAST_CHAT_PATH_KEY = "app:last-chat-path"
 
-
-
-
+function localDateKey(date = new Date()): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
 
 function formatDate(date: string): string {
   const parsed = new Date(`${date}T00:00:00`)
-  if (Number.isNaN(parsed.getTime())) {
-    return date
-  }
+  if (Number.isNaN(parsed.getTime())) return date
 
   return new Intl.DateTimeFormat("id-ID", {
     weekday: "long",
@@ -44,15 +78,21 @@ function formatDate(date: string): string {
   }).format(parsed)
 }
 
+function formatCompactDate(date: string): string {
+  const parsed = new Date(`${date}T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) return date
+
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "short",
+  }).format(parsed)
+}
+
 function formatTime(value: string | null): string | null {
-  if (!value) {
-    return null
-  }
+  if (!value) return null
 
   const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
-    return value
-  }
+  if (Number.isNaN(parsed.getTime())) return value
 
   return new Intl.DateTimeFormat("id-ID", {
     hour: "2-digit",
@@ -62,72 +102,108 @@ function formatTime(value: string | null): string | null {
 }
 
 function minutesBetween(start: string | null, end: string | null): number | null {
-  if (!start || !end) {
-    return null
-  }
+  if (!start || !end) return null
 
   const startTime = new Date(start).getTime()
   const endTime = new Date(end).getTime()
 
-  if (Number.isNaN(startTime) || Number.isNaN(endTime)) {
-    return null
-  }
+  if (Number.isNaN(startTime) || Number.isNaN(endTime)) return null
 
   return Math.round((endTime - startTime) / 60000)
 }
 
 function durationLabel(minutes: number): string {
-  if (minutes < 60) {
-    return `${minutes} menit`
-  }
+  if (minutes < 60) return `${minutes} menit`
 
   const hours = Math.floor(minutes / 60)
   const mins = minutes % 60
 
-  if (!mins) {
-    return `${hours} jam`
-  }
+  if (!mins) return `${hours} jam`
 
   return `${hours} jam ${mins} menit`
 }
 
 function eventTimeLabel(event: CalendarEvent): string {
-  if (event.allDay || (!event.startAt && !event.endAt)) {
-    return "Sepanjang hari"
-  }
+  if (event.allDay || (!event.startAt && !event.endAt)) return "Sepanjang hari"
 
   const start = formatTime(event.startAt)
   const end = formatTime(event.endAt)
 
-  if (start && end) {
-    return `${start}–${end}`
-  }
+  if (start && end) return `${start}–${end}`
 
   return start || end || "Waktu belum tersedia"
 }
 
+function timeColumn(event: CalendarEvent): { start: string; end: string } {
+  if (event.allDay || (!event.startAt && !event.endAt)) {
+    return { start: "All day", end: "" }
+  }
 
+  return {
+    start: formatTime(event.startAt) || "—",
+    end: formatTime(event.endAt) || "",
+  }
+}
 
+function sourceMeta(event: CalendarEvent): {
+  label: string
+  helper: string
+  badgeClass: string
+  dotClass: string
+} {
+  if (event.source === "google") {
+    return {
+      label: "Google",
+      helper: "Direct Google event",
+      badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
+      dotClass: "bg-emerald-500 shadow-[0_0_0_5px_rgba(16,185,129,0.12)]",
+    }
+  }
 
+  if (event.source === "synced") {
+    return {
+      label: "Synced",
+      helper: "Aliyya + Google",
+      badgeClass: "border-lime-200 bg-lime-50 text-lime-700",
+      dotClass: "bg-lime-500 shadow-[0_0_0_5px_rgba(132,204,22,0.14)]",
+    }
+  }
 
+  return {
+    label: "Local",
+    helper: "Aliyya Calendar",
+    badgeClass: "border-indigo-200 bg-indigo-50 text-indigo-700",
+    dotClass: "bg-indigo-500 shadow-[0_0_0_5px_rgba(99,102,241,0.13)]",
+  }
+}
 
+function sourceMatches(event: CalendarEvent, source: SourceFilter): boolean {
+  if (source === "all") return true
+  if (source === "google") return event.source === "google"
+  return event.source === "local" || event.source === "synced"
+}
 
+function viewMatches(event: CalendarEvent, view: ViewFilter, today: string): boolean {
+  if (view === "all") return true
+  if (view === "today") return event.date === today
+  return event.date >= today
+}
 
-
-
-
-function groupByDate(events: CalendarEvent[]): Array<[string, CalendarEvent[]]> {
+function groupEvents(events: CalendarEvent[]): AgendaGroup[] {
   const grouped = new Map<string, CalendarEvent[]>()
 
-  for (const event of [...events].sort(sortEvents)) {
-    const existing = grouped.get(event.date) || []
-    existing.push(event)
-    grouped.set(event.date, existing)
+  for (const event of [...events].sort(sortCalendarEvents)) {
+    const rows = grouped.get(event.date) || []
+    rows.push(event)
+    grouped.set(event.date, rows)
   }
 
   return Array.from(grouped.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, items]) => [date, items.sort(sortEvents)])
+    .map(([date, items]) => ({
+      date,
+      events: items.sort(sortCalendarEvents),
+    }))
 }
 
 function buildTimelineRows(events: CalendarEvent[]): TimelineRow[] {
@@ -150,9 +226,9 @@ function buildTimelineRows(events: CalendarEvent[]): TimelineRow[] {
             endAt: event.startAt,
           })
         } else if (gap >= 0 && gap <= 20) {
-          warning = `Hanya berjarak ${durationLabel(gap)} dari acara sebelumnya.`
+          warning = `Jeda hanya ${durationLabel(gap)} dari agenda sebelumnya.`
         } else if (gap < 0) {
-          warning = "Jadwal ini overlap dengan acara sebelumnya."
+          warning = "Jadwal ini overlap dengan agenda sebelumnya."
         }
       }
     }
@@ -163,94 +239,217 @@ function buildTimelineRows(events: CalendarEvent[]): TimelineRow[] {
   return rows
 }
 
-function timeRangeColumn(event: CalendarEvent): { start: string; end: string } {
-  if (event.allDay || (!event.startAt && !event.endAt)) {
-    return { start: "All day", end: "" }
-  }
+function handoffCalendarActionToChat(event: CalendarEvent, mode: "sync" | "reschedule", warning?: string) {
+  if (typeof window === "undefined") return
 
-  return {
-    start: formatTime(event.startAt) || "—",
-    end: formatTime(event.endAt) || "",
-  }
-}
+  const draft =
+    mode === "sync"
+      ? [
+          `Beb, tolong sync agenda ini ke Google Calendar: ${event.title}.`,
+          `Tanggal: ${formatDate(event.date)}.`,
+          `Waktu: ${eventTimeLabel(event)}.`,
+          event.location ? `Lokasi: ${event.location}.` : "",
+        ]
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim()
+      : [
+          "Beb, tolong bantu atur ulang jadwalku yang mepet di Calendar.",
+          `Agenda: ${event.title} (${eventTimeLabel(event)}).`,
+          warning ? `Warning: ${warning}.` : "",
+          "Tolong bantu carikan opsi waktu yang lebih masuk akal dan kalau perlu bantu update event-nya.",
+        ]
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim()
 
-
-const CALENDAR_CHAT_HANDOFF_DRAFT_KEY = "app:calendar-chat-handoff-draft"
-const LAST_CHAT_PATH_KEY = "app:last-chat-path"
-
-function buildRescheduleHandoffDraft(event: CalendarEvent, warning: string, previousEvent?: CalendarEvent): string {
-  const previousText = previousEvent
-    ? `Acara sebelumnya: ${previousEvent.title} (${eventTimeLabel(previousEvent)}). `
-    : ""
-
-  return [
-    "Beb, tolong bantu atur ulang jadwalku yang mepet di Calendar.",
-    previousText,
-    `Acara yang bermasalah: ${event.title} (${eventTimeLabel(event)}).`,
-    `Warning: ${warning}`,
-    "Tolong bantu carikan opsi waktu yang lebih masuk akal dan kalau perlu bantu update event-nya.",
-  ]
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim()
-}
-
-function handoffCalendarWarningToChat(event: CalendarEvent, warning: string, previousEvent?: CalendarEvent) {
-  if (typeof window === "undefined") {
-    return
-  }
-
-  const draft = buildRescheduleHandoffDraft(event, warning, previousEvent)
   window.localStorage.setItem(CALENDAR_CHAT_HANDOFF_DRAFT_KEY, draft)
 
   const lastChatPath = window.localStorage.getItem(LAST_CHAT_PATH_KEY)
-  const target = lastChatPath && lastChatPath.startsWith("/chat/")
-    ? lastChatPath
-    : "/chat"
+  const target = lastChatPath && lastChatPath.startsWith("/chat/") ? lastChatPath : "/chat"
 
   window.location.assign(target)
 }
 
-
-function calendarSourceLabel(
-  source: CalendarEvent["source"],
-): "Local" | "Synced" | "Google" {
-  if (source === "google") {
-    return "Google"
-  }
-
-  if (source === "synced") {
-    return "Synced"
-  }
-
-  return "Local"
+function StatCard({
+  label,
+  value,
+  helper,
+}: {
+  label: string
+  value: number | string
+  helper: string
+}) {
+  return (
+    <div className="rounded-[1.75rem] border border-white/70 bg-white/55 p-4 shadow-sm backdrop-blur-xl">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-400">
+        {label}
+      </p>
+      <p className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-stone-950">
+        {value}
+      </p>
+      <p className="mt-1 text-xs leading-5 text-stone-500">{helper}</p>
+    </div>
+  )
 }
 
-function SourceDot({
-  source,
+function FilterPill({
+  active,
+  children,
+  onClick,
 }: {
-  source: CalendarEvent["source"]
+  active: boolean
+  children: React.ReactNode
+  onClick: () => void
 }) {
-  const className =
-    source === "google"
-      ? "bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]"
-      : source === "synced"
-        ? "bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.12)]"
-        : "bg-indigo-500 shadow-[0_0_0_4px_rgba(99,102,241,0.12)]"
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "rounded-full px-3 py-1.5 text-xs font-semibold transition active:scale-[0.98]",
+        active
+          ? "bg-stone-950 text-white shadow-sm"
+          : "border border-stone-200 bg-white/60 text-stone-500 hover:bg-white hover:text-stone-950",
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  )
+}
+
+function EventCard({
+  event,
+  warning,
+  previousEvent,
+}: {
+  event: CalendarEvent
+  warning?: string
+  previousEvent?: CalendarEvent
+}) {
+  const time = timeColumn(event)
+  const meta = sourceMeta(event)
+  const hasGoogleLink = Boolean(event.googleLink)
 
   return (
-    <span
-      className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${className}`}
-    />
+    <article className="group relative overflow-hidden rounded-[1.6rem] border border-white/70 bg-white/62 p-4 shadow-sm backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-white/75 hover:shadow-md">
+      <div className="pointer-events-none absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-stone-900/20 via-stone-900/5 to-transparent opacity-60" />
+
+      <div className="flex gap-4">
+        <div className="w-16 shrink-0 pt-0.5 font-mono text-[11px] leading-5 text-stone-500">
+          <div className="font-semibold text-stone-950 tabular-nums">{time.start}</div>
+          {time.end ? <div className="tabular-nums text-stone-400">{time.end}</div> : null}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <span className={`mt-0.5 h-2.5 w-2.5 rounded-full ${meta.dotClass}`} />
+                <h3 className="min-w-0 break-words text-base font-semibold leading-snug tracking-[-0.02em] text-stone-950">
+                  {event.title}
+                </h3>
+              </div>
+
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${meta.badgeClass}`}>
+                  {meta.label}
+                </span>
+                <span className="text-[11px] text-stone-400">{meta.helper}</span>
+              </div>
+            </div>
+
+            <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-stone-300 transition group-hover:translate-x-0.5 group-hover:text-stone-500" />
+          </div>
+
+          {event.location ? (
+            <p className="mt-3 flex items-center gap-1.5 text-sm leading-5 text-stone-500">
+              <MapPin className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 break-words">{event.location}</span>
+            </p>
+          ) : null}
+
+          {event.syncError ? (
+            <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
+              Sync note: {event.syncError}
+            </p>
+          ) : null}
+
+          {warning ? (
+            <div className="mt-3 rounded-2xl border border-orange-200 bg-orange-50/85 p-3">
+              <p className="text-xs font-medium leading-5 text-orange-800">{warning}</p>
+              <button
+                type="button"
+                onClick={() => handoffCalendarActionToChat(event, "reschedule", warning)}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-white/70 px-3 py-1.5 text-xs font-semibold text-orange-700 transition hover:bg-white"
+              >
+                <Bot className="h-3.5 w-3.5" />
+                Bantu atur ulang
+              </button>
+            </div>
+          ) : null}
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {hasGoogleLink ? (
+              <a
+                href={event.googleLink || GOOGLE_CALENDAR_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-stone-700 shadow-sm transition hover:bg-white hover:text-stone-950"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open Google
+              </a>
+            ) : null}
+
+            {event.source === "local" ? (
+              <button
+                type="button"
+                onClick={() => handoffCalendarActionToChat(event, "sync")}
+                className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Ask Aliyya to sync
+              </button>
+            ) : null}
+
+            {previousEvent ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-white/55 px-3 py-1.5 text-xs text-stone-500">
+                <Clock3 className="h-3.5 w-3.5" />
+                After {previousEvent.title}
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </article>
+  )
+}
+
+function FreeTimeRow({ row }: { row: Extract<TimelineRow, { type: "free" }> }) {
+  return (
+    <div className="rounded-[1.4rem] border border-dashed border-stone-200 bg-white/35 px-4 py-3 text-sm text-stone-500 backdrop-blur">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="font-mono text-xs tabular-nums text-stone-400">
+          {formatTime(row.startAt)}–{formatTime(row.endAt)}
+        </span>
+        <span className="rounded-full border border-white/70 bg-white/65 px-2.5 py-1 text-[11px] font-semibold text-stone-500">
+          {durationLabel(row.minutes)} kosong
+        </span>
+      </div>
+    </div>
   )
 }
 
 export default function CalendarPage() {
-  const calendarEyebrow = useUserOwnedLabel("Calendar")
   const [snapshotKey, setSnapshotKey] = useState(LEGACY_CALENDAR_EVENTS_CACHE_KEY)
   const [events, setEvents] = useState<CalendarEvent[]>(() => readCalendarEventsSnapshot())
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [viewFilter, setViewFilter] = useState<ViewFilter>("upcoming")
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all")
+
+  const today = localDateKey()
 
   async function loadCalendarEvents() {
     setIsLoading(true)
@@ -259,7 +458,7 @@ export default function CalendarPage() {
     try {
       const range = buildCalendarReadRange({
         daysBefore: 7,
-        daysAfter: 24,
+        daysAfter: 45,
       })
       const mergedEvents = await loadMergedCalendarEvents(range)
 
@@ -304,10 +503,12 @@ export default function CalendarPage() {
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
     void loadCalendarEvents()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshotKey])
 
   useEffect(() => {
@@ -320,220 +521,262 @@ export default function CalendarPage() {
     return () => {
       window.removeEventListener(CALENDAR_SNAPSHOT_INVALIDATED_EVENT, handleCalendarSnapshotInvalidated)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshotKey])
 
-  const groupedEvents = useMemo(() => groupByDate(events), [events])
+  const filteredEvents = useMemo(() => {
+    return events
+      .filter((event) => viewMatches(event, viewFilter, today))
+      .filter((event) => sourceMatches(event, sourceFilter))
+      .sort(sortCalendarEvents)
+  }, [events, sourceFilter, today, viewFilter])
+
+  const groupedEvents = useMemo(() => groupEvents(filteredEvents), [filteredEvents])
+  const todaysEvents = useMemo(
+    () => events.filter((event) => event.date === today).sort(sortCalendarEvents),
+    [events, today],
+  )
+  const nextEvent = filteredEvents.find((event) => event.date >= today) || filteredEvents[0] || null
+
+  const localCount = events.filter((event) => event.source === "local").length
+  const syncedCount = events.filter((event) => event.source === "synced").length
+  const googleCount = events.filter((event) => event.source === "google").length
 
   return (
-    <main className="min-h-screen bg-bg px-4 py-6 text-fg sm:px-6 lg:px-8">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-        <header className="overflow-hidden rounded-3xl border border-border bg-fg/[0.035] p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-fg-muted">
-                {calendarEyebrow}
-              </p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-                Calendar
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-fg-muted">
-                Timeline agenda terkonfirmasi. Saran jadwal yang belum kamu setujui tetap diproses lewat chat.
-              </p>
-            </div>
+    <main className="relative min-h-screen overflow-hidden bg-[#f7f3ea] px-4 py-5 text-stone-950 sm:px-6 lg:px-8">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,rgba(244,194,194,0.42),transparent_28rem),radial-gradient(circle_at_78%_12%,rgba(206,220,183,0.36),transparent_30rem),radial-gradient(circle_at_48%_92%,rgba(235,224,166,0.34),transparent_34rem)]" />
+        <div className="absolute -left-24 bottom-[-12rem] h-[34rem] w-[34rem] rounded-full bg-lime-200/25 blur-[120px]" />
+        <div className="absolute -right-28 top-24 h-[36rem] w-[36rem] rounded-full bg-rose-200/25 blur-[130px]" />
+      </div>
 
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => void loadCalendarEvents()}
-                className="inline-flex h-10 items-center justify-center rounded-full border border-border bg-bg px-4 text-sm font-medium text-fg shadow-sm transition hover:bg-fg/5 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isLoading}
-              >
-                {isLoading ? "Refreshing..." : "Refresh"}
-              </button>
-              <BackToLastChat className="inline-flex h-10 items-center justify-center rounded-full border border-border bg-fg px-4 text-sm font-medium text-bg shadow-sm transition hover:opacity-90">
-                Back to chat
-              </BackToLastChat>
-            </div>
+      <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-5">
+        <header className="flex flex-col gap-4 rounded-[2rem] border border-white/70 bg-white/48 p-5 shadow-sm backdrop-blur-xl sm:flex-row sm:items-start sm:justify-between sm:p-6">
+          <div>
+            <p className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white/60 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500 shadow-sm">
+              <Sparkles className="h-3.5 w-3.5" />
+              Calendar command center
+            </p>
+            <h1 className="mt-5 text-4xl font-semibold tracking-[-0.065em] text-stone-950 sm:text-5xl lg:text-6xl">
+              Calendar
+            </h1>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-stone-600 sm:text-base">
+              A clean command deck for Aliyya events, Google Calendar sync, daily flow, and schedule gaps.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void loadCalendarEvents()}
+              disabled={isLoading}
+              className="inline-flex h-10 items-center gap-2 rounded-full border border-stone-200 bg-white/70 px-4 text-sm font-semibold text-stone-700 shadow-sm backdrop-blur transition hover:bg-white hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+              {isLoading ? "Refreshing" : "Refresh"}
+            </button>
+
+            <a
+              href={GOOGLE_CALENDAR_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-10 items-center gap-2 rounded-full border border-stone-200 bg-white/70 px-4 text-sm font-semibold text-stone-700 shadow-sm backdrop-blur transition hover:bg-white hover:text-stone-950"
+            >
+              <ArrowUpRight className="h-4 w-4" />
+              Google Calendar
+            </a>
+
+            <BackToLastChat className="inline-flex h-10 items-center justify-center rounded-full bg-stone-950 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-stone-800">
+              Back to chat
+            </BackToLastChat>
           </div>
         </header>
 
-        <section className="grid gap-4 sm:grid-cols-3">
-          <div className="rounded-3xl border border-border bg-fg/[0.035] p-5">
-            <p className="text-sm text-fg-muted">Total events</p>
-            <p className="mt-2 text-3xl font-semibold">{events.length}</p>
-          </div>
-          <div className="rounded-3xl border border-border bg-fg/[0.035] p-5">
-            <p className="text-sm text-fg-muted">Google events</p>
-            <p className="mt-2 text-3xl font-semibold">
-              {events.filter((event) => event.source !== "local").length}
-            </p>
-          </div>
-          <div className="rounded-3xl border border-border bg-fg/[0.035] p-5">
-            <p className="text-sm text-fg-muted">Local only</p>
-            <p className="mt-2 text-3xl font-semibold">
-              {events.filter((event) => event.source === "local").length}
-            </p>
-          </div>
-        </section>
-
-        <section className="rounded-3xl border border-border bg-fg/[0.035] p-4 shadow-sm sm:p-6">
-          <div className="mb-5 flex flex-col gap-1">
-            <h2 className="text-xl font-semibold">Agenda terjadwal</h2>
-            <p className="text-sm text-fg-muted">
-              Mini timeline ini membantu melihat urutan acara, jeda waktu senggang, dan jadwal yang terlalu mepet.
-            </p>
-            {isLoading && groupedEvents.length > 0 ? (
-              <p className="text-xs text-fg-muted/80">Refreshing latest schedule…</p>
-            ) : null}
-          </div>
-
-          {error ? (
-            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-300">
-              {error}
-            </div>
-          ) : null}
-
-          {isLoading && groupedEvents.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-fg-muted">
-              Loading Calendar...
-            </div>
-          ) : !error && groupedEvents.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border p-10 text-center">
-              <p className="text-base font-medium">Belum ada event terkonfirmasi.</p>
-              <p className="mt-2 text-sm text-fg-muted">
-                Coba sebutkan agenda di chat. Aliyya akan tanya dulu sebelum memasukkannya ke Calendar.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-8">
-              {groupedEvents.map(([date, items]) => (
-                <div key={date} className="space-y-3">
-                  <div className="px-1 py-1">
-                    <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-500 dark:text-indigo-300">
-                      {formatDate(date)}
-                    </h3>
-                  </div>
-
-                  <div className="ml-1 border-l border-border/70 pl-4 sm:ml-3 sm:pl-5">
-                    {buildTimelineRows(items).map((row) => {
-                      if (row.type === "free") {
-                        return (
-                          <div
-                            key={row.id}
-                            className="relative my-1 flex items-center rounded-r-2xl border-y border-dashed border-border/50 bg-fg/[0.018] px-1.5 py-2 sm:px-2 sm:py-2.5"
-                          >
-                            <span className="absolute -left-[21px] top-1/2 h-2 w-2 -translate-y-1/2 rounded-full border border-border bg-bg sm:-left-[25px]" />
-
-                            <div className="w-14 shrink-0 pr-3 text-right font-mono text-[10px] leading-5 text-fg-muted/75 sm:w-24 sm:pr-0 sm:text-left sm:text-[11px]">
-                              <div>{formatTime(row.startAt)}</div>
-                              <div>{formatTime(row.endAt)}</div>
-                            </div>
-
-                            <div className="flex min-w-0 items-center gap-2 text-[11px] italic text-fg-muted sm:text-xs">
-                              <span className="rounded-md border border-border/70 bg-bg/60 px-1.5 py-0.5 not-italic sm:px-2">
-                                💤
-                              </span>
-                              <span className="break-words">{durationLabel(row.minutes)} kosong</span>
-                            </div>
-                          </div>
-                        )
-                      }
-
-                      const { event, warning, previousEvent } = row
-                      const time = timeRangeColumn(event)
-
-                      return (
-                        <article
-                          key={event.id}
-                          className="group relative rounded-r-2xl border-b border-border/60 px-2 py-3 transition hover:bg-fg/[0.025]"
-                        >
-                          <span className="absolute -left-[22px] top-5 sm:-left-[26px]">
-                            <SourceDot source={event.source} />
-                          </span>
-
-                          <div className="flex items-start gap-4 sm:gap-3">
-                            <div className="w-14 shrink-0 pr-3 text-right font-mono text-[10px] leading-5 text-fg-muted/75 sm:w-24 sm:pr-0 sm:text-left sm:text-[11px]">
-                              <div className="font-semibold text-fg/80 tabular-nums">{time.start}</div>
-                              {time.end ? (
-                                <div className="text-fg-muted/65 tabular-nums">{time.end}</div>
-                              ) : null}
-                            </div>
-
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                    <h4 className="min-w-0 break-words text-sm font-medium leading-snug text-fg/90 transition group-hover:text-fg sm:text-[15px]">
-                                      {event.title}
-                                    </h4>
-                                    <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-fg-muted/75">
-                                      {calendarSourceLabel(event.source)}
-                                    </span>
-                                  </div>
-
-                                  {event.location ? (
-                                    <p className="mt-0.5 min-w-0 break-words text-[11px] leading-4 text-fg-muted/75">
-                                      {event.location}
-                                    </p>
-                                  ) : null}
-
-                                  {event.syncError ? (
-                                    <p className="mt-2 inline-flex rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300">
-                                      Sync note: {event.syncError}
-                                    </p>
-                                  ) : null}
-
-                                  {warning ? (
-                                    <div className="mt-2 flex flex-col items-start gap-1.5">
-                                      <p className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300">
-                                        <span>⚠️</span>
-                                        <span>{warning}</span>
-                                      </p>
-                                      <button
-                                        type="button"
-                                        onClick={() => handoffCalendarWarningToChat(event, warning, previousEvent)}
-                                        className="inline-flex items-center gap-1 rounded-md border border-border bg-fg/[0.035] px-2 py-1 text-[11px] font-medium text-fg-muted transition hover:bg-fg/5 hover:text-fg"
-                                      >
-                                        <span>🤖</span>
-                                        <span>Bantu Atur Ulang</span>
-                                      </button>
-                                    </div>
-                                  ) : null}
-                                </div>
-
-                                {event.source !== "local" && event.googleLink ? (
-                                  <a
-                                    href={event.googleLink}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="hidden h-8 shrink-0 items-center justify-center rounded-lg border border-border bg-fg/[0.035] px-3 text-xs font-medium text-fg-muted shadow-sm transition hover:bg-fg/5 hover:text-fg sm:inline-flex"
-                                  >
-                                    Open Google
-                                  </a>
-                                ) : null}
-                              </div>
-
-                              {event.source !== "local" && event.googleLink ? (
-                                <a
-                                  href={event.googleLink}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 transition hover:text-emerald-500 dark:text-emerald-300 dark:hover:text-emerald-200 sm:hidden"
-                                >
-                                  <span>Open Google</span>
-                                  <span aria-hidden="true">↗</span>
-                                </a>
-                              ) : null}
-                            </div>
-                          </div>
-                        </article>
-                      )
-                    })}
-                  </div>
+        <section className="grid gap-4 lg:grid-cols-[0.76fr_1.24fr]">
+          <aside className="space-y-4">
+            <div className="rounded-[2rem] border border-white/70 bg-white/50 p-4 shadow-sm backdrop-blur-xl">
+              <div className="flex items-center gap-3">
+                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-stone-950 text-white shadow-sm">
+                  <Sunrise className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-400">
+                    Today
+                  </p>
+                  <p className="text-base font-semibold text-stone-950">
+                    {formatDate(today)}
+                  </p>
                 </div>
-              ))}
+              </div>
+
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                <StatCard label="Today" value={todaysEvents.length} helper="agenda" />
+                <StatCard label="Synced" value={syncedCount} helper="Aliyya + Google" />
+                <StatCard label="Local" value={localCount} helper="needs sync" />
+              </div>
             </div>
-          )}
+
+            <div className="rounded-[2rem] border border-white/70 bg-white/50 p-4 shadow-sm backdrop-blur-xl">
+              <div className="mb-4 flex items-center gap-2">
+                <Filter className="h-4 w-4 text-stone-400" />
+                <h2 className="font-semibold text-stone-950">View</h2>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <FilterPill active={viewFilter === "today"} onClick={() => setViewFilter("today")}>
+                  Today
+                </FilterPill>
+                <FilterPill active={viewFilter === "upcoming"} onClick={() => setViewFilter("upcoming")}>
+                  Upcoming
+                </FilterPill>
+                <FilterPill active={viewFilter === "all"} onClick={() => setViewFilter("all")}>
+                  All
+                </FilterPill>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <FilterPill active={sourceFilter === "all"} onClick={() => setSourceFilter("all")}>
+                  All source
+                </FilterPill>
+                <FilterPill active={sourceFilter === "aliyya"} onClick={() => setSourceFilter("aliyya")}>
+                  Aliyya
+                </FilterPill>
+                <FilterPill active={sourceFilter === "google"} onClick={() => setSourceFilter("google")}>
+                  Google
+                </FilterPill>
+              </div>
+            </div>
+
+            <div className="rounded-[2rem] border border-white/70 bg-white/50 p-5 shadow-sm backdrop-blur-xl">
+              <div className="flex items-center gap-2">
+                <Zap className="h-4 w-4 text-stone-400" />
+                <h2 className="font-semibold text-stone-950">Next focus</h2>
+              </div>
+
+              {nextEvent ? (
+                <div className="mt-4 rounded-3xl border border-white/70 bg-white/55 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-400">
+                    {formatCompactDate(nextEvent.date)} • {eventTimeLabel(nextEvent)}
+                  </p>
+                  <p className="mt-2 text-lg font-semibold tracking-[-0.03em] text-stone-950">
+                    {nextEvent.title}
+                  </p>
+                  {nextEvent.location ? (
+                    <p className="mt-1 text-sm text-stone-500">{nextEvent.location}</p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="mt-4 text-sm leading-6 text-stone-500">
+                  No upcoming event in this view. Use chat to add a new agenda.
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-[2rem] border border-white/70 bg-white/50 p-5 shadow-sm backdrop-blur-xl">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-stone-400" />
+                <h2 className="font-semibold text-stone-950">Source health</h2>
+              </div>
+              <div className="mt-4 space-y-2 text-sm text-stone-600">
+                <div className="flex items-center justify-between">
+                  <span>Google events</span>
+                  <span className="font-semibold text-stone-950">{googleCount}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Synced Aliyya events</span>
+                  <span className="font-semibold text-stone-950">{syncedCount}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Local only</span>
+                  <span className="font-semibold text-stone-950">{localCount}</span>
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          <section className="rounded-[2.25rem] border border-white/70 bg-white/45 p-4 shadow-xl shadow-stone-200/50 backdrop-blur-xl sm:p-5">
+            <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-stone-400">
+                  Agenda flow
+                </p>
+                <h2 className="mt-1 text-2xl font-semibold tracking-[-0.045em] text-stone-950">
+                  {viewFilter === "today" ? "Today’s command deck" : viewFilter === "upcoming" ? "Upcoming timeline" : "All calendar events"}
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-500">
+                  Events are merged from Aliyya local memory and Google Calendar, then deduped for a cleaner planning view.
+                </p>
+              </div>
+
+              <div className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white/60 px-3 py-1.5 text-xs font-semibold text-stone-500">
+                <CalendarDays className="h-3.5 w-3.5" />
+                {filteredEvents.length} shown
+              </div>
+            </div>
+
+            {error ? (
+              <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-700">
+                {error}
+              </div>
+            ) : null}
+
+            {isLoading && groupedEvents.length === 0 ? (
+              <div className="grid min-h-[28rem] place-items-center rounded-[2rem] border border-dashed border-stone-200 bg-white/35 text-center">
+                <div>
+                  <Loader2 className="mx-auto h-7 w-7 animate-spin text-stone-400" />
+                  <p className="mt-3 text-sm font-medium text-stone-600">Loading Calendar...</p>
+                </div>
+              </div>
+            ) : !error && groupedEvents.length === 0 ? (
+              <div className="grid min-h-[28rem] place-items-center rounded-[2rem] border border-dashed border-stone-200 bg-white/35 p-8 text-center">
+                <div>
+                  <Sparkles className="mx-auto h-8 w-8 text-stone-400" />
+                  <p className="mt-4 text-lg font-semibold text-stone-950">Belum ada agenda di view ini.</p>
+                  <p className="mt-2 max-w-md text-sm leading-6 text-stone-500">
+                    Coba sebutkan agenda di chat. Aliyya akan preview dulu sebelum memasukkannya ke Calendar.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {isLoading ? (
+                  <p className="rounded-full border border-white/70 bg-white/55 px-3 py-1.5 text-xs font-medium text-stone-500">
+                    Refreshing latest schedule…
+                  </p>
+                ) : null}
+
+                {groupedEvents.map((group) => (
+                  <div key={group.date} className="space-y-3">
+                    <div className="flex items-center justify-between gap-3 px-1">
+                      <h3 className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-400">
+                        {formatDate(group.date)}
+                      </h3>
+                      <span className="text-xs text-stone-400">
+                        {group.events.length} agenda
+                      </span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {buildTimelineRows(group.events).map((row) => {
+                        if (row.type === "free") {
+                          return <FreeTimeRow key={row.id} row={row} />
+                        }
+
+                        return (
+                          <EventCard
+                            key={row.event.id}
+                            event={row.event}
+                            warning={row.warning}
+                            previousEvent={row.previousEvent}
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </section>
       </div>
     </main>

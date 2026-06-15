@@ -2,8 +2,11 @@ import type { LucideIcon } from "lucide-react";
 import {
   AlarmClock,
   Brain,
+  ArrowUpRight,
   CalendarDays,
   CheckCircle2,
+  ChevronRight,
+  ExternalLink,
   CircleDot,
   Compass,
   Heart,
@@ -14,7 +17,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { AssistantMode } from "@/lib/api";
-import type { WorkspaceCardId, WorkspaceContext } from "./types";
+import type { WorkspaceAgendaItem, WorkspaceCardId, WorkspaceContext } from "./types";
 
 export type WorkspaceCardDefinition = {
   id: WorkspaceCardId;
@@ -60,6 +63,30 @@ function formatClock(value: string | null | undefined): string | null {
     minute: "2-digit",
     hour12: false,
   }).format(date);
+}
+
+const GOOGLE_CALENDAR_URL = "https://calendar.google.com/calendar/u/0/r";
+
+function agendaTimeRange(event: WorkspaceAgendaItem): string {
+  if (event.allDay) return "All day";
+
+  const start = formatClock(event.startAt);
+  const end = formatClock(event.endAt);
+
+  if (start && end) return `${start}–${end}`;
+  return start || end || "Time pending";
+}
+
+function agendaSourceLabel(source: WorkspaceAgendaItem["source"]): string {
+  if (source === "google") return "Google";
+  if (source === "synced") return "Synced";
+  return "Local";
+}
+
+function agendaSourceBadgeClass(source: WorkspaceAgendaItem["source"]): string {
+  if (source === "google") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (source === "synced") return "border-lime-200 bg-lime-50 text-lime-700";
+  return "border-indigo-200 bg-indigo-50 text-indigo-700";
 }
 
 function formatReminderDue(value: string | null | undefined): string {
@@ -226,33 +253,89 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
 
       const agenda = (context.todayAgenda || []).slice(0, 4);
 
-      return agenda.length > 0 ? (
-        <ul>
-          {agenda.map((event, index) => {
-            const time = event.allDay
-              ? "All day"
-              : formatClock(event.startAt) || "Time pending";
+      return (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href="/calendar"
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-stone-200 bg-white/70 px-3 text-[11px] font-semibold text-stone-600 shadow-sm transition hover:bg-white hover:text-stone-950"
+            >
+              <CalendarDays className="h-3.5 w-3.5" />
+              Calendar page
+            </a>
+            <a
+              href={GOOGLE_CALENDAR_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-stone-200 bg-white/70 px-3 text-[11px] font-semibold text-stone-600 shadow-sm transition hover:bg-white hover:text-stone-950"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Google Calendar
+            </a>
+          </div>
 
-            return (
-              <li key={event.id || `${event.title}-${index}`}>
-                <span className="font-medium">{time}</span>
-                {event.title ? ` — ${event.title}` : ""}
-                <span className="ml-2 text-[10px] uppercase tracking-wide opacity-60">
-                  {event.source === "google"
-                    ? "Google"
-                    : event.source === "synced"
-                      ? "Synced"
-                      : "Local"}
-                </span>
-                {event.location ? (
-                  <span className="block truncate pl-0.5 text-xs opacity-70">{event.location}</span>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <p>No confirmed events are scheduled here for today. You can ask the assistant to add or organize one.</p>
+          {agenda.length > 0 ? (
+            <div className="overflow-hidden rounded-2xl border border-white/70 bg-white/45">
+              {agenda.map((event, index) => {
+                const time = agendaTimeRange(event);
+                const title = String(event.title || "Calendar event").trim();
+                const source = event.source || "local";
+
+                return (
+                  <a
+                    key={event.id || `${event.title}-${index}`}
+                    href="/calendar"
+                    className={[
+                      "group grid grid-cols-[4.35rem_1fr_auto] items-center gap-3 px-3 py-3 text-left no-underline transition hover:bg-white/65",
+                      index > 0 ? "border-t border-white/70" : "",
+                    ].join(" ")}
+                  >
+                    <span className="font-mono text-[11px] font-semibold leading-4 text-stone-500 tabular-nums">
+                      {time}
+                    </span>
+
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold leading-5 text-stone-950">
+                        {title}
+                      </span>
+                      {event.location ? (
+                        <span className="block truncate text-xs leading-5 text-stone-500">
+                          {event.location}
+                        </span>
+                      ) : (
+                        <span className="block truncate text-xs leading-5 text-stone-400">
+                          {agendaSourceLabel(source)}
+                        </span>
+                      )}
+                    </span>
+
+                    <span className="flex items-center gap-2">
+                      <span
+                        className={[
+                          "rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em]",
+                          agendaSourceBadgeClass(source),
+                        ].join(" ")}
+                      >
+                        {agendaSourceLabel(source)}
+                      </span>
+                      <ChevronRight className="h-3.5 w-3.5 text-stone-300 transition group-hover:translate-x-0.5 group-hover:text-stone-500" />
+                    </span>
+                  </a>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-stone-200 bg-white/35 px-4 py-5">
+              <p>No confirmed events are scheduled here for today. You can ask the assistant to add or organize one.</p>
+            </div>
+          )}
+
+          {agenda.some((event) => event.source === "local") ? (
+            <p className="text-xs leading-5 text-stone-500">
+              Local-only items can be synced from the Calendar page or by asking Aliyya in chat.
+            </p>
+          ) : null}
+        </div>
       );
     },
   },
