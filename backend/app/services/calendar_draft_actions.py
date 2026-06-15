@@ -16,6 +16,7 @@ import json
 import logging
 import re
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.services.claude import get_claude
 from app.services.embeddings import embed_document
@@ -1584,6 +1585,254 @@ def calendar_action_succeeded(
         or result.get("updated")
         or result.get("deleted")
     )
+
+
+_RECEIPT_TZ = ZoneInfo("Asia/Jakarta")
+_RECEIPT_MONTHS_ID = {
+    1: "Januari",
+    2: "Februari",
+    3: "Maret",
+    4: "April",
+    5: "Mei",
+    6: "Juni",
+    7: "Juli",
+    8: "Agustus",
+    9: "September",
+    10: "Oktober",
+    11: "November",
+    12: "Desember",
+}
+
+
+def render_calendar_action_user_receipt(
+    result: dict[str, Any] | None,
+) -> str | None:
+    """Render deterministic user-facing receipt for Calendar actions.
+
+    This is intentionally not LLM-written. It only uses facts returned by the
+    backend Calendar action layer.
+    """
+    if not isinstance(result, dict):
+        return None
+
+    if not result.get("attempted"):
+        return None
+
+    reason = str(result.get("reason") or "").strip()
+    action = str(result.get("action") or "").strip()
+    success = calendar_action_succeeded(result)
+    title = _receipt_text(result.get("title")) or "jadwal itu"
+
+    if reason == "recurring_scope_required":
+        return (
+            "Ini jadwal berulang, beb. Mau aku ubah untuk hari ini saja, "
+            "hari ini dan seterusnya, atau seluruh rangkaian?"
+        )
+
+    if reason == "recurring_scope_not_supported_yet":
+        return (
+            "Untuk sekarang aku baru bisa ubah satu occurrence dengan aman, beb. "
+            "Mau aku ubah untuk hari ini saja?"
+        )
+
+    if reason == "calendar_conflict_requires_confirmation":
+        conflict_text = _receipt_conflict_text(result)
+        detail_lines = _receipt_detail_lines(result)
+        details = (
+            "\n" + "\n".join(detail_lines)
+            if detail_lines
+            else ""
+        )
+
+        return (
+            f"Belum aku update, beb. {conflict_text}{details}\n\n"
+            "Mau tetap lanjut atau pilih jam lain?"
+        )
+
+    if reason == "no_pending_recurring_action":
+        return (
+            "Aku belum bisa lanjutkan, beb, karena request jadwal berulang "
+            "sebelumnya sudah tidak ditemukan atau sudah kedaluwarsa. "
+            "Coba ulangi request lengkapnya ya."
+        )
+
+    if success and bool(result.get("deleted")):
+        details = _receipt_details_block(result)
+        return (
+            f"Sudah aku hapus, beb."
+            f"{details}"
+        )
+
+    if success and bool(result.get("updated")):
+        details = _receipt_details_block(result)
+        return (
+            f"Sudah aku update, beb."
+            f"{details}"
+        )
+
+    if success:
+        details = _receipt_details_block(result)
+        return (
+            f"Sudah beres, beb."
+            f"{details}"
+        )
+
+    verb = "hapus" if action == "delete" else "update"
+    failure = _receipt_failure_text(reason, verb)
+    return failure
+
+
+def _receipt_failure_text(reason: str, verb: str) -> str:
+    if reason in {"google_read_failed", "google_access_failed"}:
+        return (
+            f"Belum berhasil aku {verb}, beb, karena akses Google Calendar "
+            "belum bisa dibaca. Coba reconnect Google Calendar dulu."
+        )
+
+    if reason in {"no_calendar_records", "target_not_found"}:
+        return (
+            f"Belum berhasil aku {verb}, beb, karena aku belum menemukan "
+            "jadwal yang dimaksud."
+        )
+
+    if reason == "no_confident_action":
+        return (
+            f"Aku belum cukup yakin jadwal mana yang harus aku {verb}, beb. "
+            "Coba sebutkan nama jadwal dan jamnya lebih lengkap."
+        )
+
+    if reason == "google_patch_failed":
+        return (
+            "Belum berhasil aku update di Google Calendar, beb. "
+            "Coba ulangi sebentar lagi."
+        )
+
+    if reason == "google_delete_failed":
+        return (
+            "Belum berhasil aku hapus dari Google Calendar, beb. "
+            "Coba ulangi sebentar lagi."
+        )
+
+    return (
+        f"Belum berhasil aku {verb}, beb. "
+        "Coba ulangi sebentar lagi."
+    )
+
+
+def _receipt_details_block(result: dict[str, Any]) -> str:
+    lines = _receipt_detail_lines(result)
+    if not lines:
+        return ""
+
+    return "\n\n" + "\n".join(lines)
+
+
+def _receipt_detail_lines(result: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+
+    title = _receipt_text(result.get("title"))
+    if title:
+        lines.append(f"Acara: {title}")
+
+    date_text = _format_receipt_date(result.get("date"))
+    if date_text:
+        lines.append(f"Tanggal: {date_text}")
+
+    time_text = _format_receipt_time_range(
+        result.get("start_at"),
+        result.get("end_at"),
+    )
+    if time_text:
+        lines.append(f"Waktu: {time_text}")
+
+    location = _receipt_text(result.get("location"))
+    if location:
+        lines.append(f"Lokasi: {location}")
+
+    return lines
+
+
+def _receipt_conflict_text(result: dict[str, Any]) -> str:
+    conflict_analysis = result.get("conflict_analysis")
+    if not isinstance(conflict_analysis, dict):
+        return "Jadwal ini bentrok dengan jadwal lain."
+
+    conflicts = [
+        conflict
+        for conflict in conflict_analysis.get("conflicts", [])
+        if isinstance(conflict, dict)
+    ]
+    if not conflicts:
+        return "Jadwal ini bentrok dengan jadwal lain."
+
+    conflict = conflicts[0]
+    title = _receipt_text(conflict.get("title")) or "jadwal lain"
+    time_text = _format_receipt_time_range(
+        conflict.get("start_at"),
+        conflict.get("end_at"),
+    )
+
+    if time_text:
+        return f"Jadwal ini bentrok dengan {title} pukul {time_text}."
+
+    return f"Jadwal ini bentrok dengan {title}."
+
+
+def _receipt_text(value: Any) -> str:
+    return " ".join(str(value or "").split()).strip()
+
+
+def _format_receipt_date(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    try:
+        parsed = datetime.fromisoformat(
+            raw.replace("Z", "+00:00")
+        )
+    except Exception:
+        try:
+            parsed = datetime.fromisoformat(f"{raw}T00:00:00")
+        except Exception:
+            return raw
+
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(_RECEIPT_TZ)
+
+    month = _RECEIPT_MONTHS_ID.get(parsed.month, str(parsed.month))
+    return f"{parsed.day} {month} {parsed.year}"
+
+
+def _format_receipt_time_range(
+    start_value: Any,
+    end_value: Any,
+) -> str:
+    start_text = _format_receipt_time(start_value)
+    end_text = _format_receipt_time(end_value)
+
+    if start_text and end_text:
+        return f"{start_text}–{end_text}"
+
+    return start_text or end_text
+
+
+def _format_receipt_time(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    try:
+        parsed = datetime.fromisoformat(
+            raw.replace("Z", "+00:00")
+        )
+    except Exception:
+        return raw
+
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(_RECEIPT_TZ)
+
+    return f"{parsed.hour:02d}.{parsed.minute:02d}"
 
 
 def render_calendar_action_result_context(

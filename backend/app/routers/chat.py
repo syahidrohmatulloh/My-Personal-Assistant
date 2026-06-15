@@ -884,6 +884,30 @@ async def chat(
         }
     )
 
+    calendar_action_receipt = (
+        calendar_draft_actions.render_calendar_action_user_receipt(
+            calendar_action_result
+        )
+    )
+    if is_calendar_draft_action_turn and calendar_action_receipt:
+        return StreamingResponse(
+            _stream_static_assistant_response(
+                assistant_text=calendar_action_receipt,
+                assistant_name=assistant_name,
+                detected_mode=detected_mode,
+                assistant_mode=assistant_mode,
+                conversation_id=body.conversation_id,
+                calendar_snapshot_dirty=calendar_action_snapshot_dirty,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+            background=background_tasks,
+        )
+
     # === Build prompt with cached base + volatile context ===
     volatile_context = render_context(context)
     if chronology_context:
@@ -1244,6 +1268,9 @@ async def _stream_static_assistant_response(
     assistant_text: str,
     assistant_name: str,
     detected_mode: str | None = None,
+    assistant_mode: str = "life_companion",
+    conversation_id: str | None = None,
+    calendar_snapshot_dirty: bool = False,
 ) -> AsyncIterator[str]:
     """Stream a deterministic assistant response without calling Claude."""
     mood = _mode_to_mood(detected_mode)
@@ -1258,6 +1285,26 @@ async def _stream_static_assistant_response(
     }
     yield f"data: {json.dumps(meta_event)}\n\n"
     yield f"data: {json.dumps({'type': 'delta', 'text': assistant_text})}\n\n"
+
+    if assistant_text and conversation_id:
+        await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("messages")
+                .insert(
+                    {
+                        "conversation_id": conversation_id,
+                        "role": "assistant",
+                        "content": assistant_text,
+                    }
+                )
+                .execute()
+            )
+        )
+
+    if calendar_snapshot_dirty:
+        yield f"data: {json.dumps({'type': 'meta', 'calendar_snapshot_dirty': True})}\n\n"
+
+    yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
 
 async def _stream_claude_response(
