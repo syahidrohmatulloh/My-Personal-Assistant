@@ -16,7 +16,7 @@ import {
   Sunrise,
   Zap,
 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 
 import { createClient } from "@/lib/supabase/client"
 import {
@@ -33,6 +33,7 @@ import {
 
 type ViewFilter = "today" | "upcoming" | "all"
 type SourceFilter = "all" | "aliyya" | "google"
+type CalendarVisualMode = "life_companion" | "chief_of_staff"
 
 type AgendaGroup = {
   date: string
@@ -56,7 +57,51 @@ type TimelineRow =
 
 const GOOGLE_CALENDAR_URL = "https://calendar.google.com/calendar/u/0/r"
 const CALENDAR_CHAT_HANDOFF_DRAFT_KEY = "app:calendar-chat-handoff-draft"
-const LAST_CHAT_PATH_KEY = "app:last-chat-path"
+
+function cn(...parts: Array<string | false | null | undefined>): string {
+  return parts.filter(Boolean).join(" ")
+}
+
+function readStoredCalendarVisualMode(): CalendarVisualMode {
+  if (typeof window === "undefined") return "life_companion"
+
+  const exactKeys = [
+    "app:assistant-mode",
+    "app:chat-v2-assistant-mode",
+    "assistant_mode",
+    "assistantMode",
+    "companion_mode",
+    "app:companion-mode",
+  ]
+
+  for (const key of exactKeys) {
+    const value = String(window.localStorage.getItem(key) || "").toLowerCase()
+    if (value.includes("chief_of_staff") || value === "chief") return "chief_of_staff"
+    if (value.includes("life_companion") || value === "life") return "life_companion"
+  }
+
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index) || ""
+    const value = window.localStorage.getItem(key) || ""
+    const haystack = `${key} ${value}`.toLowerCase()
+
+    if (
+      (haystack.includes("chief_of_staff") || haystack.includes('"chief"')) &&
+      /(assistant|companion|chat|mode)/i.test(key)
+    ) {
+      return "chief_of_staff"
+    }
+
+    if (
+      (haystack.includes("life_companion") || haystack.includes('"life"')) &&
+      /(assistant|companion|chat|mode)/i.test(key)
+    ) {
+      return "life_companion"
+    }
+  }
+
+  return "life_companion"
+}
 
 function localDateKey(date = new Date()): string {
   const year = date.getFullYear()
@@ -144,7 +189,10 @@ function timeColumn(event: CalendarEvent): { start: string; end: string } {
   }
 }
 
-function sourceMeta(event: CalendarEvent): {
+function sourceMeta(
+  event: CalendarEvent,
+  isChief: boolean,
+): {
   label: string
   helper: string
   badgeClass: string
@@ -154,8 +202,12 @@ function sourceMeta(event: CalendarEvent): {
     return {
       label: "Google",
       helper: "Direct Google event",
-      badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
-      dotClass: "bg-emerald-500 shadow-[0_0_0_5px_rgba(16,185,129,0.12)]",
+      badgeClass: isChief
+        ? "border-teal-300/25 bg-teal-300/[0.12] text-teal-100"
+        : "border-emerald-200 bg-emerald-50 text-emerald-700",
+      dotClass: isChief
+        ? "bg-teal-300 shadow-[0_0_0_5px_rgba(94,234,212,0.12)]"
+        : "bg-emerald-500 shadow-[0_0_0_5px_rgba(16,185,129,0.12)]",
     }
   }
 
@@ -163,16 +215,24 @@ function sourceMeta(event: CalendarEvent): {
     return {
       label: "Synced",
       helper: "Aliyya + Google",
-      badgeClass: "border-lime-200 bg-lime-50 text-lime-700",
-      dotClass: "bg-lime-500 shadow-[0_0_0_5px_rgba(132,204,22,0.14)]",
+      badgeClass: isChief
+        ? "border-lime-300/25 bg-lime-300/[0.12] text-lime-100"
+        : "border-lime-200 bg-lime-50 text-lime-700",
+      dotClass: isChief
+        ? "bg-lime-300 shadow-[0_0_0_5px_rgba(190,242,100,0.12)]"
+        : "bg-lime-500 shadow-[0_0_0_5px_rgba(132,204,22,0.14)]",
     }
   }
 
   return {
     label: "Local",
     helper: "Aliyya Calendar",
-    badgeClass: "border-indigo-200 bg-indigo-50 text-indigo-700",
-    dotClass: "bg-indigo-500 shadow-[0_0_0_5px_rgba(99,102,241,0.13)]",
+    badgeClass: isChief
+      ? "border-violet-300/25 bg-violet-300/[0.12] text-violet-100"
+      : "border-indigo-200 bg-indigo-50 text-indigo-700",
+    dotClass: isChief
+      ? "bg-violet-300 shadow-[0_0_0_5px_rgba(196,181,253,0.12)]"
+      : "bg-indigo-500 shadow-[0_0_0_5px_rgba(99,102,241,0.13)]",
   }
 }
 
@@ -263,29 +323,84 @@ function handoffCalendarActionToChat(event: CalendarEvent, mode: "sync" | "resch
           .trim()
 
   window.localStorage.setItem(CALENDAR_CHAT_HANDOFF_DRAFT_KEY, draft)
-
-  window.localStorage.getItem(LAST_CHAT_PATH_KEY)
   window.location.assign("/chat-v2")
+}
+
+function shellClass(isChief: boolean): string {
+  return cn(
+    "relative h-[100dvh] overflow-hidden px-4 py-4 sm:px-6 lg:px-8",
+    isChief ? "bg-[#080d14] text-slate-100" : "bg-[#f7f3ea] text-stone-950",
+  )
+}
+
+function Background({ isChief }: { isChief: boolean }) {
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+      {isChief ? (
+        <>
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_72%_18%,rgba(45,212,191,0.16),transparent_30rem),radial-gradient(circle_at_18%_80%,rgba(59,130,246,0.08),transparent_32rem),radial-gradient(circle_at_88%_88%,rgba(180,130,58,0.06),transparent_26rem)]" />
+          <div className="absolute inset-0 opacity-[0.045] [background-image:linear-gradient(rgba(148,163,184,0.32)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.24)_1px,transparent_1px)] [background-size:48px_48px]" />
+          <div className="absolute right-[-8%] top-[4%] h-[42rem] w-[42rem] rounded-full bg-teal-300/[0.08] blur-[120px]" />
+          <div className="absolute bottom-[-20%] left-[-14%] h-[44rem] w-[44rem] rounded-full bg-blue-400/[0.05] blur-[150px]" />
+        </>
+      ) : (
+        <>
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,rgba(244,194,194,0.42),transparent_28rem),radial-gradient(circle_at_78%_12%,rgba(206,220,183,0.36),transparent_30rem),radial-gradient(circle_at_48%_92%,rgba(235,224,166,0.34),transparent_34rem)]" />
+          <div className="absolute -left-24 bottom-[-12rem] h-[34rem] w-[34rem] rounded-full bg-lime-200/25 blur-[120px]" />
+          <div className="absolute -right-28 top-24 h-[36rem] w-[36rem] rounded-full bg-rose-200/25 blur-[130px]" />
+        </>
+      )}
+    </div>
+  )
+}
+
+function cardClass(isChief: boolean, extra = ""): string {
+  return cn(
+    "rounded-[2rem] border p-4 shadow-sm backdrop-blur-xl",
+    isChief
+      ? "border-white/10 bg-white/[0.045] text-slate-300"
+      : "border-white/70 bg-white/50 text-stone-600",
+    extra,
+  )
+}
+
+function titleClass(isChief: boolean): string {
+  return isChief ? "text-slate-100" : "text-stone-950"
+}
+
+function mutedClass(isChief: boolean): string {
+  return isChief ? "text-slate-400" : "text-stone-500"
+}
+
+function subtleClass(isChief: boolean): string {
+  return isChief ? "text-slate-500" : "text-stone-400"
 }
 
 function StatCard({
   label,
   value,
   helper,
+  isChief,
 }: {
   label: string
   value: number | string
   helper: string
+  isChief: boolean
 }) {
   return (
-    <div className="rounded-[1.75rem] border border-white/70 bg-white/55 p-4 shadow-sm backdrop-blur-xl">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-400">
+    <div
+      className={cn(
+        "rounded-[1.75rem] border p-4 shadow-sm backdrop-blur-xl",
+        isChief ? "border-white/10 bg-white/[0.055]" : "border-white/70 bg-white/55",
+      )}
+    >
+      <p className={cn("text-[11px] font-semibold uppercase tracking-[0.22em]", subtleClass(isChief))}>
         {label}
       </p>
-      <p className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-stone-950">
+      <p className={cn("mt-2 text-3xl font-semibold tracking-[-0.04em]", titleClass(isChief))}>
         {value}
       </p>
-      <p className="mt-1 text-xs leading-5 text-stone-500">{helper}</p>
+      <p className={cn("mt-1 text-xs leading-5", mutedClass(isChief))}>{helper}</p>
     </div>
   )
 }
@@ -294,21 +409,27 @@ function FilterPill({
   active,
   children,
   onClick,
+  isChief,
 }: {
   active: boolean
-  children: React.ReactNode
+  children: ReactNode
   onClick: () => void
+  isChief: boolean
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={[
+      className={cn(
         "rounded-full px-3 py-1.5 text-xs font-semibold transition active:scale-[0.98]",
         active
-          ? "bg-stone-950 text-white shadow-sm"
-          : "border border-stone-200 bg-white/60 text-stone-500 hover:bg-white hover:text-stone-950",
-      ].join(" ")}
+          ? isChief
+            ? "bg-teal-200 text-slate-950 shadow-sm"
+            : "bg-stone-950 text-white shadow-sm"
+          : isChief
+            ? "border border-white/10 bg-white/[0.045] text-slate-400 hover:bg-white/[0.08] hover:text-slate-100"
+            : "border border-stone-200 bg-white/60 text-stone-500 hover:bg-white hover:text-stone-950",
+      )}
     >
       {children}
     </button>
@@ -319,23 +440,39 @@ function EventCard({
   event,
   warning,
   previousEvent,
+  isChief,
 }: {
   event: CalendarEvent
   warning?: string
   previousEvent?: CalendarEvent
+  isChief: boolean
 }) {
   const time = timeColumn(event)
-  const meta = sourceMeta(event)
+  const meta = sourceMeta(event, isChief)
   const hasGoogleLink = Boolean(event.googleLink)
 
   return (
-    <article className="group relative overflow-hidden rounded-[1.6rem] border border-white/70 bg-white/62 p-4 shadow-sm backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-white/75 hover:shadow-md">
-      <div className="pointer-events-none absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-stone-900/20 via-stone-900/5 to-transparent opacity-60" />
+    <article
+      className={cn(
+        "group relative overflow-hidden rounded-[1.6rem] border p-4 shadow-sm backdrop-blur-xl transition hover:-translate-y-0.5 hover:shadow-md",
+        isChief
+          ? "border-white/10 bg-white/[0.055] hover:border-teal-200/20 hover:bg-teal-200/[0.06] hover:shadow-black/25"
+          : "border-white/70 bg-white/62 hover:bg-white/75 hover:shadow-stone-200/50",
+      )}
+    >
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-y-0 left-0 w-1 opacity-60",
+          isChief
+            ? "bg-gradient-to-b from-teal-200/35 via-teal-200/10 to-transparent"
+            : "bg-gradient-to-b from-stone-900/20 via-stone-900/5 to-transparent",
+        )}
+      />
 
       <div className="flex gap-4">
-        <div className="w-16 shrink-0 pt-0.5 font-mono text-[11px] leading-5 text-stone-500">
-          <div className="font-semibold text-stone-950 tabular-nums">{time.start}</div>
-          {time.end ? <div className="tabular-nums text-stone-400">{time.end}</div> : null}
+        <div className={cn("w-16 shrink-0 pt-0.5 font-mono text-[11px] leading-5", mutedClass(isChief))}>
+          <div className={cn("font-semibold tabular-nums", titleClass(isChief))}>{time.start}</div>
+          {time.end ? <div className={cn("tabular-nums", subtleClass(isChief))}>{time.end}</div> : null}
         </div>
 
         <div className="min-w-0 flex-1">
@@ -343,7 +480,7 @@ function EventCard({
             <div className="min-w-0">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <span className={`mt-0.5 h-2.5 w-2.5 rounded-full ${meta.dotClass}`} />
-                <h3 className="min-w-0 break-words text-base font-semibold leading-snug tracking-[-0.02em] text-stone-950">
+                <h3 className={cn("min-w-0 break-words text-base font-semibold leading-snug tracking-[-0.02em]", titleClass(isChief))}>
                   {event.title}
                 </h3>
               </div>
@@ -352,33 +489,38 @@ function EventCard({
                 <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${meta.badgeClass}`}>
                   {meta.label}
                 </span>
-                <span className="text-[11px] text-stone-400">{meta.helper}</span>
+                <span className={cn("text-[11px]", subtleClass(isChief))}>{meta.helper}</span>
               </div>
             </div>
 
-            <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-stone-300 transition group-hover:translate-x-0.5 group-hover:text-stone-500" />
+            <ChevronRight className={cn("mt-1 h-4 w-4 shrink-0 transition group-hover:translate-x-0.5", isChief ? "text-slate-500 group-hover:text-teal-200" : "text-stone-300 group-hover:text-stone-500")} />
           </div>
 
           {event.location ? (
-            <p className="mt-3 flex items-center gap-1.5 text-sm leading-5 text-stone-500">
+            <p className={cn("mt-3 flex items-center gap-1.5 text-sm leading-5", mutedClass(isChief))}>
               <MapPin className="h-3.5 w-3.5 shrink-0" />
               <span className="min-w-0 break-words">{event.location}</span>
             </p>
           ) : null}
 
           {event.syncError ? (
-            <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
+            <p className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-200">
               Sync note: {event.syncError}
             </p>
           ) : null}
 
           {warning ? (
-            <div className="mt-3 rounded-2xl border border-orange-200 bg-orange-50/85 p-3">
-              <p className="text-xs font-medium leading-5 text-orange-800">{warning}</p>
+            <div className={cn("mt-3 rounded-2xl border p-3", isChief ? "border-amber-300/20 bg-amber-300/10" : "border-orange-200 bg-orange-50/85")}>
+              <p className={cn("text-xs font-medium leading-5", isChief ? "text-amber-100" : "text-orange-800")}>{warning}</p>
               <button
                 type="button"
                 onClick={() => handoffCalendarActionToChat(event, "reschedule", warning)}
-                className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-white/70 px-3 py-1.5 text-xs font-semibold text-orange-700 transition hover:bg-white"
+                className={cn(
+                  "mt-2 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                  isChief
+                    ? "border-amber-300/20 bg-white/[0.05] text-amber-100 hover:bg-amber-300/10"
+                    : "border-orange-200 bg-white/70 text-orange-700 hover:bg-white",
+                )}
               >
                 <Bot className="h-3.5 w-3.5" />
                 Bantu atur ulang
@@ -392,7 +534,12 @@ function EventCard({
                 href={event.googleLink || GOOGLE_CALENDAR_URL}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-stone-700 shadow-sm transition hover:bg-white hover:text-stone-950"
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm transition",
+                  isChief
+                    ? "border-white/10 bg-white/[0.055] text-slate-300 hover:border-teal-200/25 hover:bg-teal-200/[0.08] hover:text-teal-100"
+                    : "border-stone-200 bg-white/80 text-stone-700 hover:bg-white hover:text-stone-950",
+                )}
               >
                 <ExternalLink className="h-3.5 w-3.5" />
                 Open Google
@@ -403,7 +550,12 @@ function EventCard({
               <button
                 type="button"
                 onClick={() => handoffCalendarActionToChat(event, "sync")}
-                className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100"
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                  isChief
+                    ? "border-violet-300/20 bg-violet-300/[0.10] text-violet-100 hover:bg-violet-300/[0.15]"
+                    : "border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100",
+                )}
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 Ask Aliyya to sync
@@ -411,7 +563,12 @@ function EventCard({
             ) : null}
 
             {previousEvent ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-white/55 px-3 py-1.5 text-xs text-stone-500">
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs",
+                  isChief ? "border-white/10 bg-white/[0.045] text-slate-400" : "border-stone-200 bg-white/55 text-stone-500",
+                )}
+              >
                 <Clock3 className="h-3.5 w-3.5" />
                 After {previousEvent.title}
               </span>
@@ -423,14 +580,26 @@ function EventCard({
   )
 }
 
-function FreeTimeRow({ row }: { row: Extract<TimelineRow, { type: "free" }> }) {
+function FreeTimeRow({ row, isChief }: { row: Extract<TimelineRow, { type: "free" }>; isChief: boolean }) {
   return (
-    <div className="rounded-[1.4rem] border border-dashed border-stone-200 bg-white/35 px-4 py-3 text-sm text-stone-500 backdrop-blur">
+    <div
+      className={cn(
+        "rounded-[1.4rem] border border-dashed px-4 py-3 text-sm backdrop-blur",
+        isChief
+          ? "border-white/10 bg-white/[0.035] text-slate-500"
+          : "border-stone-200 bg-white/35 text-stone-500",
+      )}
+    >
       <div className="flex flex-wrap items-center gap-3">
-        <span className="font-mono text-xs tabular-nums text-stone-400">
+        <span className={cn("font-mono text-xs tabular-nums", subtleClass(isChief))}>
           {formatTime(row.startAt)}–{formatTime(row.endAt)}
         </span>
-        <span className="rounded-full border border-white/70 bg-white/65 px-2.5 py-1 text-[11px] font-semibold text-stone-500">
+        <span
+          className={cn(
+            "rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+            isChief ? "border-white/10 bg-white/[0.045] text-slate-400" : "border-white/70 bg-white/65 text-stone-500",
+          )}
+        >
           {durationLabel(row.minutes)} kosong
         </span>
       </div>
@@ -445,7 +614,9 @@ export default function CalendarPage() {
   const [error, setError] = useState<string | null>(null)
   const [viewFilter, setViewFilter] = useState<ViewFilter>("upcoming")
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all")
+  const [visualMode, setVisualMode] = useState<CalendarVisualMode>("life_companion")
 
+  const isChief = visualMode === "chief_of_staff"
   const today = localDateKey()
 
   async function loadCalendarEvents() {
@@ -470,6 +641,21 @@ export default function CalendarPage() {
       setIsLoading(false)
     }
   }
+
+  useEffect(() => {
+    function syncVisualMode() {
+      setVisualMode(readStoredCalendarVisualMode())
+    }
+
+    syncVisualMode()
+    window.addEventListener("storage", syncVisualMode)
+    window.addEventListener("focus", syncVisualMode)
+
+    return () => {
+      window.removeEventListener("storage", syncVisualMode)
+      window.removeEventListener("focus", syncVisualMode)
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -542,25 +728,35 @@ export default function CalendarPage() {
   const googleCount = events.filter((event) => event.source === "google").length
 
   return (
-    <main className="relative h-[100dvh] overflow-hidden bg-[#f7f3ea] px-4 py-4 text-stone-950 sm:px-6 lg:px-8">
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,rgba(244,194,194,0.42),transparent_28rem),radial-gradient(circle_at_78%_12%,rgba(206,220,183,0.36),transparent_30rem),radial-gradient(circle_at_48%_92%,rgba(235,224,166,0.34),transparent_34rem)]" />
-        <div className="absolute -left-24 bottom-[-12rem] h-[34rem] w-[34rem] rounded-full bg-lime-200/25 blur-[120px]" />
-        <div className="absolute -right-28 top-24 h-[36rem] w-[36rem] rounded-full bg-rose-200/25 blur-[130px]" />
-      </div>
+    <main className={shellClass(isChief)}>
+      <Background isChief={isChief} />
 
       <div className="relative mx-auto flex h-full w-full max-w-7xl flex-col gap-4">
-        <header className="shrink-0 flex flex-col gap-3 rounded-[2rem] border border-white/70 bg-white/48 p-4 shadow-sm backdrop-blur-xl sm:flex-row sm:items-start sm:justify-between sm:p-5">
+        <header
+          className={cn(
+            "shrink-0 flex flex-col gap-3 rounded-[2rem] border p-4 shadow-sm backdrop-blur-xl sm:flex-row sm:items-start sm:justify-between sm:p-5",
+            isChief ? "border-white/10 bg-white/[0.045]" : "border-white/70 bg-white/48",
+          )}
+        >
           <div>
-            <p className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white/60 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500 shadow-sm">
+            <p
+              className={cn(
+                "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] shadow-sm",
+                isChief
+                  ? "border-teal-200/15 bg-teal-200/[0.06] text-teal-100"
+                  : "border-stone-200 bg-white/60 text-stone-500",
+              )}
+            >
               <Sparkles className="h-3.5 w-3.5" />
-              Calendar command center
+              {isChief ? "Calm executive cockpit" : "Calendar command center"}
             </p>
-            <h1 className="mt-4 text-4xl font-semibold tracking-[-0.065em] text-stone-950 sm:text-5xl">
+            <h1 className={cn("mt-4 text-4xl font-semibold tracking-[-0.065em] sm:text-5xl", titleClass(isChief))}>
               Calendar
             </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-stone-600">
-              A clean command deck for Aliyya events, Google Calendar sync, daily flow, and schedule gaps.
+            <p className={cn("mt-3 max-w-2xl text-sm leading-6", mutedClass(isChief))}>
+              {isChief
+                ? "A focused operating deck for calendar risk, sync status, and next actions."
+                : "A clean command deck for Aliyya events, Google Calendar sync, daily flow, and schedule gaps."}
             </p>
           </div>
 
@@ -569,7 +765,12 @@ export default function CalendarPage() {
               type="button"
               onClick={() => void loadCalendarEvents()}
               disabled={isLoading}
-              className="inline-flex h-10 items-center gap-2 rounded-full border border-stone-200 bg-white/70 px-4 text-sm font-semibold text-stone-700 shadow-sm backdrop-blur transition hover:bg-white hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-60"
+              className={cn(
+                "inline-flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-semibold shadow-sm backdrop-blur transition disabled:cursor-not-allowed disabled:opacity-60",
+                isChief
+                  ? "border-white/10 bg-white/[0.045] text-slate-300 hover:bg-white/[0.08] hover:text-white"
+                  : "border-stone-200 bg-white/70 text-stone-700 hover:bg-white hover:text-stone-950",
+              )}
             >
               {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
               {isLoading ? "Refreshing" : "Refresh"}
@@ -579,7 +780,12 @@ export default function CalendarPage() {
               href={GOOGLE_CALENDAR_URL}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex h-10 items-center gap-2 rounded-full border border-stone-200 bg-white/70 px-4 text-sm font-semibold text-stone-700 shadow-sm backdrop-blur transition hover:bg-white hover:text-stone-950"
+              className={cn(
+                "inline-flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-semibold shadow-sm backdrop-blur transition",
+                isChief
+                  ? "border-white/10 bg-white/[0.045] text-slate-300 hover:bg-white/[0.08] hover:text-white"
+                  : "border-stone-200 bg-white/70 text-stone-700 hover:bg-white hover:text-stone-950",
+              )}
             >
               <ArrowUpRight className="h-4 w-4" />
               Google Calendar
@@ -587,7 +793,10 @@ export default function CalendarPage() {
 
             <a
               href="/chat-v2"
-              className="inline-flex h-10 items-center justify-center rounded-full bg-stone-950 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-stone-800"
+              className={cn(
+                "inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-semibold shadow-sm transition",
+                isChief ? "bg-teal-100 text-slate-950 hover:bg-teal-200" : "bg-stone-950 text-white hover:bg-stone-800",
+              )}
             >
               Back to chat
             </a>
@@ -596,145 +805,173 @@ export default function CalendarPage() {
 
         <section className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[0.72fr_1.28fr]">
           <aside className="min-h-0 space-y-4 overflow-y-auto pr-1 xl:[scrollbar-width:thin]">
-            <div className="rounded-[2rem] border border-white/70 bg-white/50 p-4 shadow-sm backdrop-blur-xl">
+            <div className={cardClass(isChief)}>
               <div className="flex items-center gap-3">
-                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-stone-950 text-white shadow-sm">
+                <span
+                  className={cn(
+                    "grid h-11 w-11 place-items-center rounded-2xl shadow-sm",
+                    isChief ? "bg-teal-200 text-slate-950" : "bg-stone-950 text-white",
+                  )}
+                >
                   <Sunrise className="h-5 w-5" />
                 </span>
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-400">
+                  <p className={cn("text-[11px] font-semibold uppercase tracking-[0.22em]", subtleClass(isChief))}>
                     Today
                   </p>
-                  <p className="text-base font-semibold text-stone-950">
-                    {formatDate(today)}
-                  </p>
+                  <p className={cn("text-base font-semibold", titleClass(isChief))}>{formatDate(today)}</p>
                 </div>
               </div>
 
               <div className="mt-4 grid grid-cols-3 gap-2">
-                <StatCard label="Today" value={todaysEvents.length} helper="agenda" />
-                <StatCard label="Synced" value={syncedCount} helper="Aliyya + Google" />
-                <StatCard label="Local" value={localCount} helper="needs sync" />
+                <StatCard label="Today" value={todaysEvents.length} helper="agenda" isChief={isChief} />
+                <StatCard label="Synced" value={syncedCount} helper="Aliyya + Google" isChief={isChief} />
+                <StatCard label="Local" value={localCount} helper="needs sync" isChief={isChief} />
               </div>
             </div>
 
-            <div className="rounded-[2rem] border border-white/70 bg-white/50 p-4 shadow-sm backdrop-blur-xl">
+            <div className={cardClass(isChief)}>
               <div className="mb-4 flex items-center gap-2">
-                <Filter className="h-4 w-4 text-stone-400" />
-                <h2 className="font-semibold text-stone-950">View</h2>
+                <Filter className={cn("h-4 w-4", subtleClass(isChief))} />
+                <h2 className={cn("font-semibold", titleClass(isChief))}>View</h2>
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <FilterPill active={viewFilter === "today"} onClick={() => setViewFilter("today")}>
+                <FilterPill active={viewFilter === "today"} onClick={() => setViewFilter("today")} isChief={isChief}>
                   Today
                 </FilterPill>
-                <FilterPill active={viewFilter === "upcoming"} onClick={() => setViewFilter("upcoming")}>
+                <FilterPill active={viewFilter === "upcoming"} onClick={() => setViewFilter("upcoming")} isChief={isChief}>
                   Upcoming
                 </FilterPill>
-                <FilterPill active={viewFilter === "all"} onClick={() => setViewFilter("all")}>
+                <FilterPill active={viewFilter === "all"} onClick={() => setViewFilter("all")} isChief={isChief}>
                   All
                 </FilterPill>
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                <FilterPill active={sourceFilter === "all"} onClick={() => setSourceFilter("all")}>
+                <FilterPill active={sourceFilter === "all"} onClick={() => setSourceFilter("all")} isChief={isChief}>
                   All source
                 </FilterPill>
-                <FilterPill active={sourceFilter === "aliyya"} onClick={() => setSourceFilter("aliyya")}>
+                <FilterPill active={sourceFilter === "aliyya"} onClick={() => setSourceFilter("aliyya")} isChief={isChief}>
                   Aliyya
                 </FilterPill>
-                <FilterPill active={sourceFilter === "google"} onClick={() => setSourceFilter("google")}>
+                <FilterPill active={sourceFilter === "google"} onClick={() => setSourceFilter("google")} isChief={isChief}>
                   Google
                 </FilterPill>
               </div>
             </div>
 
-            <div className="rounded-[2rem] border border-white/70 bg-white/50 p-5 shadow-sm backdrop-blur-xl">
+            <div className={cardClass(isChief, "p-5")}>
               <div className="flex items-center gap-2">
-                <Zap className="h-4 w-4 text-stone-400" />
-                <h2 className="font-semibold text-stone-950">Next focus</h2>
+                <Zap className={cn("h-4 w-4", subtleClass(isChief))} />
+                <h2 className={cn("font-semibold", titleClass(isChief))}>Next focus</h2>
               </div>
 
               {nextEvent ? (
-                <div className="mt-4 rounded-3xl border border-white/70 bg-white/55 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-400">
+                <div
+                  className={cn(
+                    "mt-4 rounded-3xl border p-4",
+                    isChief ? "border-white/10 bg-white/[0.045]" : "border-white/70 bg-white/55",
+                  )}
+                >
+                  <p className={cn("text-xs font-semibold uppercase tracking-[0.18em]", subtleClass(isChief))}>
                     {formatCompactDate(nextEvent.date)} • {eventTimeLabel(nextEvent)}
                   </p>
-                  <p className="mt-2 text-lg font-semibold tracking-[-0.03em] text-stone-950">
+                  <p className={cn("mt-2 text-lg font-semibold tracking-[-0.03em]", titleClass(isChief))}>
                     {nextEvent.title}
                   </p>
-                  {nextEvent.location ? (
-                    <p className="mt-1 text-sm text-stone-500">{nextEvent.location}</p>
-                  ) : null}
+                  {nextEvent.location ? <p className={cn("mt-1 text-sm", mutedClass(isChief))}>{nextEvent.location}</p> : null}
                 </div>
               ) : (
-                <p className="mt-4 text-sm leading-6 text-stone-500">
+                <p className={cn("mt-4 text-sm leading-6", mutedClass(isChief))}>
                   No upcoming event in this view. Use chat to add a new agenda.
                 </p>
               )}
             </div>
 
-            <div className="rounded-[2rem] border border-white/70 bg-white/50 p-5 shadow-sm backdrop-blur-xl">
+            <div className={cardClass(isChief, "p-5")}>
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-stone-400" />
-                <h2 className="font-semibold text-stone-950">Source health</h2>
+                <CheckCircle2 className={cn("h-4 w-4", subtleClass(isChief))} />
+                <h2 className={cn("font-semibold", titleClass(isChief))}>Source health</h2>
               </div>
-              <div className="mt-4 space-y-2 text-sm text-stone-600">
+              <div className={cn("mt-4 space-y-2 text-sm", mutedClass(isChief))}>
                 <div className="flex items-center justify-between">
                   <span>Google events</span>
-                  <span className="font-semibold text-stone-950">{googleCount}</span>
+                  <span className={cn("font-semibold", titleClass(isChief))}>{googleCount}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span>Synced Aliyya events</span>
-                  <span className="font-semibold text-stone-950">{syncedCount}</span>
+                  <span className={cn("font-semibold", titleClass(isChief))}>{syncedCount}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span>Local only</span>
-                  <span className="font-semibold text-stone-950">{localCount}</span>
+                  <span className={cn("font-semibold", titleClass(isChief))}>{localCount}</span>
                 </div>
               </div>
             </div>
           </aside>
 
-          <section className="min-h-0 overflow-y-auto rounded-[2.25rem] border border-white/70 bg-white/45 p-4 shadow-xl shadow-stone-200/50 backdrop-blur-xl sm:p-5 xl:[scrollbar-width:thin]">
+          <section
+            className={cn(
+              "min-h-0 overflow-y-auto rounded-[2.25rem] border p-4 shadow-xl backdrop-blur-xl sm:p-5 xl:[scrollbar-width:thin]",
+              isChief
+                ? "border-white/10 bg-white/[0.045] shadow-black/25"
+                : "border-white/70 bg-white/45 shadow-stone-200/50",
+            )}
+          >
             <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-stone-400">
+                <p className={cn("text-[11px] font-semibold uppercase tracking-[0.24em]", subtleClass(isChief))}>
                   Agenda flow
                 </p>
-                <h2 className="mt-1 text-2xl font-semibold tracking-[-0.045em] text-stone-950">
+                <h2 className={cn("mt-1 text-2xl font-semibold tracking-[-0.045em]", titleClass(isChief))}>
                   {viewFilter === "today" ? "Today’s command deck" : viewFilter === "upcoming" ? "Upcoming timeline" : "All calendar events"}
                 </h2>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-500">
+                <p className={cn("mt-2 max-w-2xl text-sm leading-6", mutedClass(isChief))}>
                   Events are merged from Aliyya local memory and Google Calendar, then deduped for a cleaner planning view.
                 </p>
               </div>
 
-              <div className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white/60 px-3 py-1.5 text-xs font-semibold text-stone-500">
+              <div
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold",
+                  isChief ? "border-white/10 bg-white/[0.045] text-slate-400" : "border-stone-200 bg-white/60 text-stone-500",
+                )}
+              >
                 <CalendarDays className="h-3.5 w-3.5" />
                 {filteredEvents.length} shown
               </div>
             </div>
 
             {error ? (
-              <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-700">
+              <div className="rounded-3xl border border-red-300/20 bg-red-300/10 p-4 text-sm leading-6 text-red-200">
                 {error}
               </div>
             ) : null}
 
             {isLoading && groupedEvents.length === 0 ? (
-              <div className="grid min-h-[28rem] place-items-center rounded-[2rem] border border-dashed border-stone-200 bg-white/35 text-center">
+              <div
+                className={cn(
+                  "grid min-h-[28rem] place-items-center rounded-[2rem] border border-dashed text-center",
+                  isChief ? "border-white/10 bg-white/[0.035]" : "border-stone-200 bg-white/35",
+                )}
+              >
                 <div>
-                  <Loader2 className="mx-auto h-7 w-7 animate-spin text-stone-400" />
-                  <p className="mt-3 text-sm font-medium text-stone-600">Loading Calendar...</p>
+                  <Loader2 className={cn("mx-auto h-7 w-7 animate-spin", subtleClass(isChief))} />
+                  <p className={cn("mt-3 text-sm font-medium", mutedClass(isChief))}>Loading Calendar...</p>
                 </div>
               </div>
             ) : !error && groupedEvents.length === 0 ? (
-              <div className="grid min-h-[28rem] place-items-center rounded-[2rem] border border-dashed border-stone-200 bg-white/35 p-8 text-center">
+              <div
+                className={cn(
+                  "grid min-h-[28rem] place-items-center rounded-[2rem] border border-dashed p-8 text-center",
+                  isChief ? "border-white/10 bg-white/[0.035]" : "border-stone-200 bg-white/35",
+                )}
+              >
                 <div>
-                  <Sparkles className="mx-auto h-8 w-8 text-stone-400" />
-                  <p className="mt-4 text-lg font-semibold text-stone-950">Belum ada agenda di view ini.</p>
-                  <p className="mt-2 max-w-md text-sm leading-6 text-stone-500">
+                  <Sparkles className={cn("mx-auto h-8 w-8", subtleClass(isChief))} />
+                  <p className={cn("mt-4 text-lg font-semibold", titleClass(isChief))}>Belum ada agenda di view ini.</p>
+                  <p className={cn("mt-2 max-w-md text-sm leading-6", mutedClass(isChief))}>
                     Coba sebutkan agenda di chat. Aliyya akan preview dulu sebelum memasukkannya ke Calendar.
                   </p>
                 </div>
@@ -742,7 +979,12 @@ export default function CalendarPage() {
             ) : (
               <div className="space-y-6">
                 {isLoading ? (
-                  <p className="rounded-full border border-white/70 bg-white/55 px-3 py-1.5 text-xs font-medium text-stone-500">
+                  <p
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-xs font-medium",
+                      isChief ? "border-white/10 bg-white/[0.045] text-slate-400" : "border-white/70 bg-white/55 text-stone-500",
+                    )}
+                  >
                     Refreshing latest schedule…
                   </p>
                 ) : null}
@@ -750,18 +992,16 @@ export default function CalendarPage() {
                 {groupedEvents.map((group) => (
                   <div key={group.date} className="space-y-3">
                     <div className="flex items-center justify-between gap-3 px-1">
-                      <h3 className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-400">
+                      <h3 className={cn("text-xs font-semibold uppercase tracking-[0.22em]", subtleClass(isChief))}>
                         {formatDate(group.date)}
                       </h3>
-                      <span className="text-xs text-stone-400">
-                        {group.events.length} agenda
-                      </span>
+                      <span className={cn("text-xs", subtleClass(isChief))}>{group.events.length} agenda</span>
                     </div>
 
                     <div className="space-y-3">
                       {buildTimelineRows(group.events).map((row) => {
                         if (row.type === "free") {
-                          return <FreeTimeRow key={row.id} row={row} />
+                          return <FreeTimeRow key={row.id} row={row} isChief={isChief} />
                         }
 
                         return (
@@ -770,6 +1010,7 @@ export default function CalendarPage() {
                             event={row.event}
                             warning={row.warning}
                             previousEvent={row.previousEvent}
+                            isChief={isChief}
                           />
                         )
                       })}

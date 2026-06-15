@@ -86,7 +86,7 @@ export function WorkspacePanel({
             icon={<Icon className="h-4 w-4" />}
             title={card.title}
           >
-            {card.render(context)}
+            {card.render(context, mode)}
           </PanelCard>
         );
       })}

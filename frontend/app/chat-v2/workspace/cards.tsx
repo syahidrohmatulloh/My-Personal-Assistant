@@ -25,7 +25,7 @@ export type WorkspaceCardDefinition = {
   icon: LucideIcon;
   modes: AssistantMode[];
   defaultVisible: boolean;
-  render: (context: WorkspaceContext) => ReactNode;
+  render: (context: WorkspaceContext, mode: AssistantMode) => ReactNode;
 };
 
 const LIFE: AssistantMode[] = ["life_companion"];
@@ -83,10 +83,98 @@ function agendaSourceLabel(source: WorkspaceAgendaItem["source"]): string {
   return "Local";
 }
 
-function agendaSourceBadgeClass(source: WorkspaceAgendaItem["source"]): string {
-  if (source === "google") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (source === "synced") return "border-lime-200 bg-lime-50 text-lime-700";
-  return "border-indigo-200 bg-indigo-50 text-indigo-700";
+function agendaToolbarButtonClass(isChief: boolean): string {
+  return [
+    "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[11px] font-semibold shadow-sm transition active:scale-[0.98]",
+    isChief
+      ? "border-white/10 bg-white/[0.06] text-slate-300 hover:border-teal-200/25 hover:bg-teal-200/[0.09] hover:text-teal-100"
+      : "border-stone-200 bg-white/70 text-stone-600 hover:bg-white hover:text-stone-950",
+  ].join(" ");
+}
+
+function agendaPanelClass(isChief: boolean): string {
+  return [
+    "overflow-hidden rounded-2xl border backdrop-blur",
+    isChief
+      ? "border-white/10 bg-white/[0.045] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+      : "border-white/70 bg-white/45",
+  ].join(" ");
+}
+
+function agendaRowBaseClass(isChief: boolean): string {
+  return [
+    "group grid grid-cols-[4.35rem_1fr_auto] items-center gap-3 px-3 py-3 text-left no-underline transition",
+    isChief
+      ? "hover:bg-teal-200/[0.07]"
+      : "hover:bg-white/65",
+  ].join(" ");
+}
+
+function agendaRowDividerClass(isChief: boolean): string {
+  return isChief ? "border-t border-white/10" : "border-t border-white/70";
+}
+
+function agendaTimeClass(isChief: boolean): string {
+  return [
+    "font-mono text-[11px] font-semibold leading-4 tabular-nums",
+    isChief ? "text-slate-400" : "text-stone-500",
+  ].join(" ");
+}
+
+function agendaTitleClass(isChief: boolean): string {
+  return [
+    "block truncate text-sm font-semibold leading-5",
+    isChief ? "text-slate-100" : "text-stone-950",
+  ].join(" ");
+}
+
+function agendaMetaClass(isChief: boolean): string {
+  return [
+    "block truncate text-xs leading-5",
+    isChief ? "text-slate-400" : "text-stone-500",
+  ].join(" ");
+}
+
+function agendaSourceBadgeClass(
+  source: WorkspaceAgendaItem["source"],
+  isChief = false,
+): string {
+  if (source === "google") {
+    return isChief
+      ? "border-teal-300/25 bg-teal-300/[0.12] text-teal-100"
+      : "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (source === "synced") {
+    return isChief
+      ? "border-lime-300/25 bg-lime-300/[0.12] text-lime-100"
+      : "border-lime-200 bg-lime-50 text-lime-700";
+  }
+
+  return isChief
+    ? "border-violet-300/25 bg-violet-300/[0.12] text-violet-100"
+    : "border-indigo-200 bg-indigo-50 text-indigo-700";
+}
+
+function agendaChevronClass(isChief: boolean): string {
+  return [
+    "h-3.5 w-3.5 transition group-hover:translate-x-0.5",
+    isChief ? "text-slate-500 group-hover:text-teal-200" : "text-stone-300 group-hover:text-stone-500",
+  ].join(" ");
+}
+
+function agendaEmptyClass(isChief: boolean): string {
+  return [
+    "rounded-2xl border border-dashed px-4 py-5",
+    isChief ? "border-white/10 bg-white/[0.035] text-slate-400" : "border-stone-200 bg-white/35",
+  ].join(" ");
+}
+
+function agendaFootnoteClass(isChief: boolean): string {
+  return [
+    "text-xs leading-5",
+    isChief ? "text-slate-500" : "text-stone-500",
+  ].join(" ");
 }
 
 function formatReminderDue(value: string | null | undefined): string {
@@ -242,7 +330,9 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
     icon: CalendarDays,
     modes: BOTH,
     defaultVisible: true,
-    render: (context) => {
+    render: (context, mode) => {
+      const isChief = mode === "chief_of_staff";
+
       if (context.status === "loading" || context.agendaStatus === "loading") {
         return <p>Bringing today’s schedule into focus…</p>;
       }
@@ -256,10 +346,7 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
       return (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <a
-              href="/calendar"
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-stone-200 bg-white/70 px-3 text-[11px] font-semibold text-stone-600 shadow-sm transition hover:bg-white hover:text-stone-950"
-            >
+            <a href="/calendar" className={agendaToolbarButtonClass(isChief)}>
               <CalendarDays className="h-3.5 w-3.5" />
               Calendar page
             </a>
@@ -267,7 +354,7 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
               href={GOOGLE_CALENDAR_URL}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-stone-200 bg-white/70 px-3 text-[11px] font-semibold text-stone-600 shadow-sm transition hover:bg-white hover:text-stone-950"
+              className={agendaToolbarButtonClass(isChief)}
             >
               <ExternalLink className="h-3.5 w-3.5" />
               Google Calendar
@@ -275,37 +362,33 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
           </div>
 
           {agenda.length > 0 ? (
-            <div className="overflow-hidden rounded-2xl border border-white/70 bg-white/45">
+            <div className={agendaPanelClass(isChief)}>
               {agenda.map((event, index) => {
                 const time = agendaTimeRange(event);
                 const title = String(event.title || "Calendar event").trim();
                 const source = event.source || "local";
+                const [startTime, endTime] = time.split("–");
 
                 return (
                   <a
                     key={event.id || `${event.title}-${index}`}
                     href="/calendar"
                     className={[
-                      "group grid grid-cols-[4.35rem_1fr_auto] items-center gap-3 px-3 py-3 text-left no-underline transition hover:bg-white/65",
-                      index > 0 ? "border-t border-white/70" : "",
+                      agendaRowBaseClass(isChief),
+                      index > 0 ? agendaRowDividerClass(isChief) : "",
                     ].join(" ")}
                   >
-                    <span className="font-mono text-[11px] font-semibold leading-4 text-stone-500 tabular-nums">
-                      {time}
+                    <span className={agendaTimeClass(isChief)}>
+                      <span className="block">{startTime}</span>
+                      {endTime ? <span className="block opacity-70">{endTime}</span> : null}
                     </span>
 
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold leading-5 text-stone-950">
-                        {title}
-                      </span>
+                      <span className={agendaTitleClass(isChief)}>{title}</span>
                       {event.location ? (
-                        <span className="block truncate text-xs leading-5 text-stone-500">
-                          {event.location}
-                        </span>
+                        <span className={agendaMetaClass(isChief)}>{event.location}</span>
                       ) : (
-                        <span className="block truncate text-xs leading-5 text-stone-400">
-                          {agendaSourceLabel(source)}
-                        </span>
+                        <span className={agendaMetaClass(isChief)}>{agendaSourceLabel(source)}</span>
                       )}
                     </span>
 
@@ -313,25 +396,25 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
                       <span
                         className={[
                           "rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em]",
-                          agendaSourceBadgeClass(source),
+                          agendaSourceBadgeClass(source, isChief),
                         ].join(" ")}
                       >
                         {agendaSourceLabel(source)}
                       </span>
-                      <ChevronRight className="h-3.5 w-3.5 text-stone-300 transition group-hover:translate-x-0.5 group-hover:text-stone-500" />
+                      <ChevronRight className={agendaChevronClass(isChief)} />
                     </span>
                   </a>
                 );
               })}
             </div>
           ) : (
-            <div className="rounded-2xl border border-dashed border-stone-200 bg-white/35 px-4 py-5">
+            <div className={agendaEmptyClass(isChief)}>
               <p>No confirmed events are scheduled here for today. You can ask the assistant to add or organize one.</p>
             </div>
           )}
 
           {agenda.some((event) => event.source === "local") ? (
-            <p className="text-xs leading-5 text-stone-500">
+            <p className={agendaFootnoteClass(isChief)}>
               Local-only items can be synced from the Calendar page or by asking Aliyya in chat.
             </p>
           ) : null}
