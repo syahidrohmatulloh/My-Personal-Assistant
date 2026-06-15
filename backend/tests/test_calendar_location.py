@@ -309,7 +309,10 @@ def test_candidate_insert_persists_location_column():
 
 
 def test_direct_google_create_persists_location_column():
-    assert '"calendar_event_location": _clean_optional_text(draft.get("location"))' in DRAFT_SRC
+    assert (
+        '"calendar_event_location": location_text' in DRAFT_SRC
+        or '"calendar_event_location": _clean_optional_text(draft.get("location"))' in DRAFT_SRC
+    )
 
 
 def test_confirmation_paths_preserve_location_column():

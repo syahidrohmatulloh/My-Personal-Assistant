@@ -22,6 +22,7 @@ ALLOWED_ACTIONS = {
     "accept_local",
     "accept_google",
     "dismiss",
+    "update_pending_details",
     "clarify",
     "none",
 }
@@ -40,7 +41,7 @@ Return ONLY one JSON object. No markdown. No prose.
 Schema:
 {
   "intent": "calendar_confirmation",
-  "action": "accept_local" | "accept_google" | "dismiss" | "clarify" | "none",
+  "action": "accept_local" | "accept_google" | "dismiss" | "update_pending_details" | "clarify" | "none",
   "target_memory_id": string | null,
   "confidence": number,
   "reason": string
@@ -51,6 +52,7 @@ Rules:
 - If the user confirms adding the pending suggestion to the app Calendar, action="accept_local".
 - If the user confirms adding/syncing the pending suggestion to Google Calendar, action="accept_google".
 - If the user declines, cancels, skips, ignores, or says not to add it, action="dismiss".
+- If the user provides missing or corrected details for the pending suggestion, such as location, venue, time, or date, action="update_pending_details".
 - If there are multiple suggestions and the target is unclear, action="clarify".
 - If the message is unrelated, action="none".
 - Only choose a target_memory_id from the provided pending suggestions.
@@ -118,7 +120,7 @@ async def classify_calendar_confirmation(
 
 def should_execute_decision(decision: CalendarDecision) -> bool:
     return (
-        decision.action in {"accept_local", "accept_google", "dismiss"}
+        decision.action in {"accept_local", "accept_google", "dismiss", "update_pending_details"}
         and bool(decision.target_memory_id)
         and decision.confidence >= MIN_CONFIDENCE_TO_EXECUTE
     )
@@ -140,14 +142,14 @@ def _normalise_decision(
     target_memory_id = str(raw.get("target_memory_id") or "").strip() or None
 
     if target_memory_id not in valid_ids:
-        if len(valid_ids) == 1 and action in {"accept_local", "accept_google", "dismiss"} and confidence >= 0.86:
+        if len(valid_ids) == 1 and action in {"accept_local", "accept_google", "dismiss", "update_pending_details"} and confidence >= 0.86:
             target_memory_id = next(iter(valid_ids))
         else:
             target_memory_id = None
-            if action in {"accept_local", "accept_google", "dismiss"}:
+            if action in {"accept_local", "accept_google", "dismiss", "update_pending_details"}:
                 action = "clarify" if len(valid_ids) > 1 else "none"
 
-    if confidence < MIN_CONFIDENCE_TO_EXECUTE and action in {"accept_local", "accept_google", "dismiss"}:
+    if confidence < MIN_CONFIDENCE_TO_EXECUTE and action in {"accept_local", "accept_google", "dismiss", "update_pending_details"}:
         action = "clarify" if len(valid_ids) > 1 else "none"
 
     return CalendarDecision(

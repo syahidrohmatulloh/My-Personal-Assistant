@@ -22,6 +22,7 @@ def test_explicit_calendar_without_date_can_attempt_haiku_fallback():
 
 
 def test_chat_uses_broader_calendar_attempt_trigger():
-    assert "should_attempt_calendar_candidate_extraction(body.message)" in CHAT
-    assert "should_attempt_calendar_candidate_extraction(user_message)" in CHAT
+    assert "_should_hard_gate_calendar_candidate(body.message)" in CHAT
+    assert "calendar_candidate_hard_gate" in CHAT
+    assert "calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(raw)" in CHAT
     assert "calendar_candidate_extractor.extract_and_persist" in CHAT
