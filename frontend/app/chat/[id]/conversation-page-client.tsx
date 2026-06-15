@@ -362,8 +362,8 @@ export function ConversationPageClient({
 
   const composerPlaceholder =
     assistantMode === "chief_of_staff"
-      ? "Ask Aliyya to brief, prioritize, or structure next actions..."
-      : "Cerita ke Aliyya...";
+      ? "Ask your assistant to brief, prioritize, or structure next actions..."
+      : "Cerita di sini...";
 
   const composerQuickActions =
     assistantMode === "chief_of_staff"

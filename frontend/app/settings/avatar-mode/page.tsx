@@ -105,7 +105,7 @@ export default function AvatarModeSettingsPage() {
   const busy = updateMutation.isPending || deleteMutation.isPending || isUploading;
 
   return (
-    <main className="min-h-dvh">
+    <main className="ali-soft-page min-h-dvh">
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 sm:py-8 fade-up">
         <Link href="/settings" className="inline-flex items-center gap-2 text-sm text-fg-muted hover:text-fg mb-5">
           <ArrowLeft className="h-4 w-4" />
@@ -128,7 +128,7 @@ export default function AvatarModeSettingsPage() {
           />
         </div>
 
-        <div className="glass rounded-2xl p-4 sm:p-5 space-y-5">
+        <div className="ali-soft-section rounded-[1.5rem] p-4 sm:p-5 space-y-5">
           {isLoading ? (
             <div className="flex items-center gap-2 text-sm text-fg-muted">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading avatar settings…

@@ -39,7 +39,7 @@ export default function SignupPage() {
   }
 
   return (
-    <main className="min-h-dvh grid place-items-center px-5 sm:px-6 py-8">
+    <main className="ali-soft-page min-h-dvh grid place-items-center px-5 sm:px-6 py-8">
       <div className="w-full max-w-sm fade-up">
         <div className="flex flex-col items-center mb-8">
           <div className="h-12 w-12 rounded-2xl bg-accent grid place-items-center shadow-xl shadow-accent/30 mb-3">
@@ -49,7 +49,7 @@ export default function SignupPage() {
           <p className="text-sm text-fg-muted mt-1">Start using your personal assistant.</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="glass rounded-2xl p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="ali-soft-section rounded-[1.5rem] p-6 space-y-4">
           <label className="block">
             <span className="text-sm font-medium text-fg">Email</span>
             <input

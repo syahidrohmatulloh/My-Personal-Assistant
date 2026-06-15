@@ -82,7 +82,7 @@ export function WorkspacePanel({
 
       <div className="flex flex-wrap items-center gap-1.5 px-1">
         <span className={isChief ? "mr-1 text-[11px] text-slate-600" : "mr-1 text-[11px] text-stone-400"}>
-          Open from Chat V2
+          Open from Chat
         </span>
         {quickLinks.map((link) => (
           <a

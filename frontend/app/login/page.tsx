@@ -32,7 +32,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-dvh grid place-items-center px-5 sm:px-6 py-8">
+    <main className="ali-soft-page min-h-dvh grid place-items-center px-5 sm:px-6 py-8">
       <div className="w-full max-w-sm fade-up">
         {/* Brand */}
         <div className="flex flex-col items-center mb-8">
@@ -43,7 +43,7 @@ export default function LoginPage() {
           <p className="text-sm text-fg-muted mt-1">Sign in to your assistant.</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="glass rounded-2xl p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="ali-soft-section rounded-[1.5rem] p-6 space-y-4">
           <label className="block">
             <span className="text-sm font-medium text-fg">Email</span>
             <input

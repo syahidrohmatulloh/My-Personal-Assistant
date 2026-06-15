@@ -7,7 +7,7 @@ import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 
 export default function SettingsPage() {
   return (
-    <main className="min-h-dvh">
+    <main className="ali-soft-page min-h-dvh">
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 sm:py-8 fade-up">
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
@@ -27,7 +27,7 @@ export default function SettingsPage() {
           <h2 className="text-[10px] font-semibold uppercase tracking-wider text-fg-subtle mb-2 px-1">
             Personalization
           </h2>
-          <div className="glass rounded-2xl divide-y divide-border">
+          <div className="ali-soft-section rounded-[1.5rem] divide-y divide-border">
             <SettingsRow
               href="/settings/companion"
               icon={<Heart className="h-4 w-4" />}

@@ -216,7 +216,7 @@ function sourceMeta(
   if (event.source === "synced") {
     return {
       label: "Synced",
-      helper: "Aliyya + Google",
+      helper: "Assistant + Google",
       badgeClass: isChief
         ? "border-lime-300/25 bg-lime-300/[0.12] text-lime-100"
         : "border-lime-200 bg-lime-50 text-lime-700",
@@ -228,7 +228,7 @@ function sourceMeta(
 
   return {
     label: "Local",
-    helper: "Aliyya Calendar",
+    helper: "Assistant Calendar",
     badgeClass: isChief
       ? "border-violet-300/25 bg-violet-300/[0.12] text-violet-100"
       : "border-indigo-200 bg-indigo-50 text-indigo-700",
@@ -588,7 +588,7 @@ function EventCard({
                 )}
               >
                 <Sparkles className="h-3.5 w-3.5" />
-                Ask Aliyya to sync
+                Ask your assistant to sync
               </button>
             ) : null}
 
@@ -740,9 +740,9 @@ function EventDetailDrawer({
                   </dt>
                   <dd className={cn("mt-1 font-medium", titleClass(isChief))}>
                     {event.source === "local"
-                      ? "Aliyya local Calendar"
+                      ? "Local assistant calendar"
                       : event.source === "synced"
-                        ? "Aliyya synced to Google Calendar"
+                        ? "Assistant synced to Google Calendar"
                         : "Google Calendar"}
                   </dd>
                 </div>
@@ -792,7 +792,7 @@ function EventDetailDrawer({
               )}
             >
               <Sparkles className="h-4 w-4" />
-              Ask Aliyya to sync
+              Ask your assistant to sync
             </button>
           ) : null}
 
@@ -807,7 +807,7 @@ function EventDetailDrawer({
             )}
           >
             <Bot className="h-4 w-4" />
-            Ask Aliyya to reschedule
+            Ask your assistant to reschedule
           </button>
 
           <button
@@ -821,7 +821,7 @@ function EventDetailDrawer({
             )}
           >
             <Clock3 className="h-4 w-4" />
-            Ask Aliyya to add reminder
+            Ask your assistant to add reminder
           </button>
         </div>
       </aside>
@@ -1013,7 +1013,7 @@ export default function CalendarPage() {
             <p className={cn("mt-3 max-w-2xl text-sm leading-6", mutedClass(isChief))}>
               {isChief
                 ? "A focused operating deck for calendar risk, sync status, and next actions."
-                : "A clean command deck for Aliyya events, Google Calendar sync, daily flow, and schedule gaps."}
+                : "A clean command deck for assistant events, Google Calendar sync, daily flow, and schedule gaps."}
             </p>
           </div>
 
@@ -1082,7 +1082,7 @@ export default function CalendarPage() {
 
               <div className="mt-4 grid grid-cols-3 gap-2">
                 <StatCard label="Today" value={todaysEvents.length} helper="agenda" isChief={isChief} />
-                <StatCard label="Synced" value={syncedCount} helper="Aliyya + Google" isChief={isChief} />
+                <StatCard label="Synced" value={syncedCount} helper="Assistant + Google" isChief={isChief} />
                 <StatCard label="Local" value={localCount} helper="needs sync" isChief={isChief} />
               </div>
             </div>
@@ -1110,7 +1110,7 @@ export default function CalendarPage() {
                   All source
                 </FilterPill>
                 <FilterPill active={sourceFilter === "aliyya"} onClick={() => setSourceFilter("aliyya")} isChief={isChief}>
-                  Aliyya
+                  Assistant
                 </FilterPill>
                 <FilterPill active={sourceFilter === "google"} onClick={() => setSourceFilter("google")} isChief={isChief}>
                   Google
@@ -1157,7 +1157,7 @@ export default function CalendarPage() {
                   <span className={cn("font-semibold", titleClass(isChief))}>{googleCount}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span>Synced Aliyya events</span>
+                  <span>Synced assistant events</span>
                   <span className={cn("font-semibold", titleClass(isChief))}>{syncedCount}</span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -1185,7 +1185,7 @@ export default function CalendarPage() {
                   {viewFilter === "today" ? "Today’s command deck" : viewFilter === "upcoming" ? "Upcoming timeline" : "All calendar events"}
                 </h2>
                 <p className={cn("mt-2 max-w-2xl text-sm leading-6", mutedClass(isChief))}>
-                  Events are merged from Aliyya local memory and Google Calendar, then deduped for a cleaner planning view.
+                  Events are merged from assistant local memory and Google Calendar, then deduped for a cleaner planning view.
                 </p>
               </div>
 
@@ -1229,7 +1229,7 @@ export default function CalendarPage() {
                   <Sparkles className={cn("mx-auto h-8 w-8", subtleClass(isChief))} />
                   <p className={cn("mt-4 text-lg font-semibold", titleClass(isChief))}>Belum ada agenda di view ini.</p>
                   <p className={cn("mt-2 max-w-md text-sm leading-6", mutedClass(isChief))}>
-                    Coba sebutkan agenda di chat. Aliyya akan preview dulu sebelum memasukkannya ke Calendar.
+                    Coba sebutkan agenda di chat. Your assistant will preview it first before adding it to Calendar.
                   </p>
                 </div>
               </div>

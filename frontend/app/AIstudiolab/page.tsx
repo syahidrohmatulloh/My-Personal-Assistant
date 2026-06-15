@@ -28,7 +28,7 @@ const companionCards = [
   },
   {
     title: "People that matter",
-    body: "Family, close relationships, and personal context stay visible so Aliyya can respond with continuity.",
+    body: "Family, close relationships, and personal context stay visible so Assistant can respond with continuity.",
     meta: "Relationship memory",
     icon: UsersRound,
   },
@@ -114,8 +114,8 @@ export default function AIStudioLabPage() {
         eyebrow: "CALM EXECUTIVE COCKPIT",
         title: "Chief of Staff",
         subtitle:
-          "Structured, concise, decision-oriented. Aliyya helps prioritize, identify risks, and move execution forward without emotional clutter.",
-        input: "Ask Aliyya to brief, prioritize, decide, or structure next actions...",
+          "Structured, concise, decision-oriented. Your assistant helps prioritize, identify risks, and move execution forward without emotional clutter.",
+        input: "Ask your assistant to brief, prioritize, decide, or structure next actions...",
         status: "Execution posture active",
       };
     }
@@ -124,8 +124,8 @@ export default function AIStudioLabPage() {
       eyebrow: "SOFT PERSONAL SANCTUARY",
       title: "Life Companion",
       subtitle:
-        "Warm, personal, and emotionally present. Aliyya helps you reflect, remember, and navigate life with continuity.",
-      input: "Tell Aliyya what you are feeling, thinking, or carrying today...",
+        "Warm, personal, and emotionally present. Your assistant helps you reflect, remember, and navigate life with continuity.",
+      input: "Tell your assistant what you are feeling, thinking, or carrying today...",
       status: "Companion posture active",
     };
   }, [isChief]);
@@ -153,7 +153,7 @@ export default function AIStudioLabPage() {
             }
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            Back to app
+            Back home
           </Link>
 
           <div
@@ -426,7 +426,7 @@ export default function AIStudioLabPage() {
                   : "mt-2 text-2xl font-semibold tracking-[-0.04em] text-stone-950"
               }
             >
-              How this translates to the real Aliyya app
+              How this translates to the real assistant app
             </h2>
           </div>
 

@@ -219,7 +219,7 @@ export default function SecuritySettingsPage() {
   const enabled = Boolean(status?.memory_pin_enabled)
 
   return (
-    <main className="min-h-screen overflow-x-hidden px-4 py-6 text-slate-950 dark:text-zinc-100 sm:px-6 lg:px-8">
+    <main className="ali-soft-page min-h-screen overflow-x-hidden px-4 py-6 text-slate-950 dark:text-zinc-100 sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
         <header className="rounded-[2rem] border border-slate-200/70 bg-white/75 p-5 shadow-2xl shadow-slate-900/10 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04] dark:shadow-black/30 sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

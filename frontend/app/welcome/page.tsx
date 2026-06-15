@@ -79,7 +79,7 @@ export default function WelcomePage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen grid place-items-center">
+      <main className="ali-soft-page min-h-screen grid place-items-center">
         <p className="text-sm text-fg-muted">…</p>
       </main>
     );
@@ -109,7 +109,7 @@ export default function WelcomePage() {
         </div>
 
         {/* Step content */}
-        <div className="glass rounded-2xl p-6">
+        <div className="ali-soft-section rounded-[1.5rem] p-6">
           {step === 1 && (
             <Step1
               name={name}

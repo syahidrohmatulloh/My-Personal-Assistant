@@ -91,7 +91,7 @@ export default function StyleProfilesPage() {
   }, []);
 
   return (
-    <main className="min-h-dvh">
+    <main className="ali-soft-page min-h-dvh">
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 sm:py-8 fade-up">
         <Link
           href="/settings"
@@ -132,7 +132,7 @@ export default function StyleProfilesPage() {
         )}
 
         {error && (
-          <div className="glass rounded-xl p-3 mb-4 flex items-start gap-2 text-sm text-danger">
+          <div className="ali-soft-section rounded-2xl p-3 mb-4 flex items-start gap-2 text-sm text-danger">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
@@ -141,7 +141,7 @@ export default function StyleProfilesPage() {
         {loading ? (
           <p className="text-sm text-fg-muted">Loading…</p>
         ) : profiles.length === 0 && !showForm ? (
-          <div className="text-center py-12 glass rounded-2xl">
+          <div className="text-center py-12 ali-soft-section rounded-[1.5rem]">
             <Sparkles className="h-6 w-6 text-fg-subtle mx-auto mb-2 opacity-60" />
             <p className="text-sm text-fg-muted">No style profiles yet.</p>
             <p className="text-xs text-fg-subtle mt-1">
@@ -266,7 +266,7 @@ function CreateWizard({
   }
 
   return (
-    <div className="glass rounded-2xl p-5 mb-6 fade-up">
+    <div className="ali-soft-section rounded-[1.5rem] p-5 mb-6 fade-up">
       <StepIndicator step={step.kind} />
 
       {step.kind === "input" && (
@@ -840,7 +840,7 @@ function ProfileCard({
   }
 
   return (
-    <li className="glass rounded-xl p-4">
+    <li className="ali-soft-section rounded-2xl p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           {editing ? (

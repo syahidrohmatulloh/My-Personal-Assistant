@@ -102,7 +102,7 @@ export default function CompanionSettingsPage() {
   const assistantName = settings?.assistant_name?.trim() || "your assistant";
 
   return (
-    <main className="min-h-dvh">
+    <main className="ali-soft-page min-h-dvh">
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-5 sm:py-8 fade-up">
         <Link
           href="/settings"
@@ -121,7 +121,7 @@ export default function CompanionSettingsPage() {
         </p>
 
         {error && (
-          <div className="glass rounded-xl p-3 mb-4 flex items-start gap-2 text-sm text-danger">
+          <div className="ali-soft-section rounded-2xl p-3 mb-4 flex items-start gap-2 text-sm text-danger">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
@@ -132,7 +132,7 @@ export default function CompanionSettingsPage() {
         ) : (
           <div className="space-y-4">
             {/* === Assistant working mode === */}
-            <section className="glass rounded-2xl p-4">
+            <section className="ali-soft-section rounded-[1.5rem] p-4">
               <Header
                 title="Assistant working mode"
                 saved={savedFlash === "assistant_mode"}
@@ -171,7 +171,7 @@ export default function CompanionSettingsPage() {
             </section>
 
             {/* === Relationship tone selector === */}
-            <section className="glass rounded-2xl p-4">
+            <section className="ali-soft-section rounded-[1.5rem] p-4">
               <Header
                 title="Relationship tone — applies across both modes"
                 saved={savedFlash === "mode"}
@@ -191,7 +191,7 @@ export default function CompanionSettingsPage() {
             </section>
 
             {/* === Assistant name === */}
-            <section className="glass rounded-2xl p-4">
+            <section className="ali-soft-section rounded-[1.5rem] p-4">
               <Header
                 title="Assistant name"
                 saved={savedFlash === "name"}
@@ -208,7 +208,7 @@ export default function CompanionSettingsPage() {
 
             {/* === Dynamic mood (only when partner) === */}
             {partnerActive && (
-              <section className="glass rounded-2xl p-4 fade-up">
+              <section className="ali-soft-section rounded-[1.5rem] p-4 fade-up">
                 <Header
                   title="Dynamic mood"
                   saved={savedFlash === "realism"}
@@ -241,7 +241,7 @@ export default function CompanionSettingsPage() {
 
             {/* === Repair gate (only when dynamic) === */}
             {partnerActive && dynamicActive && (
-              <section className="glass rounded-2xl p-4 fade-up">
+              <section className="ali-soft-section rounded-[1.5rem] p-4 fade-up">
                 <Header
                   title="Repair gate"
                   saved={savedFlash === "repair"}

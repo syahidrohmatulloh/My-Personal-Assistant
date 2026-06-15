@@ -598,7 +598,7 @@ export function ChatV2Client({
             ].join(" ")}
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to app
+            Back home
           </Link>
 
           <div
@@ -609,7 +609,7 @@ export function ChatV2Client({
                 : "border-stone-200 bg-white/65 text-stone-500",
             ].join(" ")}
           >
-            Chat V2 Preview
+            Companion Chat
           </div>
         </header>
 
