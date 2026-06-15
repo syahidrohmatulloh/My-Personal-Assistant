@@ -202,3 +202,97 @@ def test_chat_bypasses_claude_for_confirmation_and_google_create_receipts():
     assert "apply_calendar_confirmation_decision" in CHAT
     assert "render_google_calendar_create_user_receipt" in CHAT
     assert "create_google_calendar_event_from_chat" in CHAT
+
+
+def test_calendar_receipts_do_not_hardcode_beb_by_default():
+    receipt = calendar_draft_actions.render_calendar_action_user_receipt(
+        {
+            "attempted": True,
+            "success": True,
+            "updated": True,
+            "deleted": False,
+            "action": "update",
+            "title": "Dinner sama Aghnia",
+            "date": "2026-06-15",
+        }
+    )
+
+    assert receipt is not None
+    assert "beb" not in receipt.casefold()
+    assert receipt.startswith("Sudah aku update.")
+
+
+def test_calendar_receipts_use_dynamic_address_term():
+    receipt = calendar_draft_actions.render_calendar_action_user_receipt(
+        {
+            "attempted": True,
+            "success": True,
+            "updated": True,
+            "deleted": False,
+            "action": "update",
+            "title": "Dinner sama Aghnia",
+            "date": "2026-06-15",
+        },
+        address_term="Joni",
+    )
+
+    assert receipt is not None
+    assert receipt.startswith("Sudah aku update, Joni.")
+    assert "beb" not in receipt.casefold()
+
+
+def test_confirmation_receipts_use_dynamic_address_term():
+    from app.services import calendar_confirmation_actions
+
+    receipt = calendar_confirmation_actions.render_calendar_confirmation_user_receipt(
+        {
+            "attempted": True,
+            "executed": True,
+            "action": "accept_local",
+            "title": "Fisioterapi",
+            "date": "2026-06-22",
+            "start_at": "2026-06-22T05:00:00+00:00",
+            "end_at": "2026-06-22T06:00:00+00:00",
+            "location": "WM Center Kebayoran",
+        },
+        address_term="Joni",
+    )
+
+    assert receipt is not None
+    assert receipt.startswith("Sudah aku masukin ke Calendar, Joni.")
+    assert "Waktu: 12.00–13.00" in receipt
+    assert "**Acara:**" not in receipt
+    assert "beb" not in receipt.casefold()
+
+
+def test_candidate_preview_is_deterministic_multiline_and_dynamic_address():
+    from app.services import calendar_candidate_extractor
+
+    preview = calendar_candidate_extractor.render_calendar_candidate_preview(
+        {
+            "candidate": True,
+            "saved": True,
+            "title": "Fisioterapi",
+            "date": "2026-06-22",
+            "start_at": "2026-06-22T05:00:00+00:00",
+            "end_at": "2026-06-22T06:00:00+00:00",
+            "location": "WM Center Kebayoran",
+        },
+        address_term="Joni",
+    )
+
+    assert preview is not None
+    assert preview.startswith("Joni, ini kayaknya agenda.")
+    assert "\n\nAcara: Fisioterapi" in preview
+    assert "Tanggal: 22 Juni 2026" in preview
+    assert "Waktu: 12.00–13.00" in preview
+    assert "Lokasi: WM Center Kebayoran" in preview
+    assert "**Acara:**" not in preview
+    assert "beb" not in preview.casefold()
+
+
+def test_chat_has_dynamic_calendar_address_and_candidate_preview_path():
+    assert "_load_calendar_address_term" in CHAT
+    assert "calendar_address_term" in CHAT
+    assert "render_calendar_candidate_preview" in CHAT
+    assert "address_term=calendar_address_term" in CHAT

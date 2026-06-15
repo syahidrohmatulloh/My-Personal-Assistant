@@ -19,6 +19,7 @@ from datetime import date, datetime, time, timedelta, timezone
 import logging
 import re
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.services.embeddings import embed_document
 from app.services.supabase_client import safe_execute
@@ -191,6 +192,133 @@ def has_calendar_signal(text: str | None) -> bool:
     return False
 
 
+_PREVIEW_TZ = ZoneInfo("Asia/Jakarta")
+_PREVIEW_MONTHS_ID = {
+    1: "Januari",
+    2: "Februari",
+    3: "Maret",
+    4: "April",
+    5: "Mei",
+    6: "Juni",
+    7: "Juli",
+    8: "Agustus",
+    9: "September",
+    10: "Oktober",
+    11: "November",
+    12: "Desember",
+}
+
+
+def render_calendar_candidate_preview(
+    result: dict[str, Any] | None,
+    *,
+    address_term: str | None = None,
+) -> str | None:
+    """Render deterministic preview for a newly detected Calendar candidate."""
+    if not isinstance(result, dict):
+        return None
+
+    if not result.get("candidate"):
+        return None
+
+    if not (result.get("saved") or result.get("duplicate")):
+        return None
+
+    opener = _preview_addressed_sentence(
+        "Ini kayaknya agenda. Mau aku masukin ke Calendar?",
+        address_term,
+    )
+    details = _preview_details_block(result)
+    return opener + details
+
+
+def _preview_addressed_sentence(sentence: str, address_term: str | None = None) -> str:
+    term = _preview_text(address_term)
+    if not term:
+        return sentence
+
+    clean_sentence = sentence.strip()
+    if not clean_sentence:
+        return term
+
+    return f"{term}, {clean_sentence[:1].lower()}{clean_sentence[1:]}"
+
+
+def _preview_details_block(result: dict[str, Any]) -> str:
+    lines: list[str] = []
+
+    title = _preview_text(result.get("title"))
+    if title:
+        lines.append(f"Acara: {title}")
+
+    date_text = _preview_date(result.get("date"))
+    if date_text:
+        lines.append(f"Tanggal: {date_text}")
+
+    time_text = _preview_time_range(result.get("start_at"), result.get("end_at"))
+    if time_text:
+        lines.append(f"Waktu: {time_text}")
+
+    location = _preview_text(result.get("location"))
+    if location:
+        lines.append(f"Lokasi: {location}")
+
+    if not lines:
+        return ""
+
+    return "\n\n" + "\n".join(lines)
+
+
+def _preview_text(value: Any) -> str:
+    return " ".join(str(value or "").split()).strip()
+
+
+def _preview_date(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        try:
+            parsed = datetime.fromisoformat(f"{raw}T00:00:00")
+        except Exception:
+            return raw
+
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(_PREVIEW_TZ)
+
+    month = _PREVIEW_MONTHS_ID.get(parsed.month, str(parsed.month))
+    return f"{parsed.day} {month} {parsed.year}"
+
+
+def _preview_time_range(start_value: Any, end_value: Any) -> str:
+    start_text = _preview_time(start_value)
+    end_text = _preview_time(end_value)
+
+    if start_text and end_text:
+        return f"{start_text}–{end_text}"
+
+    return start_text or end_text
+
+
+def _preview_time(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return raw
+
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(_PREVIEW_TZ)
+
+    return f"{parsed.hour:02d}.{parsed.minute:02d}"
+
+
 def should_attempt_calendar_candidate_extraction(text: str | None) -> bool:
     normalized = _normalize(text)
     if not normalized:
@@ -348,6 +476,14 @@ async def extract_and_persist(
     if not candidate:
         return {"candidate": False, "saved": False}
 
+    result_fields = {
+        "title": candidate.title,
+        "date": candidate.event_date,
+        "start_at": candidate.start_at,
+        "end_at": candidate.end_at,
+        "location": candidate.location,
+    }
+
     # Avoid duplicate candidate from repeated sends.
     existing = await _find_existing_calendar_item(
         user_id=user_id,
@@ -357,7 +493,13 @@ async def extract_and_persist(
         end_at=candidate.end_at,
     )
     if existing:
-        return {"candidate": True, "saved": False, "duplicate": True, "id": existing}
+        return {
+            "candidate": True,
+            "saved": False,
+            "duplicate": True,
+            "id": existing,
+            **result_fields,
+        }
 
     try:
         embedding = await embed_document(candidate.content)
@@ -393,7 +535,12 @@ async def extract_and_persist(
     try:
         result = safe_execute(lambda sb: sb.table("memories").insert(row).execute())
         inserted = (result.data or [{}])[0]
-        return {"candidate": True, "saved": True, "id": inserted.get("id")}
+        return {
+            "candidate": True,
+            "saved": True,
+            "id": inserted.get("id"),
+            **result_fields,
+        }
     except Exception as exc:  # noqa: BLE001
         log.warning("calendar_candidate_extractor: insert failed: %s", exc)
         return {"candidate": True, "saved": False, "error": str(exc)[:200]}

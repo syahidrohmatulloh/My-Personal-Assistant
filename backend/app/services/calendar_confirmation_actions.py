@@ -37,8 +37,16 @@ _RECEIPT_MONTHS_ID = {
 }
 
 
+def _receipt_opener(message: str, address_term: str | None = None) -> str:
+    term = _receipt_text(address_term)
+    if term:
+        return f"{message}, {term}."
+    return f"{message}."
+
+
 def render_calendar_confirmation_user_receipt(
     result: dict[str, Any] | None,
+    address_term: str | None = None,
 ) -> str | None:
     """Render deterministic user-facing receipt for Calendar confirmations."""
     if not isinstance(result, dict):
@@ -52,18 +60,18 @@ def render_calendar_confirmation_user_receipt(
 
     if executed and action == "accept_local":
         return (
-            "Sudah aku masukin ke Calendar, beb."
+            _receipt_opener("Sudah aku masukin ke Calendar", address_term)
             + _receipt_details_block(result)
         )
 
     if executed and action == "accept_google":
         return (
-            "Sudah aku sync ke Google Calendar, beb."
+            _receipt_opener("Sudah aku sync ke Google Calendar", address_term)
             + _receipt_details_block(result)
         )
 
     if executed and action == "dismiss":
-        return "Oke beb, aku abaikan jadwal itu."
+        return _receipt_opener("Oke, aku abaikan jadwal itu", address_term)
 
     reason = str(result.get("reason") or "").strip()
     if reason in {"no_pending_suggestions", "low_confidence_or_no_action"}:
@@ -71,8 +79,8 @@ def render_calendar_confirmation_user_receipt(
 
     if action in {"accept_local", "accept_google"}:
         return (
-            "Belum berhasil aku masukin ke Calendar, beb. "
-            "Coba ulangi dengan detail acara, tanggal, dan jamnya ya."
+            _receipt_opener("Belum berhasil aku masukin ke Calendar", address_term)
+            + " Coba ulangi dengan detail acara, tanggal, dan jamnya ya."
         )
 
     return None

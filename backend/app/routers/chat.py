@@ -884,9 +884,15 @@ async def chat(
         }
     )
 
+    calendar_address_term = await _load_calendar_address_term(
+        user_id=user_id,
+        assistant_mode=assistant_mode,
+    )
+
     calendar_action_receipt = (
         calendar_draft_actions.render_calendar_action_user_receipt(
-            calendar_action_result
+            calendar_action_result,
+            address_term=calendar_address_term,
         )
     )
     if is_calendar_draft_action_turn and calendar_action_receipt:
@@ -920,7 +926,8 @@ async def chat(
         )
         calendar_confirmation_receipt = (
             calendar_confirmation_actions.render_calendar_confirmation_user_receipt(
-                calendar_confirmation_result
+                calendar_confirmation_result,
+                address_term=calendar_address_term,
             )
         )
         if calendar_confirmation_receipt:
@@ -933,6 +940,49 @@ async def chat(
                     conversation_id=body.conversation_id,
                     calendar_snapshot_dirty=bool(
                         calendar_confirmation_result.get("executed")
+                    ),
+                ),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache, no-transform",
+                    "X-Accel-Buffering": "no",
+                    "Connection": "keep-alive",
+                },
+                background=background_tasks,
+            )
+
+    if (
+        not is_calendar_draft_action_turn
+        and not calendar_draft_actions.is_google_calendar_create_request(body.message)
+        and calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(
+            body.message
+        )
+    ):
+        calendar_candidate_result = (
+            await calendar_candidate_extractor.extract_and_persist(
+                user_id=user_id,
+                conversation_id=body.conversation_id,
+                user_message=body.message,
+                client_context=body.client_context,
+                recent_messages=messages,
+            )
+        )
+        calendar_candidate_preview = (
+            calendar_candidate_extractor.render_calendar_candidate_preview(
+                calendar_candidate_result,
+                address_term=calendar_address_term,
+            )
+        )
+        if calendar_candidate_preview:
+            return StreamingResponse(
+                _stream_static_assistant_response(
+                    assistant_text=calendar_candidate_preview,
+                    assistant_name=assistant_name,
+                    detected_mode=detected_mode,
+                    assistant_mode=assistant_mode,
+                    conversation_id=body.conversation_id,
+                    calendar_snapshot_dirty=bool(
+                        calendar_candidate_result.get("saved")
                     ),
                 ),
                 media_type="text/event-stream",
@@ -959,7 +1009,8 @@ async def chat(
         )
         google_create_receipt = (
             calendar_draft_actions.render_google_calendar_create_user_receipt(
-                google_create_result
+                google_create_result,
+                address_term=calendar_address_term,
             )
         )
         if google_create_receipt:
@@ -998,7 +1049,7 @@ async def chat(
     volatile_context += (
         "\n\nCalendar confirmation UX rule — strict:"
         "\n- When the user mentions a possible schedule/event, do NOT say it has been prepared, added, saved, created, or inserted yet."
-        "\n- Ask for confirmation first: 'Beb, ini kayaknya agenda kalender. Mau aku masukin ke Calendar?'"
+        "\n- Ask for confirmation first: 'Ini kayaknya agenda. Mau aku masukin ke Calendar?'"
         "\n- Summarize Acara, Tanggal, Waktu, and Lokasi if available."
         "\n- Never use user-facing terms like 'agenda kalender', 'agenda kalender', 'Calendar event', or 'calendar event'."
         "\n- Never infer Calendar action success from user wording alone."
@@ -1044,7 +1095,7 @@ async def chat(
             "\\n- Do not claim the event is already created in Google Calendar unless a direct Google Calendar sync action has explicitly succeeded in the current request."
             "\\n- For implicit schedule mentions, ask the user for confirmation before adding the detected event to Calendar."
             "\\n- Summarize the event naturally with Acara, Tanggal, Waktu, and Lokasi if available from the user's message."
-            "\\n- Preferred Indonesian wording for implicit schedule mentions: Beb, ini kayaknya agenda kalender. Mau aku masukin ke Calendar?"
+            "\\n- Preferred Indonesian wording for implicit schedule mentions: Ini kayaknya agenda. Mau aku masukin ke Calendar?"
         )
     if is_calendar_draft_action_turn:
         volatile_context += (
@@ -1073,7 +1124,7 @@ async def chat(
             "\n\nCalendar scheduling contract for this user turn — highest priority:"
             "\n- The current user message appears to contain schedule/event details."
             "\n- If the user only mentions a plan, appointment, place, or time, ask for confirmation before adding anything."
-            "\n- Ask naturally: Beb, ini kayaknya agenda kalender. Mau aku masukin ke Calendar?"
+            "\n- Ask naturally: Ini kayaknya agenda. Mau aku masukin ke Calendar?"
             "\n- You may summarize Acara, Tanggal, Waktu, and Lokasi if available."
             "\n- Do not say the event has already been prepared, added, saved, created, inserted, or scheduled."
             "\n- Do not tell the user to check the Calendar feature for confirmation."
@@ -1336,6 +1387,76 @@ async def chat(
         },
         background=background_tasks,
     )
+
+
+async def _load_calendar_address_term(
+    *,
+    user_id: str,
+    assistant_mode: str = "life_companion",
+) -> str:
+    """Load a user-preferred address term for deterministic receipts.
+
+    No fallback nickname is hardcoded. If the user has not explicitly stored a
+    preferred address/name/nickname, deterministic receipts simply omit it.
+    """
+    if assistant_mode == "chief_of_staff":
+        return ""
+
+    try:
+        result = await asyncio.to_thread(
+            lambda: safe_execute(
+                lambda sb: sb.table("memories")
+                .select("structured_field, structured_value, content, updated_at")
+                .eq("user_id", user_id)
+                .eq("archived", False)
+                .eq("superseded", False)
+                .in_(
+                    "structured_field",
+                    ["preferred_address", "preferred_name", "nickname"],
+                )
+                .order("updated_at", desc=True)
+                .limit(8)
+                .execute()
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "chat: calendar address term lookup failed user=%s error_type=%s",
+            user_id[:8],
+            type(exc).__name__,
+        )
+        return ""
+
+    for row in list(result.data or []):
+        value = _clean_calendar_address_term(row.get("structured_value"))
+        if value:
+            return value
+
+    return ""
+
+
+def _clean_calendar_address_term(value) -> str:
+    text = " ".join(str(value or "").replace("\n", " ").split()).strip()
+    text = text.strip(" .,:;!?'\"")
+    if not text:
+        return ""
+
+    lowered = text.casefold()
+    if any(
+        marker in lowered
+        for marker in (
+            "jangan panggil",
+            "do not call",
+            "don't call",
+            "disallowed",
+        )
+    ):
+        return ""
+
+    if len(text) > 40:
+        return ""
+
+    return text
 
 
 async def _stream_static_assistant_response(

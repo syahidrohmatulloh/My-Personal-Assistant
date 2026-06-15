@@ -1627,8 +1627,31 @@ _RECEIPT_MONTHS_ID = {
 }
 
 
+def _receipt_opener(message: str, address_term: str | None = None) -> str:
+    term = _receipt_text(address_term)
+    if term:
+        return f"{message}, {term}."
+    return f"{message}."
+
+
+def _receipt_addressed_sentence(
+    sentence: str,
+    address_term: str | None = None,
+) -> str:
+    term = _receipt_text(address_term)
+    if not term:
+        return sentence
+
+    clean_sentence = sentence.strip()
+    if not clean_sentence:
+        return term
+
+    return f"{term}, {clean_sentence[:1].lower()}{clean_sentence[1:]}"
+
+
 def render_google_calendar_create_user_receipt(
     result: dict[str, Any] | None,
+    address_term: str | None = None,
 ) -> str | None:
     """Render deterministic receipt for direct Google Calendar sync/create."""
     if not isinstance(result, dict):
@@ -1641,36 +1664,37 @@ def render_google_calendar_create_user_receipt(
 
     if result.get("google_event_id") and reason == "calendar_event_already_synced":
         return (
-            "Jadwal itu sudah tersync ke Google Calendar, beb."
+            _receipt_opener("Jadwal itu sudah tersync ke Google Calendar", address_term)
             + _receipt_details_block(result)
         )
 
     if result.get("google_event_id"):
         return (
-            "Sudah aku sync ke Google Calendar, beb."
+            _receipt_opener("Sudah aku sync ke Google Calendar", address_term)
             + _receipt_details_block(result)
         )
 
     if reason == "no_confident_draft":
         return (
-            "Aku belum cukup yakin detail jadwalnya, beb. "
-            "Coba sebutkan nama acara, tanggal, jam, dan lokasinya."
+            _receipt_opener("Aku belum cukup yakin detail jadwalnya", address_term)
+            + " Coba sebutkan nama acara, tanggal, jam, dan lokasinya."
         )
 
     if reason in {"missing_required_fields", "google_missing_event_id"}:
         return (
-            "Belum berhasil aku sync ke Google Calendar, beb. "
-            "Coba ulangi dengan detail acara, tanggal, dan jamnya ya."
+            _receipt_opener("Belum berhasil aku sync ke Google Calendar", address_term)
+            + " Coba ulangi dengan detail acara, tanggal, dan jamnya ya."
         )
 
     return (
-        "Belum berhasil aku sync ke Google Calendar, beb. "
-        "Coba ulangi sebentar lagi."
+        _receipt_opener("Belum berhasil aku sync ke Google Calendar", address_term)
+        + " Coba ulangi sebentar lagi."
     )
 
 
 def render_calendar_action_user_receipt(
     result: dict[str, Any] | None,
+    address_term: str | None = None,
 ) -> str | None:
     """Render deterministic user-facing receipt for Calendar actions.
 
@@ -1689,15 +1713,17 @@ def render_calendar_action_user_receipt(
     title = _receipt_text(result.get("title")) or "jadwal itu"
 
     if reason == "recurring_scope_required":
-        return (
-            "Ini jadwal berulang, beb. Mau aku ubah untuk hari ini saja, "
-            "hari ini dan seterusnya, atau seluruh rangkaian?"
+        return _receipt_addressed_sentence(
+            "Ini jadwal berulang. Mau aku ubah untuk hari ini saja, "
+            "hari ini dan seterusnya, atau seluruh rangkaian?",
+            address_term,
         )
 
     if reason == "recurring_scope_not_supported_yet":
-        return (
-            "Untuk sekarang aku baru bisa ubah satu occurrence dengan aman, beb. "
-            "Mau aku ubah untuk hari ini saja?"
+        return _receipt_addressed_sentence(
+            "Untuk sekarang aku baru bisa ubah satu occurrence dengan aman. "
+            "Mau aku ubah untuk hari ini saja?",
+            address_term,
         )
 
     if reason == "calendar_conflict_requires_confirmation":
@@ -1710,77 +1736,79 @@ def render_calendar_action_user_receipt(
         )
 
         return (
-            f"Belum aku update, beb. {conflict_text}{details}\n\n"
+            _receipt_opener("Belum aku update", address_term)
+            + f" {conflict_text}{details}\n\n"
             "Mau tetap lanjut atau pilih jam lain?"
         )
 
     if reason == "no_pending_recurring_action":
         return (
-            "Aku belum bisa lanjutkan, beb, karena request jadwal berulang "
-            "sebelumnya sudah tidak ditemukan atau sudah kedaluwarsa. "
-            "Coba ulangi request lengkapnya ya."
+            _receipt_opener("Aku belum bisa lanjutkan", address_term)
+            + " Request jadwal berulang sebelumnya sudah tidak ditemukan "
+            "atau sudah kedaluwarsa. Coba ulangi request lengkapnya ya."
         )
 
     if success and bool(result.get("deleted")):
         details = _receipt_details_block(result)
         return (
-            f"Sudah aku hapus, beb."
-            f"{details}"
+            _receipt_opener("Sudah aku hapus", address_term)
+            + details
         )
 
     if success and bool(result.get("updated")):
         details = _receipt_details_block(result)
         return (
-            f"Sudah aku update, beb."
-            f"{details}"
+            _receipt_opener("Sudah aku update", address_term)
+            + details
         )
 
     if success:
         details = _receipt_details_block(result)
         return (
-            f"Sudah beres, beb."
-            f"{details}"
+            _receipt_opener("Sudah beres", address_term)
+            + details
         )
 
     verb = "hapus" if action == "delete" else "update"
-    failure = _receipt_failure_text(reason, verb)
+    failure = _receipt_failure_text(reason, verb, address_term)
     return failure
 
 
-def _receipt_failure_text(reason: str, verb: str) -> str:
+def _receipt_failure_text(reason: str, verb: str, address_term: str | None = None) -> str:
     if reason in {"google_read_failed", "google_access_failed"}:
         return (
-            f"Belum berhasil aku {verb}, beb, karena akses Google Calendar "
-            "belum bisa dibaca. Coba reconnect Google Calendar dulu."
+            _receipt_opener(f"Belum berhasil aku {verb}", address_term)
+            + " Akses Google Calendar belum bisa dibaca. "
+            "Coba reconnect Google Calendar dulu."
         )
 
     if reason in {"no_calendar_records", "target_not_found"}:
         return (
-            f"Belum berhasil aku {verb}, beb, karena aku belum menemukan "
-            "jadwal yang dimaksud."
+            _receipt_opener(f"Belum berhasil aku {verb}", address_term)
+            + " Aku belum menemukan jadwal yang dimaksud."
         )
 
     if reason == "no_confident_action":
         return (
-            f"Aku belum cukup yakin jadwal mana yang harus aku {verb}, beb. "
-            "Coba sebutkan nama jadwal dan jamnya lebih lengkap."
+            _receipt_opener(f"Aku belum cukup yakin jadwal mana yang harus aku {verb}", address_term)
+            + " Coba sebutkan nama jadwal dan jamnya lebih lengkap."
         )
 
     if reason == "google_patch_failed":
         return (
-            "Belum berhasil aku update di Google Calendar, beb. "
-            "Coba ulangi sebentar lagi."
+            _receipt_opener("Belum berhasil aku update di Google Calendar", address_term)
+            + " Coba ulangi sebentar lagi."
         )
 
     if reason == "google_delete_failed":
         return (
-            "Belum berhasil aku hapus dari Google Calendar, beb. "
-            "Coba ulangi sebentar lagi."
+            _receipt_opener("Belum berhasil aku hapus dari Google Calendar", address_term)
+            + " Coba ulangi sebentar lagi."
         )
 
     return (
-        f"Belum berhasil aku {verb}, beb. "
-        "Coba ulangi sebentar lagi."
+        _receipt_opener(f"Belum berhasil aku {verb}", address_term)
+        + " Coba ulangi sebentar lagi."
     )
 
 
