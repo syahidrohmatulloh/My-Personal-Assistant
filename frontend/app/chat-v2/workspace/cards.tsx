@@ -43,6 +43,31 @@ const LIFE: AssistantMode[] = ["life_companion"];
 const CHIEF: AssistantMode[] = ["chief_of_staff"];
 const BOTH: AssistantMode[] = ["life_companion", "chief_of_staff"];
 
+function humanizeUserReference(value: string | null | undefined): string | null {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+
+  return text
+    .replace(/^User has an\b/i, "You have an")
+    .replace(/^User has a\b/i, "You have a")
+    .replace(/^User has\b/i, "You have")
+    .replace(/^User is\b/i, "You are")
+    .replace(/^User wants\b/i, "You want")
+    .replace(/^User needs\b/i, "You need")
+    .replace(/^User prefers\b/i, "You prefer")
+    .replace(/^User likes\b/i, "You like")
+    .replace(/^User's\b/i, "Your")
+    .replace(/^The user has an\b/i, "You have an")
+    .replace(/^The user has a\b/i, "You have a")
+    .replace(/^The user has\b/i, "You have")
+    .replace(/^The user is\b/i, "You are")
+    .replace(/^The user wants\b/i, "You want")
+    .replace(/^The user needs\b/i, "You need")
+    .replace(/^The user prefers\b/i, "You prefer")
+    .replace(/^The user likes\b/i, "You like")
+    .replace(/^The user's\b/i, "Your");
+}
+
 function truncateText(value: string | null | undefined, maxLength = 140): string | null {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (!text) return null;
@@ -591,62 +616,44 @@ function buildMemoryInsightRows(
   isChief: boolean,
 ): MemoryInsightRow[] {
   const memories = context.recentMemories || [];
-  const people = context.people || [];
-  const activeGoals = context.activeGoals || [];
-  const pausedGoals = context.pausedGoals || [];
   const newestMemory = memories[0];
   const newestMemoryAge = formatRelativeMemoryDate(newestMemory?.createdAt);
+  const memoryText = humanizeUserReference(newestMemory?.content);
 
-  const rows: MemoryInsightRow[] = [
+  return [
     {
       label: isChief ? "Memory freshness" : "Recent memory",
       value:
-        newestMemory && newestMemory.content
-          ? truncateText(newestMemory.content, 120) || "Recent memory is available."
-          : "No recent memory is surfaced yet.",
-      detail: newestMemoryAge ? `Last surfaced: ${newestMemoryAge}` : "Freshness depends on saved memory timestamps.",
+        newestMemory && memoryText
+          ? truncateText(memoryText, 115) || "A recent memory is available."
+          : isChief
+            ? "No fresh memory signal is surfaced yet."
+            : "Nothing new is surfaced from memory yet.",
+      detail: newestMemoryAge
+        ? `Last surfaced: ${newestMemoryAge}`
+        : isChief
+          ? "Freshness will improve as more context is saved."
+          : "Aliyya will keep this lighter until there is something useful.",
       strong: Boolean(newestMemory),
     },
     {
-      label: isChief ? "Relationship context" : "People in reach",
-      value:
-        people.length > 0
-          ? `${countLabel(people.length, "person", "people")} in context: ${people
-              .map((person) => person.name)
-              .filter(Boolean)
-              .slice(0, 3)
-              .join(", ")}.`
-          : "No relationship context is surfaced yet.",
-      detail:
-        people.length > 0
-          ? "Useful for follow-ups, tone, and continuity."
-          : "People added later will become relationship signals.",
-    },
-    {
-      label: isChief ? "Project signal" : "Life thread",
-      value:
-        activeGoals.length > 0
-          ? `${countLabel(activeGoals.length, "active goal")} visible: ${goalTitles(activeGoals).join(", ")}.`
-          : "No active goal is surfaced yet.",
-      detail:
-        pausedGoals.length > 0
-          ? `${countLabel(pausedGoals.length, "paused goal")} may need review.`
-          : isChief
-            ? "No paused goal is currently flagged."
-            : "No stuck thread is currently flagged.",
-    },
-    {
-      label: isChief ? "Daily continuity" : "Today’s signal",
+      label: isChief ? "Continuity" : "Today’s signal",
       value: context.journaledToday
-        ? "Journal signal exists for today."
-        : "No journal signal is available today.",
+        ? isChief
+          ? "There is a journal signal available today."
+          : "You have a journal signal today."
+        : isChief
+          ? "No journal signal is available today."
+          : "No journal signal today, so Aliyya will stay light.",
       detail: context.briefingContent
-        ? "Briefing content is also available."
-        : "Briefing content is not available yet.",
+        ? isChief
+          ? "Briefing context is also available."
+          : "There is also a briefing thread Aliyya can use."
+        : isChief
+          ? "No briefing context is surfaced yet."
+          : "No extra briefing context is surfaced yet.",
     },
   ];
-
-  return rows;
 }
 
 function MemoryIntelligenceCard({
@@ -709,7 +716,7 @@ function RelationshipRadarCard({
   actions?: WorkspaceCardActions;
 }) {
   const isChief = mode === "chief_of_staff";
-  const people = (context.people || []).slice(0, 4);
+  const people = (context.people || []).slice(0, 2);
 
   if (context.status === "loading") {
     return <p>Scanning relationship context…</p>;
@@ -736,8 +743,8 @@ function RelationshipRadarCard({
               </p>
               <p className={memoryIntelligenceMetaClass(isChief)}>
                 {isChief
-                  ? "Available for follow-up planning and stakeholder context."
-                  : "Available for gentle continuity and personal check-ins."}
+                  ? "Potential follow-up context."
+                  : "Someone Aliyya can keep gently in mind."}
               </p>
             </div>
           ))}
@@ -745,7 +752,7 @@ function RelationshipRadarCard({
       ) : (
         <div className={memoryIntelligencePanelClass(isChief, true)}>
           <p className={memoryIntelligenceTextClass(isChief)}>
-            No people are surfaced yet. People you add later can become follow-up and relationship signals.
+            No relationship signal is surfaced yet.
           </p>
         </div>
       )}
@@ -800,7 +807,7 @@ function ProjectTrackerCard({
                 {goal.title || "Untitled goal"}
               </p>
               <p className={memoryIntelligenceMetaClass(isChief)}>
-                {isChief ? "Ready for next-action sizing." : "Available as one possible focus."}
+                {isChief ? "Ready for next action." : "One possible focus."}
               </p>
             </div>
           ))}
@@ -808,7 +815,7 @@ function ProjectTrackerCard({
       ) : (
         <div className={memoryIntelligencePanelClass(isChief, true)}>
           <p className={memoryIntelligenceTextClass(isChief)}>
-            No active goal is surfaced yet. This can still become a lightweight project tracker once goals are added.
+            No active project signal is surfaced yet.
           </p>
         </div>
       )}
@@ -816,7 +823,7 @@ function ProjectTrackerCard({
       {pausedGoals.length > 0 ? (
         <div className={memoryIntelligencePanelClass(isChief)}>
           <p className={memoryIntelligenceLabelClass(isChief)}>
-            {isChief ? "Potential blockers" : "Paused threads"}
+            {isChief ? "Needs review" : "Paused for now"}
           </p>
           <p className={memoryIntelligenceTextClass(isChief)}>
             {pausedGoals.map((goal) => goal.title).filter(Boolean).join(", ")}
@@ -1001,7 +1008,7 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
       return memories.length > 0 ? (
         <ul>
           {memories.map((memory, index) => (
-            <li key={memory.id || index}>{truncateText(memory.content, 90)}</li>
+            <li key={memory.id || index}>{truncateText(humanizeUserReference(memory.content), 90)}</li>
           ))}
         </ul>
       ) : (
@@ -1225,7 +1232,7 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
           ))}
         </ul>
       ) : (
-        <p>No flagged risks right now. Paused goals and stalled follow-ups will surface here when they appear.</p>
+        <p>Nothing needs attention from the visible context right now.</p>
       );
     },
   },
