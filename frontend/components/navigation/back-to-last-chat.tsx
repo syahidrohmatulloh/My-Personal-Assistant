@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 const LAST_CHAT_PATH_KEY = "app:last-chat-path";
 
 function getSafeLastChatPath(): string {
-  const fallback = "/chat";
+  const fallback = "/chat-v2";
 
   try {
     const stored = window.localStorage.getItem(LAST_CHAT_PATH_KEY);
@@ -21,7 +21,7 @@ function getSafeLastChatPath(): string {
 
     // Only allow chat routes. This prevents loops back to settings/goals/etc.
     const isSafe =
-      pathname === "/chat" ||
+      pathname === "/chat-v2" ||
       /^\/chat\/[A-Za-z0-9._~%:-]+\/?$/.test(pathname);
 
     if (!isSafe) return fallback;
