@@ -14,6 +14,7 @@ import {
   RefreshCcw,
   Sparkles,
   Sunrise,
+  X,
   Zap,
 } from "lucide-react"
 import { useEffect, useMemo, useState, type ReactNode } from "react"
@@ -34,6 +35,7 @@ import {
 type ViewFilter = "today" | "upcoming" | "all"
 type SourceFilter = "all" | "aliyya" | "google"
 type CalendarVisualMode = "life_companion" | "chief_of_staff"
+type CalendarActionMode = "sync" | "reschedule" | "reminder"
 
 type AgendaGroup = {
   date: string
@@ -298,7 +300,7 @@ function buildTimelineRows(events: CalendarEvent[]): TimelineRow[] {
   return rows
 }
 
-function handoffCalendarActionToChat(event: CalendarEvent, mode: "sync" | "reschedule", warning?: string) {
+function handoffCalendarActionToChat(event: CalendarEvent, mode: CalendarActionMode, warning?: string) {
   if (typeof window === "undefined") return
 
   const draft =
@@ -312,15 +314,25 @@ function handoffCalendarActionToChat(event: CalendarEvent, mode: "sync" | "resch
           .join(" ")
           .replace(/\s+/g, " ")
           .trim()
-      : [
-          "Tolong bantu atur ulang jadwalku yang mepet di Calendar.",
-          `Agenda: ${event.title} (${eventTimeLabel(event)}).`,
-          warning ? `Warning: ${warning}.` : "",
-          "Tolong bantu carikan opsi waktu yang lebih masuk akal dan kalau perlu bantu update event-nya.",
-        ]
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim()
+      : mode === "reminder"
+        ? [
+            `Tolong tambahkan pengingat 15 menit sebelum agenda ${event.title}.`,
+            `Tanggal: ${formatDate(event.date)}.`,
+            `Waktu: ${eventTimeLabel(event)}.`,
+            event.location ? `Lokasi: ${event.location}.` : "",
+          ]
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim()
+        : [
+            "Tolong bantu atur ulang jadwalku yang mepet di Calendar.",
+            `Agenda: ${event.title} (${eventTimeLabel(event)}).`,
+            warning ? `Warning: ${warning}.` : "",
+            "Tolong bantu carikan opsi waktu yang lebih masuk akal dan kalau perlu bantu update event-nya.",
+          ]
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim()
 
   window.localStorage.setItem(CALENDAR_CHAT_HANDOFF_DRAFT_KEY, draft)
   window.location.assign("/chat-v2")
@@ -441,11 +453,13 @@ function EventCard({
   warning,
   previousEvent,
   isChief,
+  onOpen,
 }: {
   event: CalendarEvent
   warning?: string
   previousEvent?: CalendarEvent
   isChief: boolean
+  onOpen: () => void
 }) {
   const time = timeColumn(event)
   const meta = sourceMeta(event, isChief)
@@ -453,8 +467,17 @@ function EventCard({
 
   return (
     <article
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(keyboardEvent) => {
+        if (keyboardEvent.key === "Enter" || keyboardEvent.key === " ") {
+          keyboardEvent.preventDefault()
+          onOpen()
+        }
+      }}
       className={cn(
-        "group relative overflow-hidden rounded-[1.6rem] border p-4 shadow-sm backdrop-blur-xl transition hover:-translate-y-0.5 hover:shadow-md",
+        "group relative cursor-pointer overflow-hidden rounded-[1.6rem] border p-4 shadow-sm backdrop-blur-xl transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-teal-300/40",
         isChief
           ? "border-white/10 bg-white/[0.055] hover:border-teal-200/20 hover:bg-teal-200/[0.06] hover:shadow-black/25"
           : "border-white/70 bg-white/62 hover:bg-white/75 hover:shadow-stone-200/50",
@@ -514,7 +537,10 @@ function EventCard({
               <p className={cn("text-xs font-medium leading-5", isChief ? "text-amber-100" : "text-orange-800")}>{warning}</p>
               <button
                 type="button"
-                onClick={() => handoffCalendarActionToChat(event, "reschedule", warning)}
+                onClick={(clickEvent) => {
+                  clickEvent.stopPropagation()
+                  handoffCalendarActionToChat(event, "reschedule", warning)
+                }}
                 className={cn(
                   "mt-2 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition",
                   isChief
@@ -532,6 +558,7 @@ function EventCard({
             {hasGoogleLink ? (
               <a
                 href={event.googleLink || GOOGLE_CALENDAR_URL}
+                onClick={(clickEvent) => clickEvent.stopPropagation()}
                 target="_blank"
                 rel="noreferrer"
                 className={cn(
@@ -549,7 +576,10 @@ function EventCard({
             {event.source === "local" ? (
               <button
                 type="button"
-                onClick={() => handoffCalendarActionToChat(event, "sync")}
+                onClick={(clickEvent) => {
+                  clickEvent.stopPropagation()
+                  handoffCalendarActionToChat(event, "sync")
+                }}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition",
                   isChief
@@ -607,6 +637,198 @@ function FreeTimeRow({ row, isChief }: { row: Extract<TimelineRow, { type: "free
   )
 }
 
+function EventDetailDrawer({
+  event,
+  isChief,
+  onClose,
+}: {
+  event: CalendarEvent
+  isChief: boolean
+  onClose: () => void
+}) {
+  const meta = sourceMeta(event, isChief)
+  const canOpenGoogle = Boolean(event.googleLink)
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="Close event detail"
+        onClick={onClose}
+        className="fixed inset-0 z-40 bg-black/20 backdrop-blur-[2px] lg:hidden"
+      />
+
+      <aside
+        className={cn(
+          "fixed bottom-4 right-4 top-4 z-50 flex w-[calc(100vw-2rem)] max-w-md flex-col overflow-hidden rounded-[2rem] border shadow-2xl backdrop-blur-2xl sm:w-[26rem]",
+          isChief
+            ? "border-white/10 bg-[#0b141d]/92 text-slate-100 shadow-black/45"
+            : "border-white/75 bg-[#fbf8f1]/92 text-stone-950 shadow-stone-300/45",
+        )}
+      >
+        <div
+          className={cn(
+            "flex items-start justify-between gap-4 border-b p-5",
+            isChief ? "border-white/10" : "border-stone-200/70",
+          )}
+        >
+          <div className="min-w-0">
+            <p className={cn("text-[11px] font-semibold uppercase tracking-[0.24em]", subtleClass(isChief))}>
+              Event detail
+            </p>
+            <h2 className={cn("mt-2 break-words text-2xl font-semibold tracking-[-0.045em]", titleClass(isChief))}>
+              {event.title}
+            </h2>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className={cn(
+              "grid h-10 w-10 shrink-0 place-items-center rounded-full border transition",
+              isChief
+                ? "border-white/10 bg-white/[0.045] text-slate-300 hover:bg-white/[0.08] hover:text-white"
+                : "border-stone-200 bg-white/70 text-stone-500 hover:bg-white hover:text-stone-950",
+            )}
+            aria-label="Close event detail"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-5 xl:[scrollbar-width:thin]">
+          <div className="space-y-4">
+            <div
+              className={cn(
+                "rounded-3xl border p-4",
+                isChief ? "border-white/10 bg-white/[0.045]" : "border-white/70 bg-white/55",
+              )}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`h-2.5 w-2.5 rounded-full ${meta.dotClass}`} />
+                <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${meta.badgeClass}`}>
+                  {meta.label}
+                </span>
+                <span className={cn("text-xs", mutedClass(isChief))}>{meta.helper}</span>
+              </div>
+
+              <dl className="mt-4 space-y-3 text-sm">
+                <div>
+                  <dt className={cn("text-xs font-semibold uppercase tracking-[0.18em]", subtleClass(isChief))}>
+                    Date
+                  </dt>
+                  <dd className={cn("mt-1 font-medium", titleClass(isChief))}>{formatDate(event.date)}</dd>
+                </div>
+
+                <div>
+                  <dt className={cn("text-xs font-semibold uppercase tracking-[0.18em]", subtleClass(isChief))}>
+                    Time
+                  </dt>
+                  <dd className={cn("mt-1 font-medium", titleClass(isChief))}>{eventTimeLabel(event)}</dd>
+                </div>
+
+                <div>
+                  <dt className={cn("text-xs font-semibold uppercase tracking-[0.18em]", subtleClass(isChief))}>
+                    Location
+                  </dt>
+                  <dd className={cn("mt-1 font-medium", titleClass(isChief))}>{event.location || "No location set"}</dd>
+                </div>
+
+                <div>
+                  <dt className={cn("text-xs font-semibold uppercase tracking-[0.18em]", subtleClass(isChief))}>
+                    Source
+                  </dt>
+                  <dd className={cn("mt-1 font-medium", titleClass(isChief))}>
+                    {event.source === "local"
+                      ? "Aliyya local Calendar"
+                      : event.source === "synced"
+                        ? "Aliyya synced to Google Calendar"
+                        : "Google Calendar"}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+
+            {event.syncError ? (
+              <div className="rounded-3xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm leading-6 text-amber-200">
+                Sync note: {event.syncError}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div
+          className={cn(
+            "space-y-2 border-t p-5",
+            isChief ? "border-white/10" : "border-stone-200/70",
+          )}
+        >
+          {canOpenGoogle ? (
+            <a
+              href={event.googleLink || GOOGLE_CALENDAR_URL}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(
+                "flex h-11 items-center justify-center gap-2 rounded-full border text-sm font-semibold transition",
+                isChief
+                  ? "border-white/10 bg-white/[0.055] text-slate-200 hover:border-teal-200/25 hover:bg-teal-200/[0.08] hover:text-teal-100"
+                  : "border-stone-200 bg-white/80 text-stone-800 hover:bg-white hover:text-stone-950",
+              )}
+            >
+              <ExternalLink className="h-4 w-4" />
+              Open Google Calendar
+            </a>
+          ) : null}
+
+          {event.source === "local" ? (
+            <button
+              type="button"
+              onClick={() => handoffCalendarActionToChat(event, "sync")}
+              className={cn(
+                "flex h-11 w-full items-center justify-center gap-2 rounded-full border text-sm font-semibold transition",
+                isChief
+                  ? "border-violet-300/20 bg-violet-300/[0.10] text-violet-100 hover:bg-violet-300/[0.15]"
+                  : "border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100",
+              )}
+            >
+              <Sparkles className="h-4 w-4" />
+              Ask Aliyya to sync
+            </button>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={() => handoffCalendarActionToChat(event, "reschedule")}
+            className={cn(
+              "flex h-11 w-full items-center justify-center gap-2 rounded-full border text-sm font-semibold transition",
+              isChief
+                ? "border-white/10 bg-white/[0.045] text-slate-300 hover:bg-white/[0.08] hover:text-white"
+                : "border-stone-200 bg-white/70 text-stone-700 hover:bg-white hover:text-stone-950",
+            )}
+          >
+            <Bot className="h-4 w-4" />
+            Ask Aliyya to reschedule
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handoffCalendarActionToChat(event, "reminder")}
+            className={cn(
+              "flex h-11 w-full items-center justify-center gap-2 rounded-full border text-sm font-semibold transition",
+              isChief
+                ? "border-white/10 bg-white/[0.045] text-slate-300 hover:bg-white/[0.08] hover:text-white"
+                : "border-stone-200 bg-white/70 text-stone-700 hover:bg-white hover:text-stone-950",
+            )}
+          >
+            <Clock3 className="h-4 w-4" />
+            Ask Aliyya to add reminder
+          </button>
+        </div>
+      </aside>
+    </>
+  )
+}
+
 export default function CalendarPage() {
   const [snapshotKey, setSnapshotKey] = useState(LEGACY_CALENDAR_EVENTS_CACHE_KEY)
   const [events, setEvents] = useState<CalendarEvent[]>(() => readCalendarEventsSnapshot())
@@ -615,6 +837,7 @@ export default function CalendarPage() {
   const [viewFilter, setViewFilter] = useState<ViewFilter>("upcoming")
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all")
   const [visualMode, setVisualMode] = useState<CalendarVisualMode>("life_companion")
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
 
   const isChief = visualMode === "chief_of_staff"
   const today = localDateKey()
@@ -654,6 +877,15 @@ export default function CalendarPage() {
     return () => {
       window.removeEventListener("storage", syncVisualMode)
       window.removeEventListener("focus", syncVisualMode)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    const eventId = new URLSearchParams(window.location.search).get("event")
+    if (eventId) {
+      setSelectedEventId(eventId)
     }
   }, [])
 
@@ -722,6 +954,29 @@ export default function CalendarPage() {
     [events, today],
   )
   const nextEvent = filteredEvents.find((event) => event.date >= today) || filteredEvents[0] || null
+  const selectedEvent = selectedEventId
+    ? events.find((event) => event.id === selectedEventId) || null
+    : null
+
+  function openEventDetails(event: CalendarEvent) {
+    setSelectedEventId(event.id)
+
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href)
+      url.searchParams.set("event", event.id)
+      window.history.replaceState(null, "", `${url.pathname}?${url.searchParams.toString()}`)
+    }
+  }
+
+  function closeEventDetails() {
+    setSelectedEventId(null)
+
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href)
+      url.searchParams.delete("event")
+      window.history.replaceState(null, "", `${url.pathname}${url.search}`)
+    }
+  }
 
   const localCount = events.filter((event) => event.source === "local").length
   const syncedCount = events.filter((event) => event.source === "synced").length
@@ -1011,6 +1266,7 @@ export default function CalendarPage() {
                             warning={row.warning}
                             previousEvent={row.previousEvent}
                             isChief={isChief}
+                            onOpen={() => openEventDetails(row.event)}
                           />
                         )
                       })}
@@ -1022,6 +1278,14 @@ export default function CalendarPage() {
           </section>
         </section>
       </div>
+
+      {selectedEvent ? (
+        <EventDetailDrawer
+          event={selectedEvent}
+          isChief={isChief}
+          onClose={closeEventDetails}
+        />
+      ) : null}
     </main>
   )
 }

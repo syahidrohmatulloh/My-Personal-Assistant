@@ -372,7 +372,7 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
                 return (
                   <a
                     key={event.id || `${event.title}-${index}`}
-                    href="/calendar"
+                    href={`/calendar?event=${encodeURIComponent(String(event.id || ""))}`}
                     className={[
                       agendaRowBaseClass(isChief),
                       index > 0 ? agendaRowDividerClass(isChief) : "",
