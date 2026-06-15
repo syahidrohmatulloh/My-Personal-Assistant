@@ -270,7 +270,7 @@ export default function SecuritySettingsPage() {
                     Google Calendar
                   </h2>
                   <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-                    Connect Google Calendar so Aliyya can securely read and manage your approved calendar events.
+                    Connect Google Calendar so {assistantName} can securely read and manage your approved calendar events.
                   </p>
                 </div>
 
@@ -351,7 +351,7 @@ export default function SecuritySettingsPage() {
               ) : (
                 <div className="mt-5 rounded-[1.5rem] border border-slate-200/70 bg-slate-50/80 p-4 text-sm leading-6 text-slate-600 shadow-xl shadow-slate-900/5 dark:border-white/10 dark:bg-white/[0.03] dark:text-zinc-400 dark:shadow-black/20">
                   <p>
-                    Connect your account to let Aliyya read and manage approved Google Calendar events.
+                    Connect your account to let {assistantName} read and manage approved Google Calendar events.
                   </p>
                   <button
                     onClick={() => void connectGoogleCalendar()}

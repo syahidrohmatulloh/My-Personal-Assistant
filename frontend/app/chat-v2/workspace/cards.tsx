@@ -68,6 +68,15 @@ function humanizeUserReference(value: string | null | undefined): string | null 
     .replace(/^The user's\b/i, "Your");
 }
 
+function workspaceAssistantName(context: WorkspaceContext, fallback = "your assistant"): string {
+  const name = String(context.assistantName || "").trim();
+  return name || fallback;
+}
+
+function workspaceAssistantAddress(context: WorkspaceContext): string {
+  return workspaceAssistantName(context, "Assistant");
+}
+
 function truncateText(value: string | null | undefined, maxLength = 140): string | null {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (!text) return null;
@@ -292,6 +301,7 @@ function buildDailyBriefSummary(
   const reminders = context.upcomingReminders || [];
   const nextEvent = firstAgendaItem(agenda);
   const nextEventTitle = String(nextEvent?.title || "").trim();
+  const assistantName = workspaceAssistantName(context);
 
   if (isChief) {
     if (nextEvent) {
@@ -303,25 +313,25 @@ function buildDailyBriefSummary(
     }
 
     if (context.briefingContent) {
-      return "Briefing context is available. Ask Aliyya to turn it into priorities, risks, and next actions.";
+      return `Briefing context is available. Ask ${assistantName} to turn it into priorities, risks, and next actions.`;
     }
 
     return "No heavy operating signal is surfaced yet. This can be a clean window for focused execution.";
   }
 
   if (nextEvent) {
-    return `Today has some structure. Next up: ${agendaTimeRange(nextEvent)}${nextEventTitle ? ` — ${nextEventTitle}` : ""}. Aliyya can help keep it light and organized.`;
+    return `Today has some structure. Next up: ${agendaTimeRange(nextEvent)}${nextEventTitle ? ` — ${nextEventTitle}` : ""}. ${assistantName} can help keep it light and organized.`;
   }
 
   if (context.journaledToday) {
-    return "You already have a journal signal today. Aliyya can continue from there gently.";
+    return `${assistantName} can continue from your journal signal today, gently.`;
   }
 
   if (reminders.length > 0) {
-    return "There are a few things waiting in reminders. Aliyya can help turn them into something manageable.";
+    return `There are a few things waiting in reminders. ${assistantName} can help turn them into something manageable.`;
   }
 
-  return "No heavy signal is surfaced right now. Aliyya can help you choose one calm next step.";
+  return `No heavy signal is surfaced right now. ${assistantName} can help you choose one calm next step.`;
 }
 
 function buildSuggestedPrompts(
@@ -333,6 +343,7 @@ function buildSuggestedPrompts(
   const reminderCount = (context.upcomingReminders || []).length;
   const goalCount = (context.activeGoals || []).length;
   const peopleCount = (context.people || []).length;
+  const assistantAddress = workspaceAssistantAddress(context);
 
   if (isChief) {
     const prompts: SuggestedPrompt[] = [
@@ -340,23 +351,23 @@ function buildSuggestedPrompts(
         label: "Brief me now",
         intent: "Agenda, risks, and next actions",
         prompt:
-          "Aliyya, give me an executive brief for today based on my visible agenda, reminders, goals, and recent context. Structure it into: bottom line, top priorities, risks/blockers, and next actions.",
+          `${assistantAddress}, give me an executive brief for today based on my visible agenda, reminders, goals, and recent context. Structure it into: bottom line, top priorities, risks/blockers, and next actions.`,
       },
       {
         label: agendaCount > 0 ? "Prioritize agenda" : "Create focus plan",
         intent: agendaCount > 0 ? `${agendaCount} calendar item${agendaCount === 1 ? "" : "s"}` : "No fixed agenda",
         prompt:
           agendaCount > 0
-            ? "Aliyya, prioritize my agenda today. Separate items into decision, follow-up, deep work, and low-priority. Then give me the recommended order."
-            : "Aliyya, help me create a focused execution plan for today with 3 priorities, estimated time blocks, and one thing to avoid.",
+            ? `${assistantAddress}, prioritize my agenda today. Separate items into decision, follow-up, deep work, and low-priority. Then give me the recommended order.`
+            : `${assistantAddress}, help me create a focused execution plan for today with 3 priorities, estimated time blocks, and one thing to avoid.`,
       },
       {
         label: reminderCount > 0 ? "Review reminders" : "Set execution rhythm",
         intent: reminderCount > 0 ? `${reminderCount} reminder${reminderCount === 1 ? "" : "s"}` : "No reminders",
         prompt:
           reminderCount > 0
-            ? "Aliyya, review my upcoming reminders and turn them into a practical action list with urgency and owner/next step."
-            : "Aliyya, suggest a practical check-in rhythm for today so I do not lose track of important follow-ups.",
+            ? `${assistantAddress}, review my upcoming reminders and turn them into a practical action list with urgency and owner/next step.`
+            : `${assistantAddress}, suggest a practical check-in rhythm for today so I do not lose track of important follow-ups.`,
       },
     ];
 
@@ -368,23 +379,23 @@ function buildSuggestedPrompts(
       label: "Gentle check-in",
       intent: context.journaledToday ? "Continue today’s reflection" : "Start softly",
       prompt:
-        "Aliyya, help me do a gentle check-in for today. Ask me a few light questions, then help me choose one small next step.",
+        `${assistantAddress}, help me do a gentle check-in for today. Ask me a few light questions, then help me choose one small next step.`,
     },
     {
       label: goalCount > 0 ? "Choose one step" : "Make today lighter",
       intent: goalCount > 0 ? `${goalCount} active goal${goalCount === 1 ? "" : "s"}` : "No active goal",
       prompt:
         goalCount > 0
-          ? "Aliyya, look at my active goals and help me choose one realistic step for today without making it feel heavy."
-          : "Aliyya, help me make today feel lighter. Suggest one simple plan based on what you know about me.",
+          ? `${assistantAddress}, look at my active goals and help me choose one realistic step for today without making it feel heavy.`
+          : `${assistantAddress}, help me make today feel lighter. Suggest one simple plan based on what you know about me.`,
     },
     {
       label: peopleCount > 0 ? "Personal follow-up" : "Reflect and reset",
       intent: peopleCount > 0 ? `${peopleCount} people in context` : "Quiet continuity",
       prompt:
         peopleCount > 0
-          ? "Aliyya, based on the people who matter in my context, is there anyone I should gently follow up with today?"
-          : "Aliyya, help me reflect and reset. Keep it warm, short, and practical.",
+          ? `${assistantAddress}, based on the people who matter in my context, is there anyone I should gently follow up with today?`
+          : `${assistantAddress}, help me reflect and reset. Keep it warm, short, and practical.`,
     },
   ];
 
@@ -401,7 +412,7 @@ function ProactiveDailyBriefCard({
   actions?: WorkspaceCardActions;
 }) {
   const isChief = mode === "chief_of_staff";
-  const assistantName = String(context.assistantName || "").trim() || "Aliyya";
+  const assistantName = workspaceAssistantName(context);
   const isLoading =
     context.status === "loading" ||
     context.agendaStatus === "loading" ||
@@ -416,9 +427,10 @@ function ProactiveDailyBriefCard({
   }
 
   const summary = buildDailyBriefSummary(context, isChief);
+  const assistantAddress = workspaceAssistantAddress(context);
   const primaryPrompt = isChief
-    ? "Aliyya, give me a concise executive brief for today. Do not repeat every card. Give me only: bottom line, one priority, one risk if any, and next action."
-    : "Aliyya, give me a gentle daily brief for today. Do not repeat every card. Keep it warm, short, and help me choose one small next step.";
+    ? `${assistantAddress}, give me a concise executive brief for today. Do not repeat every card. Give me only: bottom line, one priority, one risk if any, and next action.`
+    : `${assistantAddress}, give me a gentle daily brief for today. Do not repeat every card. Keep it warm, short, and help me choose one small next step.`;
 
   return (
     <div className="space-y-3">
@@ -565,6 +577,7 @@ function buildMemoryInsightRows(
   const newestMemory = memories[0];
   const newestMemoryAge = formatRelativeMemoryDate(newestMemory?.createdAt);
   const memoryText = humanizeUserReference(newestMemory?.content);
+  const assistantName = workspaceAssistantName(context);
 
   return [
     {
@@ -579,7 +592,7 @@ function buildMemoryInsightRows(
         ? `Last surfaced: ${newestMemoryAge}`
         : isChief
           ? "Freshness will improve as more context is saved."
-          : "Aliyya will keep this lighter until there is something useful.",
+          : `${assistantName} will keep this lighter until there is something useful.`,
       strong: Boolean(newestMemory),
     },
     {
@@ -590,11 +603,11 @@ function buildMemoryInsightRows(
           : "You have a journal signal today."
         : isChief
           ? "No journal signal is available today."
-          : "No journal signal today, so Aliyya will stay light.",
+          : `${assistantName} will stay light because there is no journal signal today.`,
       detail: context.briefingContent
         ? isChief
           ? "Briefing context is also available."
-          : "There is also a briefing thread Aliyya can use."
+          : `${assistantName} can also use the briefing thread.`
         : isChief
           ? "No briefing context is surfaced yet."
           : "No extra briefing context is surfaced yet.",
@@ -612,7 +625,7 @@ function MemoryIntelligenceCard({
   actions?: WorkspaceCardActions;
 }) {
   const isChief = mode === "chief_of_staff";
-  const assistantName = String(context.assistantName || "").trim() || "Aliyya";
+  const assistantName = workspaceAssistantName(context);
 
   if (context.status === "loading") {
     return <p>{assistantName} is checking memory freshness and continuity signals…</p>;
@@ -623,9 +636,10 @@ function MemoryIntelligenceCard({
   }
 
   const rows = buildMemoryInsightRows(context, isChief);
+  const assistantAddress = workspaceAssistantAddress(context);
   const prompt = isChief
-    ? "Aliyya, review my current memory intelligence signals. Identify what is fresh, what may be stale, what relationship context matters, and what project/thread should be prioritized next."
-    : "Aliyya, review my current memory and continuity signals gently. Help me notice what feels important, what may be outdated, and one small thing to follow up on.";
+    ? `${assistantAddress}, review my current memory intelligence signals. Identify what is fresh, what may be stale, what relationship context matters, and what project/thread should be prioritized next.`
+    : `${assistantAddress}, review my current memory and continuity signals gently. Help me notice what feels important, what may be outdated, and one small thing to follow up on.`;
 
   return (
     <div className="space-y-3">
@@ -646,7 +660,7 @@ function MemoryIntelligenceCard({
         className={memoryActionButtonClass(isChief, true)}
       >
         <Brain className="h-3.5 w-3.5 shrink-0" />
-        {isChief ? "Analyze memory signals" : "Review gently with Aliyya"}
+        {isChief ? "Analyze memory signals" : `Review gently with ${assistantName}`}
       </button>
     </div>
   );
@@ -668,9 +682,11 @@ function RelationshipRadarCard({
     return <p>Scanning relationship context…</p>;
   }
 
+  const assistantAddress = workspaceAssistantAddress(context);
+  const assistantName = workspaceAssistantName(context);
   const prompt = isChief
-    ? "Aliyya, review the people currently in my context. Suggest who may need a follow-up, what the likely purpose is, and how to keep it concise and professional."
-    : "Aliyya, look at the people currently in my context. Is there anyone I should gently check in with today? Keep it warm and low-pressure.";
+    ? `${assistantAddress}, review the people currently in my context. Suggest who may need a follow-up, what the likely purpose is, and how to keep it concise and professional.`
+    : `${assistantAddress}, look at the people currently in my context. Is there anyone I should gently check in with today? Keep it warm and low-pressure.`;
 
   return (
     <div className="space-y-3">
@@ -690,7 +706,7 @@ function RelationshipRadarCard({
               <p className={memoryIntelligenceMetaClass(isChief)}>
                 {isChief
                   ? "Potential follow-up context."
-                  : "Someone Aliyya can keep gently in mind."}
+                  : `${assistantName} can keep this person gently in mind.`}
               </p>
             </div>
           ))}
@@ -733,9 +749,10 @@ function ProjectTrackerCard({
     return <p>Checking active threads and paused goals…</p>;
   }
 
+  const assistantAddress = workspaceAssistantAddress(context);
   const prompt = isChief
-    ? "Aliyya, turn my visible goals and paused threads into a project tracker. Give me status, risk, next action, and what should be ignored for now."
-    : "Aliyya, help me review my visible goals gently. Pick one realistic next step and tell me what I can leave for later.";
+    ? `${assistantAddress}, turn my visible goals and paused threads into a project tracker. Give me status, risk, next action, and what should be ignored for now.`
+    : `${assistantAddress}, help me review my visible goals gently. Pick one realistic next step and tell me what I can leave for later.`;
 
   return (
     <div className="space-y-3">
@@ -794,7 +811,7 @@ function ProjectTrackerCard({
 export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
   {
     id: "proactive_daily_brief",
-    title: "Aliyya Daily Brief",
+    title: "Daily Brief",
     icon: Zap,
     modes: BOTH,
     defaultVisible: true,
@@ -1053,7 +1070,7 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
 
           {agenda.some((event) => event.source === "local") ? (
             <p className={agendaFootnoteClass(isChief)}>
-              Local-only items can be synced from the Calendar page or by asking Aliyya in chat.
+              Local-only items can be synced from the Calendar page or by asking your assistant in chat.
             </p>
           ) : null}
         </div>

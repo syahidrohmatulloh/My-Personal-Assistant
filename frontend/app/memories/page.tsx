@@ -346,7 +346,7 @@ function buildMemoryInsightCards(
       key: "preferences",
       title: "Preferences",
       count: preferenceItems.length,
-      description: "Things Aliyya should consider when giving suggestions or making choices for you.",
+      description: "Things your assistant should consider when giving suggestions or making choices for you.",
       sample: pickMemorySamples(preferenceItems),
       searchQuery: "preferences",
       targetTab: "active",
@@ -364,7 +364,7 @@ function buildMemoryInsightCards(
       key: "relationships",
       title: "Important people",
       count: relationshipItems.length,
-      description: "People and relationships Aliyya may use when helping with personal context.",
+      description: "People and relationships your assistant may use when helping with personal context.",
       sample: pickMemorySamples(relationshipItems),
       searchQuery: "relationships",
       targetTab: "active",
@@ -373,7 +373,7 @@ function buildMemoryInsightCards(
       key: "constraints",
       title: "Constraints",
       count: constraintItems.length,
-      description: "Limits, rules, and things to avoid when Aliyya gives recommendations.",
+      description: "Limits, rules, and things to avoid when your assistant gives recommendations.",
       sample: pickMemorySamples(constraintItems),
       searchQuery: "constraints",
       targetTab: "active",
@@ -498,7 +498,7 @@ export default function MemoriesPage() {
       }
 
       setNarrativeSummary((await res.json()) as MemoryNarrativeSummary)
-      setMemoryActionNotice("Aliyya refreshed her narrative understanding of you.")
+      setMemoryActionNotice(`${assistantName} refreshed her narrative understanding of you.`)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to regenerate memory summary")
     } finally {
@@ -1441,7 +1441,7 @@ function MemoryInsightSummary({
             Memory intelligence
           </p>
           <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">
-            Aliyya’s understanding of you
+            <AssistantNameInline />’s understanding of you
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
             A quick, transparent summary of the active memories that shape future answers.
@@ -1531,7 +1531,7 @@ function MemoryNarrativeSummaryPanel({
             {assistantName}’s current understanding of you
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
-            A plain-English narrative of Aliyya’s current understanding. If it feels wrong, use Needs Review to clean the underlying memories.
+            A plain-English narrative of {assistantName}’s current understanding. If it feels wrong, use Needs Review to clean the underlying memories.
           </p>
         </div>
 
@@ -1572,7 +1572,7 @@ function MemoryNarrativeSummaryPanel({
         <div className="mt-4 space-y-3">
           {summary.is_stale ? (
             <div className="rounded-2xl border border-amber-200/70 bg-amber-50/80 p-3 text-xs leading-5 text-amber-900 dark:border-amber-300/15 dark:bg-amber-300/10 dark:text-amber-100">
-              This summary may be outdated because your memories changed after it was generated. Regenerate it when you want Aliyya to refresh her understanding.
+              This summary may be outdated because your memories changed after it was generated. Regenerate it when you want {assistantName} to refresh her understanding.
             </div>
           ) : null}
 
@@ -1906,7 +1906,7 @@ function MemoryQualityIssueCard({
               <p className="font-medium">{primaryAction}</p>
               <p className="mt-1">{actionLabel}</p>
               <p className="mt-2 text-xs text-amber-900/75 dark:text-amber-100/75">
-                Aliyya suggestion: {item.suggested_action}
+                <AssistantNameInline /> suggestion: {item.suggested_action}
               </p>
             </div>
 
@@ -2527,3 +2527,10 @@ async function safeDetail(res: Response) {
     return null
   }
 }
+
+
+function AssistantNameInline() {
+  const assistantName = useAssistantDisplayName();
+  return <>{assistantName || "your assistant"}</>;
+}
+

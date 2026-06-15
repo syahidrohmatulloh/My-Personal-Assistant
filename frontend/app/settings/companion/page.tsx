@@ -51,13 +51,13 @@ const ASSISTANT_MODE_INFO: Record<
     label: "Life Companion",
     subtitle: "Warm, personal, emotionally present",
     description:
-      "Aliyya prioritizes warmth, continuity, personal context, gentle support, journaling, people, goals, and everyday life rhythm.",
+      "Your assistant prioritizes warmth, continuity, personal context, gentle support, journaling, people, goals, and everyday life rhythm.",
   },
   chief_of_staff: {
     label: "Chief of Staff",
     subtitle: "Serious, structured, execution-focused",
     description:
-      "Aliyya prioritizes clarity, decisions, priorities, calendar, follow-ups, risks, and concise executive-grade recommendations.",
+      "Your assistant prioritizes clarity, decisions, priorities, calendar, follow-ups, risks, and concise executive-grade recommendations.",
   },
 };
 
@@ -99,6 +99,7 @@ export default function CompanionSettingsPage() {
   // We could just let backend 400 us, but it's better UX to disable the controls.
   const partnerActive = settings?.companion_mode === "partner";
   const dynamicActive = settings?.mood_realism === "dynamic";
+  const assistantName = settings?.assistant_name?.trim() || "your assistant";
 
   return (
     <main className="min-h-dvh">
@@ -115,7 +116,7 @@ export default function CompanionSettingsPage() {
           Companion Mode
         </h1>
         <p className="text-sm sm:text-base text-fg-muted mb-6">
-          Shape how Aliyya works with you. Working mode controls her priorities;
+          Shape how {assistantName} works with you. Working mode controls her priorities;
           relationship tone controls how formal or personal she sounds.
         </p>
 
@@ -138,14 +139,14 @@ export default function CompanionSettingsPage() {
                 saving={saving === "assistant_mode"}
               />
               <p className="text-xs text-fg-muted mt-1 mb-3">
-                This changes how Aliyya prioritizes your needs. It does not
+                This changes how {assistantName} prioritizes your needs. It does not
                 rename her or change the relationship tone settings below.
               </p>
               <div className="mb-3 rounded-xl border border-border bg-fg/[0.035] px-3 py-2 text-[11px] leading-relaxed text-fg-soft">
                 <span className="font-medium text-fg">How this works:</span>{" "}
                 Chief of Staff controls focus, structure, risks, and next actions.
                 Relationship tone below still controls how formal, friendly, or
-                personal Aliyya sounds.
+                personal {assistantName} sounds.
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 {(Object.keys(ASSISTANT_MODE_INFO) as AssistantMode[]).map((mode) => (
@@ -162,7 +163,7 @@ export default function CompanionSettingsPage() {
               </div>
               {settings.assistant_mode === "chief_of_staff" ? (
                 <p className="mt-3 rounded-xl bg-cyan-500/10 px-3 py-2 text-[11px] leading-relaxed text-fg-soft">
-                  In Chief of Staff mode, Aliyya will still prioritize structure,
+                  In Chief of Staff mode, {assistantName} will still prioritize structure,
                   decisions, risks, follow-ups, and next actions — even if the
                   relationship tone below is warm or partner-like.
                 </p>
