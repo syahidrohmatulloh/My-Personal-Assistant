@@ -48,6 +48,11 @@ export function WorkspacePanel({
     [modePreferences.hidden],
   );
   const visibleCards = orderedCards.filter((card) => !hiddenIds.has(card.id));
+  const quickLinks = [
+    { href: "/goals", label: "Goals" },
+    { href: "/journal", label: "Journal" },
+    { href: "/people", label: "People" },
+  ];
 
   return (
     <div className="grid gap-3">
@@ -73,6 +78,26 @@ export function WorkspacePanel({
           {customizing ? <X className="h-3.5 w-3.5" /> : <Settings2 className="h-3.5 w-3.5" />}
           {customizing ? "Done" : "Customize"}
         </button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5 px-1">
+        <span className={isChief ? "mr-1 text-[11px] text-slate-600" : "mr-1 text-[11px] text-stone-400"}>
+          Open from Chat V2
+        </span>
+        {quickLinks.map((link) => (
+          <a
+            key={link.href}
+            href={link.href}
+            className={[
+              "rounded-full border px-2.5 py-1 text-[11px] font-medium transition active:scale-[0.98]",
+              isChief
+                ? "border-white/10 bg-white/[0.035] text-slate-400 hover:bg-white/[0.07] hover:text-white"
+                : "border-stone-200 bg-white/55 text-stone-500 hover:bg-white hover:text-stone-950",
+            ].join(" ")}
+          >
+            {link.label}
+          </a>
+        ))}
       </div>
 
       {customizing ? (

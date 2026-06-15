@@ -5,7 +5,7 @@ import type { AssistantMode } from "@/lib/api";
 import { cardsForMode } from "./cards";
 import { modeKey, type WorkspaceCardId } from "./types";
 
-const STORAGE_KEY = "aliyya.chatV2.workspace.v1";
+const STORAGE_KEY = "aliyya.chatV2.workspace.v2";
 
 export type WorkspaceModePreferences = {
   order: WorkspaceCardId[];
@@ -13,7 +13,7 @@ export type WorkspaceModePreferences = {
 };
 
 export type WorkspacePreferences = {
-  version: 1;
+  version: 2;
   life: WorkspaceModePreferences;
   chief: WorkspaceModePreferences;
 };
@@ -28,7 +28,7 @@ function defaultModePreferences(mode: AssistantMode): WorkspaceModePreferences {
 
 export function defaultPreferences(): WorkspacePreferences {
   return {
-    version: 1,
+    version: 2,
     life: defaultModePreferences("life_companion"),
     chief: defaultModePreferences("chief_of_staff"),
   };
@@ -81,7 +81,7 @@ function readStoredPreferences(): WorkspacePreferences | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { life?: unknown; chief?: unknown };
     return {
-      version: 1,
+      version: 2,
       life: sanitizeModePreferences(parsed?.life, "life_companion"),
       chief: sanitizeModePreferences(parsed?.chief, "chief_of_staff"),
     };

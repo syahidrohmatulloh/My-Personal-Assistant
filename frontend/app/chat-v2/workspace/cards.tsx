@@ -240,11 +240,6 @@ function formatReminderDue(value: string | null | undefined): string {
 }
 
 
-type DailyBriefSignal = {
-  label: string;
-  value: string;
-  strong?: boolean;
-};
 
 type SuggestedPrompt = {
   label: string;
@@ -275,18 +270,6 @@ function proactivePanelClass(isChief: boolean): string {
   ].join(" ");
 }
 
-function proactiveSignalClass(isChief: boolean, strong = false): string {
-  return [
-    "rounded-2xl border px-3 py-2",
-    isChief
-      ? strong
-        ? "border-teal-200/20 bg-teal-200/[0.08]"
-        : "border-white/10 bg-white/[0.04]"
-      : strong
-        ? "border-amber-200 bg-amber-50/70"
-        : "border-white/70 bg-white/55",
-  ].join(" ");
-}
 
 function proactiveActionButtonClass(isChief: boolean, primary = false): string {
   return [
@@ -301,69 +284,44 @@ function proactiveActionButtonClass(isChief: boolean, primary = false): string {
   ].join(" ");
 }
 
-function buildDailyBriefSignals(
+function buildDailyBriefSummary(
   context: WorkspaceContext,
   isChief: boolean,
-): DailyBriefSignal[] {
+): string {
   const agenda = context.todayAgenda || [];
   const reminders = context.upcomingReminders || [];
-  const goals = context.activeGoals || [];
-  const memories = context.recentMemories || [];
   const nextEvent = firstAgendaItem(agenda);
   const nextEventTitle = String(nextEvent?.title || "").trim();
 
-  const signals: DailyBriefSignal[] = [];
+  if (isChief) {
+    if (nextEvent) {
+      return `Next focus: ${agendaTimeRange(nextEvent)}${nextEventTitle ? ` — ${nextEventTitle}` : ""}. Use the agenda card for the full timeline.`;
+    }
 
-  if (agenda.length > 0) {
-    signals.push({
-      label: isChief ? "Schedule" : "Today",
-      value: nextEvent
-        ? `${countLabel(agenda.length, "event")} today. Next: ${agendaTimeRange(nextEvent)}${nextEventTitle ? ` — ${nextEventTitle}` : ""}.`
-        : `${countLabel(agenda.length, "event")} on today’s calendar.`,
-      strong: true,
-    });
-  } else {
-    signals.push({
-      label: isChief ? "Schedule" : "Today",
-      value: isChief
-        ? "No fixed event is surfaced for today. Good window for focused execution."
-        : "No fixed event is surfaced for today. There is room to move gently.",
-      strong: true,
-    });
+    if (reminders.length > 0) {
+      return "No fixed agenda is surfaced yet, but there are reminders worth reviewing before the day moves on.";
+    }
+
+    if (context.briefingContent) {
+      return "Briefing context is available. Ask Aliyya to turn it into priorities, risks, and next actions.";
+    }
+
+    return "No heavy operating signal is surfaced yet. This can be a clean window for focused execution.";
+  }
+
+  if (nextEvent) {
+    return `Today has some structure. Next up: ${agendaTimeRange(nextEvent)}${nextEventTitle ? ` — ${nextEventTitle}` : ""}. Aliyya can help keep it light and organized.`;
+  }
+
+  if (context.journaledToday) {
+    return "You already have a journal signal today. Aliyya can continue from there gently.";
   }
 
   if (reminders.length > 0) {
-    const firstReminder = reminders[0];
-    signals.push({
-      label: "Reminders",
-      value: `${countLabel(reminders.length, "reminder")} upcoming. Nearest: ${formatReminderDue(firstReminder.dueAt)}${firstReminder.title ? ` — ${firstReminder.title}` : ""}.`,
-    });
-  } else {
-    signals.push({
-      label: "Reminders",
-      value: "No upcoming reminder is currently surfaced.",
-    });
+    return "There are a few things waiting in reminders. Aliyya can help turn them into something manageable.";
   }
 
-  signals.push({
-    label: isChief ? "Execution" : "Goals",
-    value:
-      goals.length > 0
-        ? `${countLabel(goals.length, "active goal")} in view: ${goalTitles(goals).join(", ")}.`
-        : isChief
-          ? "No active goal is surfaced yet. You can turn today into a short execution queue."
-          : "No active goal is surfaced yet. You can still choose one small thing for today.",
-  });
-
-  signals.push({
-    label: isChief ? "Signals" : "Continuity",
-    value: [
-      context.journaledToday ? "journal opened today" : "no journal signal today",
-      memories.length > 0 ? `${countLabel(memories.length, "recent memory", "recent memories")}` : "no recent memory surfaced",
-    ].join(" · "),
-  });
-
-  return signals;
+  return "No heavy signal is surfaced right now. Aliyya can help you choose one calm next step.";
 }
 
 function buildSuggestedPrompts(
@@ -457,32 +415,20 @@ function ProactiveDailyBriefCard({
     return <p>{assistantName} could not load the full context yet, but the chat is still ready.</p>;
   }
 
-  const signals = buildDailyBriefSignals(context, isChief);
+  const summary = buildDailyBriefSummary(context, isChief);
   const primaryPrompt = isChief
-    ? "Aliyya, give me an executive brief for today based on my visible agenda, reminders, goals, and recent context. Structure it into: bottom line, top priorities, risks/blockers, and next actions."
-    : "Aliyya, give me a gentle daily brief for today based on my visible agenda, reminders, goals, and recent context. Keep it warm, practical, and light.";
+    ? "Aliyya, give me a concise executive brief for today. Do not repeat every card. Give me only: bottom line, one priority, one risk if any, and next action."
+    : "Aliyya, give me a gentle daily brief for today. Do not repeat every card. Keep it warm, short, and help me choose one small next step.";
 
   return (
     <div className="space-y-3">
       <div className={proactivePanelClass(isChief)}>
         <p className={isChief ? "text-sm leading-6 text-slate-300" : "text-sm leading-6 text-stone-600"}>
-          {isChief
-            ? `${assistantName} has a quick operating picture ready from today’s visible context.`
-            : `${assistantName} has a soft daily picture ready from today’s visible context.`}
+          {summary}
         </p>
-      </div>
-
-      <div className="grid gap-2">
-        {signals.map((signal) => (
-          <div key={signal.label} className={proactiveSignalClass(isChief, signal.strong)}>
-            <p className={isChief ? "text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500" : "text-[10px] font-bold uppercase tracking-[0.18em] text-stone-400"}>
-              {signal.label}
-            </p>
-            <p className={isChief ? "mt-1 text-sm leading-5 text-slate-200" : "mt-1 text-sm leading-5 text-stone-700"}>
-              {signal.value}
-            </p>
-          </div>
-        ))}
+        <p className={isChief ? "mt-2 text-xs leading-5 text-slate-500" : "mt-2 text-xs leading-5 text-stone-500"}>
+          Details stay in the dedicated cards below.
+        </p>
       </div>
 
       <button
@@ -871,7 +817,7 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
     title: "Memory Intelligence",
     icon: Brain,
     modes: BOTH,
-    defaultVisible: true,
+    defaultVisible: false,
     render: (context, mode, actions) => (
       <MemoryIntelligenceCard context={context} mode={mode} actions={actions} />
     ),
@@ -881,7 +827,7 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
     title: "Relationship Radar",
     icon: Users,
     modes: BOTH,
-    defaultVisible: true,
+    defaultVisible: false,
     render: (context, mode, actions) => (
       <RelationshipRadarCard context={context} mode={mode} actions={actions} />
     ),
@@ -891,7 +837,7 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
     title: "Project Tracker",
     icon: CheckCircle2,
     modes: BOTH,
-    defaultVisible: true,
+    defaultVisible: false,
     render: (context, mode, actions) => (
       <ProjectTrackerCard context={context} mode={mode} actions={actions} />
     ),
@@ -916,7 +862,7 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
     title: "Personal ideas",
     icon: Lightbulb,
     modes: LIFE,
-    defaultVisible: true,
+    defaultVisible: false,
     render: (context) => {
       const goals = goalTitles(context.activeGoals);
       return goals.length > 0 ? (
@@ -935,7 +881,7 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
     title: "Continuity signal",
     icon: Brain,
     modes: LIFE,
-    defaultVisible: true,
+    defaultVisible: false,
     render: (context) => {
       const name = String(context.assistantName || "").trim() || "Your assistant";
       const signals: string[] = [];
@@ -959,7 +905,7 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
     title: "Soft briefing",
     icon: Compass,
     modes: LIFE,
-    defaultVisible: true,
+    defaultVisible: false,
     render: (context) => {
       const briefingSnippet = truncateText(context.briefingContent, 150);
       return briefingSnippet ? (
@@ -1152,7 +1098,7 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
     title: "Today brief",
     icon: CalendarDays,
     modes: CHIEF,
-    defaultVisible: true,
+    defaultVisible: false,
     render: (context) => {
       const goals = goalTitles(context.activeGoals);
       const briefingReady = Boolean(context.briefingContent);
@@ -1185,7 +1131,7 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
     title: "Priority queue",
     icon: CheckCircle2,
     modes: CHIEF,
-    defaultVisible: true,
+    defaultVisible: false,
     render: (context) => {
       const goals = goalTitles(context.activeGoals);
       return goals.length > 0 ? (
@@ -1204,7 +1150,7 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
     title: "Briefing topics",
     icon: Newspaper,
     modes: CHIEF,
-    defaultVisible: true,
+    defaultVisible: false,
     render: (context) => {
       const briefingSnippet = truncateText(context.briefingContent, 150);
       return briefingSnippet ? (
@@ -1219,7 +1165,7 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
     title: "Risks & blockers",
     icon: CircleDot,
     modes: CHIEF,
-    defaultVisible: true,
+    defaultVisible: false,
     render: (context) => {
       const paused = (context.pausedGoals || []).slice(0, 3);
       if (context.status === "loading") {
