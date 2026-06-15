@@ -251,6 +251,331 @@ def is_google_calendar_create_request(text: str | None) -> bool:
     )
 
 
+def _calendar_create_fingerprint(
+    *,
+    title: str | None,
+    event_date: str | None,
+    start_at: str | None,
+    end_at: str | None,
+    location: str | None,
+) -> tuple[str, str, str, str, str]:
+    clean_title = " ".join(str(title or "").casefold().split())
+    clean_location = " ".join(str(location or "").casefold().split())
+    return (
+        clean_title,
+        str(event_date or "").strip(),
+        _canonical_calendar_time(start_at),
+        _canonical_calendar_time(end_at),
+        clean_location,
+    )
+
+
+def _canonical_calendar_time(value: str | None) -> str:
+    if not value:
+        return ""
+
+    raw = str(value).strip()
+    try:
+        return datetime.fromisoformat(
+            raw.replace("Z", "+00:00")
+        ).isoformat()
+    except Exception:
+        return raw
+
+
+def _calendar_memory_matches_draft(
+    row: dict[str, Any],
+    *,
+    title: str,
+    event_date: str,
+    start_at: str | None,
+    end_at: str | None,
+    location: str | None,
+) -> bool:
+    return _calendar_create_fingerprint(
+        title=row.get("calendar_event_title")
+        or row.get("structured_value")
+        or row.get("content"),
+        event_date=row.get("calendar_event_date") or row.get("due_date"),
+        start_at=row.get("calendar_event_start_at"),
+        end_at=row.get("calendar_event_end_at"),
+        location=row.get("calendar_event_location"),
+    ) == _calendar_create_fingerprint(
+        title=title,
+        event_date=event_date,
+        start_at=start_at,
+        end_at=end_at,
+        location=location,
+    )
+
+
+def _google_event_matches_draft(
+    event: dict[str, Any],
+    *,
+    title: str,
+    event_date: str,
+    start_at: str | None,
+    end_at: str | None,
+    location: str | None,
+) -> bool:
+    return _calendar_create_fingerprint(
+        title=event.get("title"),
+        event_date=event.get("event_date"),
+        start_at=event.get("start_at"),
+        end_at=event.get("end_at"),
+        location=event.get("location"),
+    ) == _calendar_create_fingerprint(
+        title=title,
+        event_date=event_date,
+        start_at=start_at,
+        end_at=end_at,
+        location=location,
+    )
+
+
+def _find_existing_calendar_memory_for_draft(
+    *,
+    user_id: str,
+    title: str,
+    event_date: str,
+    start_at: str | None,
+    end_at: str | None,
+    location: str | None,
+) -> dict[str, Any] | None:
+    try:
+        result = safe_execute(
+            lambda sb: sb.table("memories")
+            .select(
+                "id, content, structured_value, due_date, "
+                "calendar_event_status, calendar_event_title, "
+                "calendar_event_date, calendar_event_start_at, "
+                "calendar_event_end_at, calendar_event_all_day, "
+                "calendar_event_location, google_calendar_event_id, "
+                "google_calendar_event_link, archived, superseded, "
+                "created_at, updated_at"
+            )
+            .eq("user_id", user_id)
+            .eq("archived", False)
+            .eq("superseded", False)
+            .or_("calendar_event_status.in.(confirmed_local,synced_google)")
+            .eq("calendar_event_date", event_date)
+            .order("updated_at", desc=True)
+            .limit(20)
+            .execute()
+        )
+    except Exception as exc:
+        log.warning(
+            "calendar_draft_actions: existing calendar memory lookup failed: %s",
+            exc,
+        )
+        return None
+
+    rows = [
+        row for row in list(result.data or [])
+        if _calendar_memory_matches_draft(
+            row,
+            title=title,
+            event_date=event_date,
+            start_at=start_at,
+            end_at=end_at,
+            location=location,
+        )
+    ]
+
+    if not rows:
+        return None
+
+    synced = [
+        row for row in rows
+        if row.get("google_calendar_event_id")
+        or row.get("calendar_event_status") == "synced_google"
+    ]
+    return (synced or rows)[0]
+
+
+async def _find_existing_google_event_for_draft(
+    *,
+    user_id: str,
+    title: str,
+    event_date: str,
+    start_at: str | None,
+    end_at: str | None,
+    location: str | None,
+) -> dict[str, Any] | None:
+    probe = start_at or f"{event_date}T00:00:00+07:00"
+
+    try:
+        parsed = datetime.fromisoformat(
+            str(probe).replace("Z", "+00:00")
+        )
+    except Exception:
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    start_dt = parsed.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_dt = start_dt + timedelta(days=1)
+
+    try:
+        events = await list_google_calendar_events_for_action(
+            user_id=user_id,
+            start_dt=start_dt,
+            end_dt=end_dt,
+            time_zone="Asia/Jakarta",
+        )
+    except Exception as exc:
+        log.warning(
+            "calendar_draft_actions: existing google event lookup failed: %s",
+            exc,
+        )
+        return None
+
+    for event in events:
+        if _google_event_matches_draft(
+            event,
+            title=title,
+            event_date=event_date,
+            start_at=start_at,
+            end_at=end_at,
+            location=location,
+        ):
+            return event
+
+    return None
+
+
+def _mark_memory_as_synced_google(
+    *,
+    user_id: str,
+    memory_id: str,
+    google_event_id: str,
+    google_event_link: str | None,
+    title: str,
+    event_date: str,
+    start_at: str | None,
+    end_at: str | None,
+    all_day: bool,
+    location: str | None,
+    source_reason: str,
+) -> dict[str, Any]:
+    now = _now_iso()
+    structured_value = _structured_value(
+        title=title,
+        event_date=event_date,
+        start_at=start_at,
+        end_at=end_at,
+        location=location,
+    )
+
+    result = safe_execute(
+        lambda sb: sb.table("memories")
+        .update(
+            {
+                "calendar_candidate": False,
+                "calendar_event_status": "synced_google",
+                "calendar_event_title": title,
+                "calendar_event_date": event_date,
+                "calendar_event_start_at": start_at,
+                "calendar_event_end_at": end_at,
+                "calendar_event_all_day": all_day,
+                "calendar_event_location": location,
+                "structured_field": "scheduled_event",
+                "structured_value": structured_value,
+                "due_date": event_date,
+                "google_calendar_event_id": google_event_id,
+                "google_calendar_event_link": google_event_link,
+                "google_calendar_id": "primary",
+                "calendar_synced_at": now,
+                "calendar_sync_error": None,
+                "updated_at": now,
+            }
+        )
+        .eq("id", memory_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    return {
+        "attempted": True,
+        "created": source_reason == "synced_existing_local_event",
+        "reason": source_reason,
+        "memory_id": memory_id,
+        "google_event_id": google_event_id,
+        "google_event_link": google_event_link,
+        "data": result.data,
+    }
+
+
+def _insert_synced_memory_for_existing_google_event(
+    *,
+    user_id: str,
+    conversation_id: str,
+    user_message: str,
+    draft: dict[str, Any],
+    google_event: dict[str, Any],
+    title: str,
+    event_date: str,
+    start_at: str | None,
+    end_at: str | None,
+    all_day: bool,
+    location: str | None,
+) -> dict[str, Any]:
+    structured_value = _structured_value(
+        title=title,
+        event_date=event_date,
+        start_at=start_at,
+        end_at=end_at,
+        location=location,
+    )
+    content = f"User has a scheduled event: {title} on {event_date}"
+    if location:
+        content += f" at {location}"
+
+    now = _now_iso()
+    row = {
+        "user_id": user_id,
+        "content": content,
+        "kind": "plan",
+        "category": "goals",
+        "structured_field": "scheduled_event",
+        "structured_value": structured_value,
+        "source_priority": "explicit_user_statement",
+        "confidence": float(draft.get("confidence") or 0.86),
+        "evidence": [user_message[:220]],
+        "source": "auto",
+        "source_conversation_id": conversation_id,
+        "due_date": event_date,
+        "calendar_candidate": False,
+        "calendar_event_status": "synced_google",
+        "calendar_event_title": title,
+        "calendar_event_date": event_date,
+        "calendar_event_start_at": start_at,
+        "calendar_event_end_at": end_at,
+        "calendar_event_all_day": all_day,
+        "calendar_event_location": location,
+        "calendar_event_created_at": now,
+        "google_calendar_event_id": google_event.get("id"),
+        "google_calendar_event_link": google_event.get("html_link"),
+        "google_calendar_id": "primary",
+        "calendar_synced_at": now,
+        "calendar_sync_error": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    result = safe_execute(lambda sb: sb.table("memories").insert(row).execute())
+
+    return {
+        "attempted": True,
+        "created": False,
+        "reason": "linked_existing_google_event",
+        "google_event_id": google_event.get("id"),
+        "google_event_link": google_event.get("html_link"),
+        "data": result.data,
+    }
+
+
 async def create_google_calendar_event_from_chat(
     *,
     user_id: str,
@@ -279,7 +604,69 @@ async def create_google_calendar_event_from_chat(
     if not title or not event_date:
         return {"attempted": True, "created": False, "reason": "missing_required_fields"}
 
+    start_at_text = str(start_at) if start_at else None
+    end_at_text = str(end_at) if end_at else None
+    location_text = _clean_optional_text(draft.get("location"))
+
+    existing_memory = _find_existing_calendar_memory_for_draft(
+        user_id=user_id,
+        title=title,
+        event_date=event_date,
+        start_at=start_at_text,
+        end_at=end_at_text,
+        location=location_text,
+    )
+
+    if existing_memory and existing_memory.get("google_calendar_event_id"):
+        return {
+            "attempted": True,
+            "created": False,
+            "reason": "calendar_event_already_synced",
+            "memory_id": existing_memory.get("id"),
+            "google_event_id": existing_memory.get("google_calendar_event_id"),
+            "google_event_link": existing_memory.get("google_calendar_event_link"),
+        }
+
     access_token = await get_active_google_calendar_access_token(user_id=user_id)
+
+    existing_google = await _find_existing_google_event_for_draft(
+        user_id=user_id,
+        title=title,
+        event_date=event_date,
+        start_at=start_at_text,
+        end_at=end_at_text,
+        location=location_text,
+    )
+
+    if existing_memory and existing_google:
+        return _mark_memory_as_synced_google(
+            user_id=user_id,
+            memory_id=str(existing_memory["id"]),
+            google_event_id=str(existing_google.get("id") or ""),
+            google_event_link=existing_google.get("html_link"),
+            title=title,
+            event_date=event_date,
+            start_at=start_at_text,
+            end_at=end_at_text,
+            all_day=all_day or not bool(start_at_text),
+            location=location_text,
+            source_reason="linked_existing_google_event",
+        )
+
+    if existing_google:
+        return _insert_synced_memory_for_existing_google_event(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            user_message=user_message,
+            draft=draft,
+            google_event=existing_google,
+            title=title,
+            event_date=event_date,
+            start_at=start_at_text,
+            end_at=end_at_text,
+            all_day=all_day or not bool(start_at_text),
+            location=location_text,
+        )
 
     created = await _create_google_calendar_event(
         access_token=access_token,
@@ -332,10 +719,10 @@ async def create_google_calendar_event_from_chat(
         "calendar_event_status": "synced_google",
         "calendar_event_title": title,
         "calendar_event_date": event_date,
-        "calendar_event_start_at": str(start_at) if start_at else None,
-        "calendar_event_end_at": str(end_at) if end_at else None,
-        "calendar_event_all_day": all_day or not bool(start_at),
-        "calendar_event_location": _clean_optional_text(draft.get("location")),
+        "calendar_event_start_at": start_at_text,
+        "calendar_event_end_at": end_at_text,
+        "calendar_event_all_day": all_day or not bool(start_at_text),
+        "calendar_event_location": location_text,
         "calendar_event_created_at": now,
         "google_calendar_event_id": google_event_id,
         "google_calendar_event_link": google_event_link,
@@ -347,6 +734,21 @@ async def create_google_calendar_event_from_chat(
     }
     if embedding is not None:
         row["embedding"] = embedding
+
+    if existing_memory:
+        return _mark_memory_as_synced_google(
+            user_id=user_id,
+            memory_id=str(existing_memory["id"]),
+            google_event_id=str(google_event_id),
+            google_event_link=google_event_link,
+            title=title,
+            event_date=event_date,
+            start_at=start_at_text,
+            end_at=end_at_text,
+            all_day=all_day or not bool(start_at_text),
+            location=location_text,
+            source_reason="synced_existing_local_event",
+        )
 
     result = safe_execute(lambda sb: sb.table("memories").insert(row).execute())
 

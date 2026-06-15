@@ -55,3 +55,17 @@ def test_service_can_create_google_calendar_event_from_chat():
 
 def test_synced_google_no_longer_returns_ui_confirmation_noop():
     assert "synced_google_requires_ui_confirmation" not in SERVICE
+
+
+def test_google_create_from_chat_is_idempotent_with_existing_calendar_memory():
+    assert "_find_existing_calendar_memory_for_draft" in SERVICE
+    assert "calendar_event_already_synced" in SERVICE
+    assert "synced_existing_local_event" in SERVICE
+    assert "_mark_memory_as_synced_google" in SERVICE
+
+
+def test_google_create_from_chat_reuses_existing_google_event():
+    assert "_find_existing_google_event_for_draft" in SERVICE
+    assert "linked_existing_google_event" in SERVICE
+    assert "list_google_calendar_events_for_action" in SERVICE
+
