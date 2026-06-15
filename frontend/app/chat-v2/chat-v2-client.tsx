@@ -220,6 +220,10 @@ export function ChatV2Client({
               content:
                 typeof memory?.content === "string" ? memory.content : undefined,
               kind: typeof memory?.kind === "string" ? memory.kind : undefined,
+              createdAt:
+                typeof memory?.created_at === "string"
+                  ? memory.created_at
+                  : undefined,
             })),
           todayAgenda: agenda,
           upcomingReminders: reminders,

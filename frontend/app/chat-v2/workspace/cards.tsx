@@ -513,6 +513,331 @@ function ProactiveNextActionsCard({
 }
 
 
+
+type MemoryInsightRow = {
+  label: string;
+  value: string;
+  detail?: string;
+  strong?: boolean;
+};
+
+function formatRelativeMemoryDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.max(0, Math.floor(diffMs / 86_400_000));
+
+  if (diffDays === 0) return "today";
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 31) return `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) === 1 ? "" : "s"} ago`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) === 1 ? "" : "s"} ago`;
+  return `${Math.floor(diffDays / 365)} year${Math.floor(diffDays / 365) === 1 ? "" : "s"} ago`;
+}
+
+function memoryIntelligencePanelClass(isChief: boolean, strong = false): string {
+  return [
+    "rounded-2xl border px-3 py-2.5",
+    isChief
+      ? strong
+        ? "border-teal-200/20 bg-teal-200/[0.08]"
+        : "border-white/10 bg-white/[0.04]"
+      : strong
+        ? "border-amber-200 bg-amber-50/70"
+        : "border-white/70 bg-white/55",
+  ].join(" ");
+}
+
+function memoryIntelligenceLabelClass(isChief: boolean): string {
+  return [
+    "text-[10px] font-bold uppercase tracking-[0.18em]",
+    isChief ? "text-slate-500" : "text-stone-400",
+  ].join(" ");
+}
+
+function memoryIntelligenceTextClass(isChief: boolean): string {
+  return [
+    "mt-1 text-sm leading-5",
+    isChief ? "text-slate-200" : "text-stone-700",
+  ].join(" ");
+}
+
+function memoryIntelligenceMetaClass(isChief: boolean): string {
+  return [
+    "mt-1 text-xs leading-5",
+    isChief ? "text-slate-500" : "text-stone-500",
+  ].join(" ");
+}
+
+function memoryActionButtonClass(isChief: boolean, primary = false): string {
+  return [
+    "inline-flex min-h-9 items-center gap-2 rounded-full border px-3 py-2 text-left text-xs font-semibold leading-4 shadow-sm transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50",
+    isChief
+      ? primary
+        ? "border-teal-200/25 bg-teal-200/[0.11] text-teal-50 hover:bg-teal-200/[0.16]"
+        : "border-white/10 bg-white/[0.055] text-slate-300 hover:bg-white/[0.08] hover:text-white"
+      : primary
+        ? "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
+        : "border-stone-200 bg-white/70 text-stone-600 hover:bg-white hover:text-stone-950",
+  ].join(" ");
+}
+
+function buildMemoryInsightRows(
+  context: WorkspaceContext,
+  isChief: boolean,
+): MemoryInsightRow[] {
+  const memories = context.recentMemories || [];
+  const people = context.people || [];
+  const activeGoals = context.activeGoals || [];
+  const pausedGoals = context.pausedGoals || [];
+  const newestMemory = memories[0];
+  const newestMemoryAge = formatRelativeMemoryDate(newestMemory?.createdAt);
+
+  const rows: MemoryInsightRow[] = [
+    {
+      label: isChief ? "Memory freshness" : "Recent memory",
+      value:
+        newestMemory && newestMemory.content
+          ? truncateText(newestMemory.content, 120) || "Recent memory is available."
+          : "No recent memory is surfaced yet.",
+      detail: newestMemoryAge ? `Last surfaced: ${newestMemoryAge}` : "Freshness depends on saved memory timestamps.",
+      strong: Boolean(newestMemory),
+    },
+    {
+      label: isChief ? "Relationship context" : "People in reach",
+      value:
+        people.length > 0
+          ? `${countLabel(people.length, "person", "people")} in context: ${people
+              .map((person) => person.name)
+              .filter(Boolean)
+              .slice(0, 3)
+              .join(", ")}.`
+          : "No relationship context is surfaced yet.",
+      detail:
+        people.length > 0
+          ? "Useful for follow-ups, tone, and continuity."
+          : "People added later will become relationship signals.",
+    },
+    {
+      label: isChief ? "Project signal" : "Life thread",
+      value:
+        activeGoals.length > 0
+          ? `${countLabel(activeGoals.length, "active goal")} visible: ${goalTitles(activeGoals).join(", ")}.`
+          : "No active goal is surfaced yet.",
+      detail:
+        pausedGoals.length > 0
+          ? `${countLabel(pausedGoals.length, "paused goal")} may need review.`
+          : isChief
+            ? "No paused goal is currently flagged."
+            : "No stuck thread is currently flagged.",
+    },
+    {
+      label: isChief ? "Daily continuity" : "Today’s signal",
+      value: context.journaledToday
+        ? "Journal signal exists for today."
+        : "No journal signal is available today.",
+      detail: context.briefingContent
+        ? "Briefing content is also available."
+        : "Briefing content is not available yet.",
+    },
+  ];
+
+  return rows;
+}
+
+function MemoryIntelligenceCard({
+  context,
+  mode,
+  actions,
+}: {
+  context: WorkspaceContext;
+  mode: AssistantMode;
+  actions?: WorkspaceCardActions;
+}) {
+  const isChief = mode === "chief_of_staff";
+  const assistantName = String(context.assistantName || "").trim() || "Aliyya";
+
+  if (context.status === "loading") {
+    return <p>{assistantName} is checking memory freshness and continuity signals…</p>;
+  }
+
+  if (context.status === "error") {
+    return <p>Memory signals could not be loaded yet. The chat remains available.</p>;
+  }
+
+  const rows = buildMemoryInsightRows(context, isChief);
+  const prompt = isChief
+    ? "Aliyya, review my current memory intelligence signals. Identify what is fresh, what may be stale, what relationship context matters, and what project/thread should be prioritized next."
+    : "Aliyya, review my current memory and continuity signals gently. Help me notice what feels important, what may be outdated, and one small thing to follow up on.";
+
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-2">
+        {rows.map((row) => (
+          <div key={row.label} className={memoryIntelligencePanelClass(isChief, row.strong)}>
+            <p className={memoryIntelligenceLabelClass(isChief)}>{row.label}</p>
+            <p className={memoryIntelligenceTextClass(isChief)}>{row.value}</p>
+            {row.detail ? <p className={memoryIntelligenceMetaClass(isChief)}>{row.detail}</p> : null}
+          </div>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        disabled={!actions?.onPrompt}
+        onClick={() => actions?.onPrompt?.(prompt)}
+        className={memoryActionButtonClass(isChief, true)}
+      >
+        <Brain className="h-3.5 w-3.5 shrink-0" />
+        {isChief ? "Analyze memory signals" : "Review gently with Aliyya"}
+      </button>
+    </div>
+  );
+}
+
+function RelationshipRadarCard({
+  context,
+  mode,
+  actions,
+}: {
+  context: WorkspaceContext;
+  mode: AssistantMode;
+  actions?: WorkspaceCardActions;
+}) {
+  const isChief = mode === "chief_of_staff";
+  const people = (context.people || []).slice(0, 4);
+
+  if (context.status === "loading") {
+    return <p>Scanning relationship context…</p>;
+  }
+
+  const prompt = isChief
+    ? "Aliyya, review the people currently in my context. Suggest who may need a follow-up, what the likely purpose is, and how to keep it concise and professional."
+    : "Aliyya, look at the people currently in my context. Is there anyone I should gently check in with today? Keep it warm and low-pressure.";
+
+  return (
+    <div className="space-y-3">
+      {people.length > 0 ? (
+        <div className="grid gap-2">
+          {people.map((person, index) => (
+            <div
+              key={person.id || person.name || index}
+              className={memoryIntelligencePanelClass(isChief, index === 0)}
+            >
+              <p className={memoryIntelligenceLabelClass(isChief)}>
+                {person.relationship || "Relationship"}
+              </p>
+              <p className={memoryIntelligenceTextClass(isChief)}>
+                {person.name || "Unnamed person"}
+              </p>
+              <p className={memoryIntelligenceMetaClass(isChief)}>
+                {isChief
+                  ? "Available for follow-up planning and stakeholder context."
+                  : "Available for gentle continuity and personal check-ins."}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className={memoryIntelligencePanelClass(isChief, true)}>
+          <p className={memoryIntelligenceTextClass(isChief)}>
+            No people are surfaced yet. People you add later can become follow-up and relationship signals.
+          </p>
+        </div>
+      )}
+
+      <button
+        type="button"
+        disabled={!actions?.onPrompt}
+        onClick={() => actions?.onPrompt?.(prompt)}
+        className={memoryActionButtonClass(isChief, true)}
+      >
+        <Users className="h-3.5 w-3.5 shrink-0" />
+        {isChief ? "Plan stakeholder follow-up" : "Suggest a gentle check-in"}
+      </button>
+    </div>
+  );
+}
+
+function ProjectTrackerCard({
+  context,
+  mode,
+  actions,
+}: {
+  context: WorkspaceContext;
+  mode: AssistantMode;
+  actions?: WorkspaceCardActions;
+}) {
+  const isChief = mode === "chief_of_staff";
+  const activeGoals = (context.activeGoals || []).slice(0, 4);
+  const pausedGoals = (context.pausedGoals || []).slice(0, 3);
+
+  if (context.status === "loading") {
+    return <p>Checking active threads and paused goals…</p>;
+  }
+
+  const prompt = isChief
+    ? "Aliyya, turn my visible goals and paused threads into a project tracker. Give me status, risk, next action, and what should be ignored for now."
+    : "Aliyya, help me review my visible goals gently. Pick one realistic next step and tell me what I can leave for later.";
+
+  return (
+    <div className="space-y-3">
+      {activeGoals.length > 0 ? (
+        <div className="grid gap-2">
+          {activeGoals.map((goal, index) => (
+            <div
+              key={goal.id || goal.title || index}
+              className={memoryIntelligencePanelClass(isChief, index === 0)}
+            >
+              <p className={memoryIntelligenceLabelClass(isChief)}>
+                {isChief ? "Active thread" : "Active goal"}
+              </p>
+              <p className={memoryIntelligenceTextClass(isChief)}>
+                {goal.title || "Untitled goal"}
+              </p>
+              <p className={memoryIntelligenceMetaClass(isChief)}>
+                {isChief ? "Ready for next-action sizing." : "Available as one possible focus."}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className={memoryIntelligencePanelClass(isChief, true)}>
+          <p className={memoryIntelligenceTextClass(isChief)}>
+            No active goal is surfaced yet. This can still become a lightweight project tracker once goals are added.
+          </p>
+        </div>
+      )}
+
+      {pausedGoals.length > 0 ? (
+        <div className={memoryIntelligencePanelClass(isChief)}>
+          <p className={memoryIntelligenceLabelClass(isChief)}>
+            {isChief ? "Potential blockers" : "Paused threads"}
+          </p>
+          <p className={memoryIntelligenceTextClass(isChief)}>
+            {pausedGoals.map((goal) => goal.title).filter(Boolean).join(", ")}
+          </p>
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        disabled={!actions?.onPrompt}
+        onClick={() => actions?.onPrompt?.(prompt)}
+        className={memoryActionButtonClass(isChief, true)}
+      >
+        <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+        {isChief ? "Build project tracker" : "Choose one next step"}
+      </button>
+    </div>
+  );
+}
+
+
 export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
   {
     id: "proactive_daily_brief",
@@ -532,6 +857,36 @@ export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
     defaultVisible: true,
     render: (context, mode, actions) => (
       <ProactiveNextActionsCard context={context} mode={mode} actions={actions} />
+    ),
+  },
+  {
+    id: "memory_intelligence",
+    title: "Memory Intelligence",
+    icon: Brain,
+    modes: BOTH,
+    defaultVisible: true,
+    render: (context, mode, actions) => (
+      <MemoryIntelligenceCard context={context} mode={mode} actions={actions} />
+    ),
+  },
+  {
+    id: "relationship_radar",
+    title: "Relationship Radar",
+    icon: Users,
+    modes: BOTH,
+    defaultVisible: true,
+    render: (context, mode, actions) => (
+      <RelationshipRadarCard context={context} mode={mode} actions={actions} />
+    ),
+  },
+  {
+    id: "project_tracker",
+    title: "Project Tracker",
+    icon: CheckCircle2,
+    modes: BOTH,
+    defaultVisible: true,
+    render: (context, mode, actions) => (
+      <ProjectTrackerCard context={context} mode={mode} actions={actions} />
     ),
   },
   {

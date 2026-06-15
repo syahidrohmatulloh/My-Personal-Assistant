@@ -3,6 +3,9 @@ import type { AssistantMode } from "@/lib/api";
 export type WorkspaceCardId =
   | "proactive_daily_brief"
   | "proactive_next_actions"
+  | "memory_intelligence"
+  | "relationship_radar"
+  | "project_tracker"
   | "gentle_checkin"
   | "personal_ideas"
   | "continuity_signal"
@@ -32,6 +35,7 @@ export type WorkspaceMemory = {
   id?: string;
   content?: string;
   kind?: string;
+  createdAt?: string;
 };
 
 export type WorkspaceAgendaItem = {
