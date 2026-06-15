@@ -27,7 +27,7 @@ import {
   X,
 } from "lucide-react"
 import { useAssistantOwnedLabel } from "@/hooks/use-identity-owned-label";
-import { useAssistantDisplayName } from "@/hooks/use-identity-owned-label";
+import { useAssistantDisplayName } from "@/hooks/use-assistant-display-name";
 import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 import { createClient } from "@/lib/supabase/client";
 import { readSnapshot, SNAPSHOT_MAX_AGE_MS, userScopedSnapshotKey, writeSnapshot } from "@/lib/snapshot-cache";

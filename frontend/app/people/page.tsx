@@ -18,7 +18,7 @@ import {
   AppStatGrid,
 } from "@/components/ui/app-page-shell"
 import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
-import { useAssistantDisplayName } from "@/hooks/use-identity-owned-label";
+import { useAssistantDisplayName } from "@/hooks/use-assistant-display-name";
 import { BackToChatButton } from "@/components/settings/back-to-chat-button";
 import { createClient } from "@/lib/supabase/client";
 import {

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { CalendarDays, CheckCircle2, KeyRound, Loader2, ShieldCheck, Unplug } from "lucide-react"
-import { useAssistantDisplayName } from "@/hooks/use-identity-owned-label";
+import { useAssistantDisplayName } from "@/hooks/use-assistant-display-name";
 
 const MASKED_INPUT_TYPE = "pass" + "word"
 

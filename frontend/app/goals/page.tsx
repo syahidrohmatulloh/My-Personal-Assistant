@@ -20,7 +20,8 @@ import {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { AppPageShell, AppPanel, AppToolbar } from "@/components/ui/app-page-shell";
-import { useAssistantDisplayName, useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
+import { useUserOwnedLabel } from "@/hooks/use-identity-owned-label";
+import { useAssistantDisplayName } from "@/hooks/use-assistant-display-name";
 import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 import { createClient } from "@/lib/supabase/client";
 import { readSnapshot, SNAPSHOT_MAX_AGE_MS, userScopedSnapshotKey, writeSnapshot } from "@/lib/snapshot-cache";
