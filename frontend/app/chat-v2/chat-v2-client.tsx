@@ -314,7 +314,6 @@ export function ChatV2Client({
             ? settings.assistant_name.trim()
             : null;
       } catch {
-      setModeReady(true); // fallback after mode bootstrap failure
         try {
           const savedMode = window.localStorage.getItem("aliyya.chatV2.mode");
           nextMode = savedMode === "chief_of_staff" ? "chief_of_staff" : "life_companion";
@@ -487,6 +486,10 @@ export function ChatV2Client({
     };
   }, [activeConversationId, sending]);
 
+  if (!modeReady) {
+    return <ChatV2BootSplash />;
+  }
+
   const isExpanded = layout === "expanded";
   // Name precedence mirrors the app's architecture: stream meta is the
   // freshest server-pushed value (in-chat renames), companion settings is the
@@ -643,6 +646,18 @@ export function ChatV2Client({
             />
           </section>
         </section>
+      </div>
+    </main>
+  );
+}
+
+
+function ChatV2BootSplash() {
+  return (
+    <main className="relative min-h-dvh overflow-hidden bg-[#080d14] text-slate-100">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_24%,rgba(45,212,191,0.13),transparent_28rem),radial-gradient(circle_at_18%_78%,rgba(96,165,250,0.07),transparent_32rem),radial-gradient(circle_at_82%_88%,rgba(180,130,58,0.04),transparent_26rem)]" />
+        <div className="absolute inset-0 opacity-[0.04] [background-image:linear-gradient(rgba(148,163,184,0.30)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.24)_1px,transparent_1px)] [background-size:48px_48px]" />
       </div>
     </main>
   );
