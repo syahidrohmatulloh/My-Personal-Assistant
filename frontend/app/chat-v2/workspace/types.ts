@@ -1,6 +1,8 @@
 import type { AssistantMode } from "@/lib/api";
 
 export type WorkspaceCardId =
+  | "proactive_daily_brief"
+  | "proactive_next_actions"
   | "gentle_checkin"
   | "personal_ideas"
   | "continuity_signal"

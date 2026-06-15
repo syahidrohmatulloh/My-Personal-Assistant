@@ -11,7 +11,10 @@ import {
   Compass,
   Heart,
   Lightbulb,
+  MessageCircle,
   Newspaper,
+  Target,
+  Zap,
   NotebookPen,
   Users,
 } from "lucide-react";
@@ -19,13 +22,21 @@ import type { ReactNode } from "react";
 import type { AssistantMode } from "@/lib/api";
 import type { WorkspaceAgendaItem, WorkspaceCardId, WorkspaceContext } from "./types";
 
+export type WorkspaceCardActions = {
+  onPrompt?: (prompt: string) => void;
+};
+
 export type WorkspaceCardDefinition = {
   id: WorkspaceCardId;
   title: string;
   icon: LucideIcon;
   modes: AssistantMode[];
   defaultVisible: boolean;
-  render: (context: WorkspaceContext, mode: AssistantMode) => ReactNode;
+  render: (
+    context: WorkspaceContext,
+    mode: AssistantMode,
+    actions?: WorkspaceCardActions,
+  ) => ReactNode;
 };
 
 const LIFE: AssistantMode[] = ["life_companion"];
@@ -203,7 +214,326 @@ function formatReminderDue(value: string | null | undefined): string {
   }).format(date);
 }
 
+
+type DailyBriefSignal = {
+  label: string;
+  value: string;
+  strong?: boolean;
+};
+
+type SuggestedPrompt = {
+  label: string;
+  intent: string;
+  prompt: string;
+};
+
+function countLabel(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function firstAgendaItem(events: WorkspaceAgendaItem[]): WorkspaceAgendaItem | null {
+  const sorted = [...events].sort((a, b) => {
+    const left = a.startAt ? new Date(a.startAt).getTime() : Number.MAX_SAFE_INTEGER;
+    const right = b.startAt ? new Date(b.startAt).getTime() : Number.MAX_SAFE_INTEGER;
+    return left - right;
+  });
+
+  return sorted[0] || null;
+}
+
+function proactivePanelClass(isChief: boolean): string {
+  return [
+    "rounded-2xl border p-3",
+    isChief
+      ? "border-teal-200/15 bg-teal-200/[0.045]"
+      : "border-white/70 bg-white/45",
+  ].join(" ");
+}
+
+function proactiveSignalClass(isChief: boolean, strong = false): string {
+  return [
+    "rounded-2xl border px-3 py-2",
+    isChief
+      ? strong
+        ? "border-teal-200/20 bg-teal-200/[0.08]"
+        : "border-white/10 bg-white/[0.04]"
+      : strong
+        ? "border-amber-200 bg-amber-50/70"
+        : "border-white/70 bg-white/55",
+  ].join(" ");
+}
+
+function proactiveActionButtonClass(isChief: boolean, primary = false): string {
+  return [
+    "inline-flex min-h-9 items-center gap-2 rounded-full border px-3 py-2 text-left text-xs font-semibold leading-4 shadow-sm transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50",
+    isChief
+      ? primary
+        ? "border-teal-200/25 bg-teal-200/[0.11] text-teal-50 hover:bg-teal-200/[0.16]"
+        : "border-white/10 bg-white/[0.055] text-slate-300 hover:bg-white/[0.08] hover:text-white"
+      : primary
+        ? "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
+        : "border-stone-200 bg-white/70 text-stone-600 hover:bg-white hover:text-stone-950",
+  ].join(" ");
+}
+
+function buildDailyBriefSignals(
+  context: WorkspaceContext,
+  isChief: boolean,
+): DailyBriefSignal[] {
+  const agenda = context.todayAgenda || [];
+  const reminders = context.upcomingReminders || [];
+  const goals = context.activeGoals || [];
+  const memories = context.recentMemories || [];
+  const nextEvent = firstAgendaItem(agenda);
+  const nextEventTitle = String(nextEvent?.title || "").trim();
+
+  const signals: DailyBriefSignal[] = [];
+
+  if (agenda.length > 0) {
+    signals.push({
+      label: isChief ? "Schedule" : "Today",
+      value: nextEvent
+        ? `${countLabel(agenda.length, "event")} today. Next: ${agendaTimeRange(nextEvent)}${nextEventTitle ? ` — ${nextEventTitle}` : ""}.`
+        : `${countLabel(agenda.length, "event")} on today’s calendar.`,
+      strong: true,
+    });
+  } else {
+    signals.push({
+      label: isChief ? "Schedule" : "Today",
+      value: isChief
+        ? "No fixed event is surfaced for today. Good window for focused execution."
+        : "No fixed event is surfaced for today. There is room to move gently.",
+      strong: true,
+    });
+  }
+
+  if (reminders.length > 0) {
+    const firstReminder = reminders[0];
+    signals.push({
+      label: "Reminders",
+      value: `${countLabel(reminders.length, "reminder")} upcoming. Nearest: ${formatReminderDue(firstReminder.dueAt)}${firstReminder.title ? ` — ${firstReminder.title}` : ""}.`,
+    });
+  } else {
+    signals.push({
+      label: "Reminders",
+      value: "No upcoming reminder is currently surfaced.",
+    });
+  }
+
+  signals.push({
+    label: isChief ? "Execution" : "Goals",
+    value:
+      goals.length > 0
+        ? `${countLabel(goals.length, "active goal")} in view: ${goalTitles(goals).join(", ")}.`
+        : isChief
+          ? "No active goal is surfaced yet. You can turn today into a short execution queue."
+          : "No active goal is surfaced yet. You can still choose one small thing for today.",
+  });
+
+  signals.push({
+    label: isChief ? "Signals" : "Continuity",
+    value: [
+      context.journaledToday ? "journal opened today" : "no journal signal today",
+      memories.length > 0 ? `${countLabel(memories.length, "recent memory", "recent memories")}` : "no recent memory surfaced",
+    ].join(" · "),
+  });
+
+  return signals;
+}
+
+function buildSuggestedPrompts(
+  context: WorkspaceContext,
+  mode: AssistantMode,
+): SuggestedPrompt[] {
+  const isChief = mode === "chief_of_staff";
+  const agendaCount = (context.todayAgenda || []).length;
+  const reminderCount = (context.upcomingReminders || []).length;
+  const goalCount = (context.activeGoals || []).length;
+  const peopleCount = (context.people || []).length;
+
+  if (isChief) {
+    const prompts: SuggestedPrompt[] = [
+      {
+        label: "Brief me now",
+        intent: "Agenda, risks, and next actions",
+        prompt:
+          "Aliyya, give me an executive brief for today based on my visible agenda, reminders, goals, and recent context. Structure it into: bottom line, top priorities, risks/blockers, and next actions.",
+      },
+      {
+        label: agendaCount > 0 ? "Prioritize agenda" : "Create focus plan",
+        intent: agendaCount > 0 ? `${agendaCount} calendar item${agendaCount === 1 ? "" : "s"}` : "No fixed agenda",
+        prompt:
+          agendaCount > 0
+            ? "Aliyya, prioritize my agenda today. Separate items into decision, follow-up, deep work, and low-priority. Then give me the recommended order."
+            : "Aliyya, help me create a focused execution plan for today with 3 priorities, estimated time blocks, and one thing to avoid.",
+      },
+      {
+        label: reminderCount > 0 ? "Review reminders" : "Set execution rhythm",
+        intent: reminderCount > 0 ? `${reminderCount} reminder${reminderCount === 1 ? "" : "s"}` : "No reminders",
+        prompt:
+          reminderCount > 0
+            ? "Aliyya, review my upcoming reminders and turn them into a practical action list with urgency and owner/next step."
+            : "Aliyya, suggest a practical check-in rhythm for today so I do not lose track of important follow-ups.",
+      },
+    ];
+
+    return prompts;
+  }
+
+  const prompts: SuggestedPrompt[] = [
+    {
+      label: "Gentle check-in",
+      intent: context.journaledToday ? "Continue today’s reflection" : "Start softly",
+      prompt:
+        "Aliyya, help me do a gentle check-in for today. Ask me a few light questions, then help me choose one small next step.",
+    },
+    {
+      label: goalCount > 0 ? "Choose one step" : "Make today lighter",
+      intent: goalCount > 0 ? `${goalCount} active goal${goalCount === 1 ? "" : "s"}` : "No active goal",
+      prompt:
+        goalCount > 0
+          ? "Aliyya, look at my active goals and help me choose one realistic step for today without making it feel heavy."
+          : "Aliyya, help me make today feel lighter. Suggest one simple plan based on what you know about me.",
+    },
+    {
+      label: peopleCount > 0 ? "Personal follow-up" : "Reflect and reset",
+      intent: peopleCount > 0 ? `${peopleCount} people in context` : "Quiet continuity",
+      prompt:
+        peopleCount > 0
+          ? "Aliyya, based on the people who matter in my context, is there anyone I should gently follow up with today?"
+          : "Aliyya, help me reflect and reset. Keep it warm, short, and practical.",
+    },
+  ];
+
+  return prompts;
+}
+
+function ProactiveDailyBriefCard({
+  context,
+  mode,
+  actions,
+}: {
+  context: WorkspaceContext;
+  mode: AssistantMode;
+  actions?: WorkspaceCardActions;
+}) {
+  const isChief = mode === "chief_of_staff";
+  const assistantName = String(context.assistantName || "").trim() || "Aliyya";
+  const isLoading =
+    context.status === "loading" ||
+    context.agendaStatus === "loading" ||
+    context.remindersStatus === "loading";
+
+  if (isLoading) {
+    return <p>{assistantName} is assembling today’s signals…</p>;
+  }
+
+  if (context.status === "error") {
+    return <p>{assistantName} could not load the full context yet, but the chat is still ready.</p>;
+  }
+
+  const signals = buildDailyBriefSignals(context, isChief);
+  const primaryPrompt = isChief
+    ? "Aliyya, give me an executive brief for today based on my visible agenda, reminders, goals, and recent context. Structure it into: bottom line, top priorities, risks/blockers, and next actions."
+    : "Aliyya, give me a gentle daily brief for today based on my visible agenda, reminders, goals, and recent context. Keep it warm, practical, and light.";
+
+  return (
+    <div className="space-y-3">
+      <div className={proactivePanelClass(isChief)}>
+        <p className={isChief ? "text-sm leading-6 text-slate-300" : "text-sm leading-6 text-stone-600"}>
+          {isChief
+            ? `${assistantName} has a quick operating picture ready from today’s visible context.`
+            : `${assistantName} has a soft daily picture ready from today’s visible context.`}
+        </p>
+      </div>
+
+      <div className="grid gap-2">
+        {signals.map((signal) => (
+          <div key={signal.label} className={proactiveSignalClass(isChief, signal.strong)}>
+            <p className={isChief ? "text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500" : "text-[10px] font-bold uppercase tracking-[0.18em] text-stone-400"}>
+              {signal.label}
+            </p>
+            <p className={isChief ? "mt-1 text-sm leading-5 text-slate-200" : "mt-1 text-sm leading-5 text-stone-700"}>
+              {signal.value}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        disabled={!actions?.onPrompt}
+        onClick={() => actions?.onPrompt?.(primaryPrompt)}
+        className={proactiveActionButtonClass(isChief, true)}
+      >
+        <MessageCircle className="h-3.5 w-3.5 shrink-0" />
+        {isChief ? "Ask for executive brief" : "Ask for gentle brief"}
+      </button>
+    </div>
+  );
+}
+
+function ProactiveNextActionsCard({
+  context,
+  mode,
+  actions,
+}: {
+  context: WorkspaceContext;
+  mode: AssistantMode;
+  actions?: WorkspaceCardActions;
+}) {
+  const isChief = mode === "chief_of_staff";
+  const prompts = buildSuggestedPrompts(context, mode);
+
+  if (context.status === "loading") {
+    return <p>Preparing proactive suggestions…</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {prompts.map((item, index) => (
+        <button
+          key={item.label}
+          type="button"
+          disabled={!actions?.onPrompt}
+          onClick={() => actions?.onPrompt?.(item.prompt)}
+          className={proactiveActionButtonClass(isChief, index === 0)}
+        >
+          <Target className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0">
+            <span className="block">{item.label}</span>
+            <span className={isChief ? "block text-[11px] font-normal text-slate-500" : "block text-[11px] font-normal text-stone-500"}>
+              {item.intent}
+            </span>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+
 export const WORKSPACE_CARDS: WorkspaceCardDefinition[] = [
+  {
+    id: "proactive_daily_brief",
+    title: "Aliyya Daily Brief",
+    icon: Zap,
+    modes: BOTH,
+    defaultVisible: true,
+    render: (context, mode, actions) => (
+      <ProactiveDailyBriefCard context={context} mode={mode} actions={actions} />
+    ),
+  },
+  {
+    id: "proactive_next_actions",
+    title: "Proactive next moves",
+    icon: MessageCircle,
+    modes: BOTH,
+    defaultVisible: true,
+    render: (context, mode, actions) => (
+      <ProactiveNextActionsCard context={context} mode={mode} actions={actions} />
+    ),
+  },
   {
     id: "gentle_checkin",
     title: "Gentle check-in",

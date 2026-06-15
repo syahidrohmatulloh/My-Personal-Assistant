@@ -18,9 +18,11 @@ import { useWorkspacePreferences } from "./use-workspace-preferences";
 export function WorkspacePanel({
   mode,
   context,
+  onPrompt,
 }: {
   mode: AssistantMode;
   context: WorkspaceContext;
+  onPrompt?: (prompt: string) => void;
 }) {
   const { preferences, toggleCard, moveCard, resetMode } = useWorkspacePreferences();
   const [customizing, setCustomizing] = useState(false);
@@ -28,10 +30,17 @@ export function WorkspacePanel({
   const modePreferences = preferences[modeKey(mode)];
 
   const orderedCards = useMemo(() => {
-    const byId = new Map(cardsForMode(mode).map((card) => [card.id, card]));
-    return modePreferences.order
+    const availableCards = cardsForMode(mode);
+    const byId = new Map(availableCards.map((card) => [card.id, card]));
+    const ordered = modePreferences.order
       .map((id) => byId.get(id))
       .filter((card): card is WorkspaceCardDefinition => Boolean(card));
+    const orderedIds = new Set(ordered.map((card) => card.id));
+    const missingDefaultCards = availableCards.filter(
+      (card) => card.defaultVisible && !orderedIds.has(card.id),
+    );
+
+    return [...missingDefaultCards, ...ordered];
   }, [mode, modePreferences.order]);
 
   const hiddenIds = useMemo(
@@ -86,7 +95,7 @@ export function WorkspacePanel({
             icon={<Icon className="h-4 w-4" />}
             title={card.title}
           >
-            {card.render(context, mode)}
+            {card.render(context, mode, { onPrompt })}
           </PanelCard>
         );
       })}

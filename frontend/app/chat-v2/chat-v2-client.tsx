@@ -509,6 +509,19 @@ export function ChatV2Client({
     ...workspaceContext,
     assistantName,
   };
+
+  function applyWorkspacePrompt(prompt: string) {
+    const nextPrompt = prompt.replace(/\s+/g, " ").trim();
+    if (!nextPrompt) return;
+
+    setInput(nextPrompt);
+
+    requestAnimationFrame(() => {
+      const textarea = document.querySelector<HTMLTextAreaElement>("textarea");
+      textarea?.focus();
+    });
+  }
+
   const copy = getModeCopy(mode, assistantName);
 
   return (
@@ -575,7 +588,8 @@ export function ChatV2Client({
               </div>
 
               <div className="mt-5 min-h-0 flex-1 xl:overflow-y-auto xl:overscroll-contain xl:pb-2 xl:pr-1 xl:[scrollbar-width:thin]">
-                <WorkspacePanel mode={mode} context={workspaceContextWithName} />
+                <WorkspacePanel mode={mode} context={workspaceContextWithName} 
+                  onPrompt={applyWorkspacePrompt}/>
               </div>
             </aside>
           ) : null}
