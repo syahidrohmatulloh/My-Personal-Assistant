@@ -40,7 +40,7 @@ type BackToLastChatProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 export function BackToLastChat({
-  children = "Back to chat",
+  children = "Back to Chat",
   type,
   onClick,
   ...props

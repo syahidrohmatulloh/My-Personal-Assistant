@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 export function BackToChatButton({
   className,
-  children = "Back to Chat V2",
+  children = "Back to Chat",
 }: {
   className?: string;
   children?: React.ReactNode;
