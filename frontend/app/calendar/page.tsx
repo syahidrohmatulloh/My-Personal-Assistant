@@ -340,7 +340,7 @@ function handoffCalendarActionToChat(event: CalendarEvent, mode: CalendarActionM
 
 function shellClass(isChief: boolean): string {
   return cn(
-    "relative h-[100dvh] overflow-hidden px-4 py-4 sm:px-6 lg:px-8",
+    "relative h-[100dvh] overflow-hidden px-4 py-4 transition-opacity duration-200 sm:px-6 lg:px-8",
     isChief ? "bg-[#080d14] text-slate-100" : "bg-[#f7f3ea] text-stone-950",
   )
 }
@@ -837,6 +837,7 @@ export default function CalendarPage() {
   const [viewFilter, setViewFilter] = useState<ViewFilter>("upcoming")
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all")
   const [visualMode, setVisualMode] = useState<CalendarVisualMode>("life_companion")
+  const [visualModeReady, setVisualModeReady] = useState(false)
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
 
   const isChief = visualMode === "chief_of_staff"
@@ -868,6 +869,7 @@ export default function CalendarPage() {
   useEffect(() => {
     function syncVisualMode() {
       setVisualMode(readStoredCalendarVisualMode())
+      setVisualModeReady(true)
     }
 
     syncVisualMode()
@@ -983,7 +985,7 @@ export default function CalendarPage() {
   const googleCount = events.filter((event) => event.source === "google").length
 
   return (
-    <main className={shellClass(isChief)}>
+    <main className={cn(shellClass(isChief), visualModeReady ? "opacity-100" : "opacity-0")}>
       <Background isChief={isChief} />
 
       <div className="relative mx-auto flex h-full w-full max-w-7xl flex-col gap-4">

@@ -90,6 +90,7 @@ export function ChatV2Client({
   conversationTitle?: string | null;
 }) {
   const [mode, setModeState] = useState<AssistantMode>("life_companion");
+  const [modeReady, setModeReady] = useState(false);
   const [layout, setLayoutState] = useState<LayoutMode>("split");
   const [messages, setMessages] = useState<LocalMessage[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -102,6 +103,11 @@ export function ChatV2Client({
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
 
   const isChief = mode === "chief_of_staff";
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setModeReady(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
