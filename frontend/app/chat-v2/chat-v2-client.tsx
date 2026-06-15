@@ -12,7 +12,7 @@ import {
   Minimize2,
   Sparkles,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useChatStreamSender } from "@/components/chat/use-chat-stream-sender";
 import {
   getCompanionSettings,
@@ -104,9 +104,17 @@ export function ChatV2Client({
 
   const isChief = mode === "chief_of_staff";
 
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => setModeReady(true));
-    return () => window.cancelAnimationFrame(frame);
+  useLayoutEffect(() => {
+    try {
+      const savedMode = window.localStorage.getItem("aliyya.chatV2.mode");
+
+      if (savedMode === "chief_of_staff" || savedMode === "life_companion") {
+        setModeState(savedMode);
+        setModeReady(true);
+      }
+    } catch {
+      // The async settings loader below will still resolve the mode.
+    }
   }, []);
 
   useEffect(() => {
@@ -306,6 +314,7 @@ export function ChatV2Client({
             ? settings.assistant_name.trim()
             : null;
       } catch {
+      setModeReady(true); // fallback after mode bootstrap failure
         try {
           const savedMode = window.localStorage.getItem("aliyya.chatV2.mode");
           nextMode = savedMode === "chief_of_staff" ? "chief_of_staff" : "life_companion";
@@ -317,6 +326,7 @@ export function ChatV2Client({
       if (cancelled) return;
 
       setModeState(nextMode);
+        setModeReady(true);
       if (nextName) setSettingsAssistantName(nextName);
 
       try {
