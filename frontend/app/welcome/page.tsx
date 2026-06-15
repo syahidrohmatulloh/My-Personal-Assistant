@@ -39,7 +39,7 @@ export default function WelcomePage() {
       .then((data) => {
         if (cancelled) return;
         if (data.profile && Object.keys(data.profile).length > 0) {
-          router.replace("/chat");
+          router.replace("/chat-v2");
           return;
         }
         setLoading(false);
@@ -70,7 +70,7 @@ export default function WelcomePage() {
         await createGoal(goal);
       }
 
-      router.replace("/chat");
+      router.replace("/chat-v2");
     } catch (e) {
       setError(String(e));
       setSaving(false);
@@ -86,7 +86,7 @@ export default function WelcomePage() {
   }
 
   return (
-    <main className="min-h-dvh grid place-items-center px-5 sm:px-6 py-8 py-12">
+    <main className="ali-soft-page min-h-dvh grid place-items-center px-5 sm:px-6 py-8 py-12">
       <div className="w-full max-w-md fade-up">
         {/* Logo */}
         <div className="flex flex-col items-center mb-6">
@@ -143,7 +143,7 @@ export default function WelcomePage() {
             ) : (
               <button
                 type="button"
-                onClick={() => router.replace("/chat")}
+                onClick={() => router.replace("/chat-v2")}
                 className="text-sm text-fg-subtle hover:text-fg-muted"
               >
                 Skip for now

@@ -145,7 +145,7 @@ export default function AIStudioLabPage() {
       <div className="relative z-10 mx-auto flex min-h-dvh max-w-7xl flex-col px-4 py-4 sm:px-6 lg:px-8">
         <header className="flex items-center justify-between gap-4 transition-all duration-700 ease-in-out">
           <Link
-            href="/chat"
+            href="/chat-v2"
             className={
               isChief
                 ? "inline-flex items-center gap-2 rounded-full border border-teal-200/15 bg-white/[0.045] px-3 py-2 text-xs font-medium text-teal-50 backdrop-blur transition hover:bg-white/[0.08]"

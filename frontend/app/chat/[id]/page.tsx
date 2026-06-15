@@ -29,7 +29,7 @@ export default async function Page({
     .maybeSingle();
 
   if (!conversation.data?.id) {
-    redirect("/chat");
+    redirect("/chat-v2");
   }
 
   const messages = await supabase

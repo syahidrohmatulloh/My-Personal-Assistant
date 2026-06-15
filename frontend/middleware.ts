@@ -42,6 +42,8 @@ export async function middleware(request: NextRequest) {
   const isAuthRoute = pathname === "/login" || pathname === "/signup";
   const isProtectedRoute =
     pathname.startsWith("/chat") ||
+    pathname.startsWith("/chat-v2") ||
+    pathname.startsWith("/calendar") ||
     pathname.startsWith("/memories") ||
     pathname.startsWith("/identity") ||
     pathname.startsWith("/journal") ||
@@ -54,7 +56,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
   if (user && isAuthRoute) {
-    return NextResponse.redirect(new URL("/chat", request.url));
+    return NextResponse.redirect(new URL("/chat-v2", request.url));
   }
 
   return response;
@@ -65,6 +67,8 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     "/chat/:path*",
+    "/chat-v2/:path*",
+    "/calendar/:path*",
     "/memories/:path*",
     "/identity/:path*",
     "/journal/:path*",

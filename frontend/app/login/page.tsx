@@ -27,7 +27,7 @@ export default function LoginPage() {
       return;
     }
 
-    router.push("/chat");
+    router.push("/chat-v2");
     router.refresh();
   }
 

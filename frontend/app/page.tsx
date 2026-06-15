@@ -12,5 +12,5 @@ export default async function HomePage() {
     redirect("/login");
   }
 
-  redirect("/chat");
+  redirect("/chat-v2");
 }
