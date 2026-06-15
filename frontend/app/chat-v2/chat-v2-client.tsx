@@ -40,6 +40,34 @@ import {
   loadUpcomingWorkspaceReminders,
 } from "./workspace/load-live-context";
 
+
+const ASSISTANT_NAME_CACHE_KEY = "app:assistant-name";
+
+function cleanAssistantName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const cleaned = value.trim();
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+function readCachedAssistantName(): string | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    return cleanAssistantName(window.localStorage.getItem(ASSISTANT_NAME_CACHE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedAssistantName(value: string | null): void {
+  const cleaned = cleanAssistantName(value);
+  if (typeof window === "undefined" || !cleaned) return;
+
+  try {
+    window.localStorage.setItem(ASSISTANT_NAME_CACHE_KEY, cleaned);
+  } catch {}
+}
+
 type AssistantMode = "life_companion" | "chief_of_staff";
 
 type LayoutMode = "split" | "expanded";
@@ -99,7 +127,7 @@ export function ChatV2Client({
   const [workspaceContext, setWorkspaceContext] = useState<WorkspaceContext>({
     status: "loading",
   });
-  const [settingsAssistantName, setSettingsAssistantName] = useState<string | null>(null);
+  const [settingsAssistantName, setSettingsAssistantName] = useState<string | null>(() => readCachedAssistantName());
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
 
   const isChief = mode === "chief_of_staff";
@@ -330,7 +358,10 @@ export function ChatV2Client({
 
       setModeState(nextMode);
         setModeReady(true);
-      if (nextName) setSettingsAssistantName(nextName);
+      if (nextName) {
+        setSettingsAssistantName(nextName);
+        writeCachedAssistantName(nextName);
+      }
 
       try {
         window.localStorage.setItem("aliyya.chatV2.mode", nextMode);

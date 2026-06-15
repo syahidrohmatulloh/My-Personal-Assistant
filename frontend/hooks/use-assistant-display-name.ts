@@ -41,8 +41,8 @@ export function getAssistantDisplayNameFromBrowser(): string {
 }
 
 export function useAssistantDisplayName(fallback = FALLBACK_ASSISTANT_NAME): string {
-  const [assistantName, setAssistantName] = useState<string>("");
-  const [loaded, setLoaded] = useState(false);
+  const [assistantName, setAssistantName] = useState<string>(() => readCachedAssistantName() || "");
+  const [loaded, setLoaded] = useState<boolean>(() => Boolean(readCachedAssistantName()));
 
   const applyName = useCallback((value: unknown): boolean => {
     const nextName = cleanAssistantName(value);
