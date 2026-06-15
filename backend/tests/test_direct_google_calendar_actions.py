@@ -480,3 +480,155 @@ def test_authoritative_result_context_blocks_ungrounded_schedule_commentary():
     assert "No conflict-analysis result is included" in context
     assert "Keep the user-facing reply brief" in context
 
+
+def test_direct_google_conflict_blocks_patch_until_confirmed(monkeypatch):
+    target = {
+        "id": "google:target-1",
+        "_record_source": "google",
+        "calendar_event_title": "Learning Reminder",
+        "calendar_event_date": "2026-06-14",
+        "calendar_event_start_at": "2026-06-14T17:00:00+07:00",
+        "calendar_event_end_at": "2026-06-14T17:30:00+07:00",
+        "calendar_event_all_day": False,
+        "google_calendar_event_id": "target-1",
+        "google_calendar_id": "primary",
+    }
+    conflict = {
+        "id": "google:meeting-1",
+        "_record_source": "google",
+        "calendar_event_title": "Existing Meeting",
+        "calendar_event_date": "2026-06-14",
+        "calendar_event_start_at": "2026-06-14T18:15:00+07:00",
+        "calendar_event_end_at": "2026-06-14T18:45:00+07:00",
+        "calendar_event_all_day": False,
+        "google_calendar_event_id": "meeting-1",
+    }
+
+    async def fake_token(**kwargs):
+        return "access-token"
+
+    async def fake_patch(**kwargs):
+        raise AssertionError("PATCH must not run before conflict confirmation")
+
+    monkeypatch.setattr(
+        calendar_draft_actions,
+        "get_active_google_calendar_access_token",
+        fake_token,
+    )
+    monkeypatch.setattr(
+        calendar_draft_actions,
+        "_patch_direct_google_calendar_event",
+        fake_patch,
+    )
+
+    result = asyncio.run(
+        calendar_draft_actions._apply_direct_google_calendar_action(
+            user_id="user-1",
+            target=target,
+            action={
+                "action": "update",
+                "start_at": "2026-06-14T18:00:00+07:00",
+                "end_at": "2026-06-14T18:30:00+07:00",
+            },
+            calendar_records=[target, conflict],
+        )
+    )
+
+    assert result["success"] is False
+    assert result["updated"] is False
+    assert result["reason"] == "calendar_conflict_requires_confirmation"
+    assert result["conflict_analysis"]["has_conflicts"] is True
+
+    context = calendar_draft_actions.render_calendar_action_result_context(result)
+
+    assert "No update or deletion was performed" in context
+    assert "conflicts with the listed Calendar item" in context
+
+
+def test_direct_google_conflict_override_allows_patch(monkeypatch):
+    target = {
+        "id": "google:target-1",
+        "_record_source": "google",
+        "calendar_event_title": "Learning Reminder",
+        "calendar_event_date": "2026-06-14",
+        "calendar_event_start_at": "2026-06-14T17:00:00+07:00",
+        "calendar_event_end_at": "2026-06-14T17:30:00+07:00",
+        "calendar_event_all_day": False,
+        "google_calendar_event_id": "target-1",
+        "google_calendar_id": "primary",
+    }
+    conflict = {
+        "id": "google:meeting-1",
+        "_record_source": "google",
+        "calendar_event_title": "Existing Meeting",
+        "calendar_event_date": "2026-06-14",
+        "calendar_event_start_at": "2026-06-14T18:15:00+07:00",
+        "calendar_event_end_at": "2026-06-14T18:45:00+07:00",
+        "calendar_event_all_day": False,
+        "google_calendar_event_id": "meeting-1",
+    }
+
+    patched_calls = []
+
+    async def fake_token(**kwargs):
+        return "access-token"
+
+    async def fake_patch(**kwargs):
+        patched_calls.append(kwargs)
+        return {
+            "id": "target-1",
+            "summary": "Learning Reminder",
+            "htmlLink": "https://calendar.google.com/event",
+        }
+
+    monkeypatch.setattr(
+        calendar_draft_actions,
+        "get_active_google_calendar_access_token",
+        fake_token,
+    )
+    monkeypatch.setattr(
+        calendar_draft_actions,
+        "_patch_direct_google_calendar_event",
+        fake_patch,
+    )
+
+    result = asyncio.run(
+        calendar_draft_actions._apply_direct_google_calendar_action(
+            user_id="user-1",
+            target=target,
+            action={
+                "action": "update",
+                "start_at": "2026-06-14T18:00:00+07:00",
+                "end_at": "2026-06-14T18:30:00+07:00",
+                "allow_conflict": True,
+            },
+            calendar_records=[target, conflict],
+        )
+    )
+
+    assert patched_calls
+    assert result["success"] is True
+    assert result["updated"] is True
+    assert result["conflict_analysis"]["has_conflicts"] is True
+
+
+def test_calendar_conflict_override_phrase_parser():
+    assert (
+        calendar_draft_actions
+        ._message_allows_calendar_conflict(
+            "tetap lanjut, ubah meetingnya ke jam 18"
+        )
+    )
+    assert (
+        calendar_draft_actions
+        ._message_allows_calendar_conflict(
+            "lanjut aja gapapa bentrok"
+        )
+    )
+    assert not (
+        calendar_draft_actions
+        ._message_allows_calendar_conflict(
+            "ubah meetingnya ke jam 18"
+        )
+    )
+

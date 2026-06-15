@@ -416,6 +416,9 @@ async def apply_chat_calendar_draft_action(
             ),
         }
 
+    if _message_allows_calendar_conflict(user_message):
+        action["allow_conflict"] = True
+
     target = next((row for row in records if str(row.get("id")) == action["target_memory_id"]), None)
     if not target:
         return {
@@ -816,6 +819,39 @@ async def _apply_direct_google_calendar_action(
                 "reason": "empty_update",
             }
 
+        merged = _build_update_payload(target, action)
+        conflict_analysis = _detect_conflicts_for_calendar_payload(
+            target=target,
+            payload=merged,
+            calendar_records=calendar_records or [],
+        )
+
+        if (
+            conflict_analysis.get("has_conflicts")
+            and not bool(action.get("allow_conflict"))
+        ):
+            return {
+                "attempted": True,
+                "success": False,
+                "updated": False,
+                "deleted": False,
+                "action": "update",
+                "source": "google",
+                "target_id": target.get("id"),
+                "google_event_id": google_event_id,
+                "title": (
+                    merged.get("calendar_event_title")
+                    or _title_from_target(target)
+                ),
+                "date": merged.get("calendar_event_date"),
+                "start_at": merged.get("calendar_event_start_at"),
+                "end_at": merged.get("calendar_event_end_at"),
+                "location": merged.get("calendar_event_location"),
+                "reason": "calendar_conflict_requires_confirmation",
+                "recurring_scope": recurring_scope,
+                "conflict_analysis": conflict_analysis,
+            }
+
         try:
             patched = await _patch_direct_google_calendar_event(
                 access_token=access_token,
@@ -838,13 +874,6 @@ async def _apply_direct_google_calendar_action(
                 "target_id": target.get("id"),
                 "reason": "google_patch_failed",
             }
-
-        merged = _build_update_payload(target, action)
-        conflict_analysis = _detect_conflicts_for_calendar_payload(
-            target=target,
-            payload=merged,
-            calendar_records=calendar_records or [],
-        )
 
         return {
             "attempted": True,
@@ -882,6 +911,31 @@ async def _apply_direct_google_calendar_action(
         "source": "google",
         "reason": "unsupported_direct_google_action",
     }
+
+
+def _message_allows_calendar_conflict(
+    user_message: str | None,
+) -> bool:
+    normalized = " ".join(
+        str(user_message or "").casefold().split()
+    )
+
+    if not normalized:
+        return False
+
+    override_terms = (
+        "tetap lanjut",
+        "lanjut aja",
+        "lanjut saja",
+        "gas aja",
+        "gapapa bentrok",
+        "gak apa-apa bentrok",
+        "tidak apa-apa bentrok",
+        "override conflict",
+        "ignore conflict",
+    )
+
+    return any(term in normalized for term in override_terms)
 
 
 def _detect_conflicts_for_calendar_payload(
@@ -1092,6 +1146,17 @@ def render_calendar_action_result_context(
                 "- No update or deletion was performed.",
                 "- Only changing or deleting this occurrence is currently supported safely.",
                 "- Ask the user whether to apply it to this occurrence only.",
+            ]
+        )
+    elif reason == "calendar_conflict_requires_confirmation":
+        lines.extend(
+            [
+                "- No update or deletion was performed.",
+                "- The proposed Calendar action conflicts with the listed Calendar item(s).",
+                "- Tell the user the requested time is currently conflicting.",
+                "- Ask whether to keep going anyway or choose another time.",
+                "- Do not claim the Calendar was updated.",
+                "- If the user wants to override the conflict, ask them to repeat the full request with 'tetap lanjut'.",
             ]
         )
     elif reason == "no_pending_recurring_action":
