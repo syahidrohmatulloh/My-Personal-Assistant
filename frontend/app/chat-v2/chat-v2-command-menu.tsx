@@ -248,7 +248,7 @@ export function ChatV2CommandMenu({
     try {
       const conversation = await createConversation("New chat", styleProfileId);
       setOpen(false);
-      router.push(`/chat/${conversation.id}`);
+      router.push(`/chat-v2/${conversation.id}`);
     } finally {
       setCreating(false);
     }
@@ -476,7 +476,7 @@ export function ChatV2CommandMenu({
                   conversations.map((conversation) => (
                     <Link
                       key={conversation.id}
-                      href={`/chat/${conversation.id}`}
+                      href={`/chat-v2/${conversation.id}`}
                       onClick={() => setOpen(false)}
                       className={cn(
                         "flex items-center gap-3 rounded-2xl border px-3 py-2.5 transition",

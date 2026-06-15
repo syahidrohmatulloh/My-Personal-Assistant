@@ -23,6 +23,7 @@ import {
   getIdentity,
   getTodayBriefing,
   getTodaysJournal,
+  listConversations,
   listGoals,
   listMemories,
   listMessages,
@@ -49,6 +50,7 @@ import {
 
 
 const ASSISTANT_NAME_CACHE_KEY = "app:assistant-name";
+const EMPTY_INITIAL_MESSAGES: Message[] = [];
 
 function cleanAssistantName(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -134,7 +136,7 @@ function formatConversationTitle(
 
 export function ChatV2Client({
   conversationId,
-  initialMessages = [],
+  initialMessages = EMPTY_INITIAL_MESSAGES,
   conversationTitle = null,
 }: {
   conversationId?: string | null;
@@ -145,6 +147,7 @@ export function ChatV2Client({
   const [modeReady, setModeReady] = useState(false);
   const [layout, setLayoutState] = useState<LayoutMode>("split");
   const [messages, setMessages] = useState<LocalMessage[]>(initialMessages);
+  const [resolvedConversationTitle, setResolvedConversationTitle] = useState<string | null>(conversationTitle);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [streamMeta, setStreamMeta] = useState<ChatStreamMeta | null>(null);
@@ -518,8 +521,51 @@ export function ChatV2Client({
   }, [initialMessages]);
 
   useEffect(() => {
+    setResolvedConversationTitle(conversationTitle);
+  }, [conversationTitle]);
+
+  useEffect(() => {
     scrollMessagesToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    if (!activeConversationId) return;
+
+    let cancelled = false;
+
+    async function hydrateConversationRoute() {
+      const [messagesResult, conversationsResult] = await Promise.allSettled([
+        listMessages(activeConversationId),
+        listConversations(),
+      ]);
+
+      if (cancelled) return;
+
+      if (messagesResult.status === "fulfilled") {
+        setMessages(messagesResult.value);
+      }
+
+      if (conversationsResult.status === "fulfilled") {
+        const activeConversation = conversationsResult.value.find(
+          (conversation) => conversation.id === activeConversationId,
+        );
+
+        if (activeConversation) {
+          setResolvedConversationTitle(activeConversation.title || null);
+        }
+      }
+
+      requestAnimationFrame(() => {
+        scrollMessagesToBottom();
+      });
+    }
+
+    void hydrateConversationRoute();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeConversationId]);
 
   useEffect(() => {
     if (!activeConversationId) return;
@@ -598,7 +644,7 @@ export function ChatV2Client({
           <div className="flex items-center gap-2">
             <ChatV2CommandMenu assistantName={assistantName} mode={mode} />
             <Link
-              href="/chat"
+              href="/chat-v2"
               className={[
                 "inline-flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-medium shadow-sm backdrop-blur transition active:scale-[0.98]",
                 isChief
@@ -607,7 +653,7 @@ export function ChatV2Client({
               ].join(" ")}
             >
               <ArrowLeft className="h-4 w-4" />
-              Back home
+              Main chat
             </Link>
           </div>
 
@@ -710,7 +756,7 @@ export function ChatV2Client({
               assistantName={assistantName}
               isExpanded={isExpanded}
               messages={messages}
-              conversationTitle={conversationTitle}
+              conversationTitle={resolvedConversationTitle}
               input={input}
               sending={sending}
               canSend={Boolean(activeConversationId)}
