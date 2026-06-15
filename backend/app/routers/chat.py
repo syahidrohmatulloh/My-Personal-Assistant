@@ -904,6 +904,7 @@ async def chat(
                 assistant_mode=assistant_mode,
                 conversation_id=body.conversation_id,
                 calendar_snapshot_dirty=calendar_action_snapshot_dirty,
+                calendar_receipt_source="deterministic_calendar_action",
             ),
             media_type="text/event-stream",
             headers={
@@ -941,6 +942,7 @@ async def chat(
                     calendar_snapshot_dirty=bool(
                         calendar_confirmation_result.get("executed")
                     ),
+                    calendar_receipt_source="deterministic_calendar_confirmation",
                 ),
                 media_type="text/event-stream",
                 headers={
@@ -951,13 +953,12 @@ async def chat(
                 background=background_tasks,
             )
 
-    if (
+    calendar_candidate_hard_gate = (
         not is_calendar_draft_action_turn
         and not calendar_draft_actions.is_google_calendar_create_request(body.message)
-        and calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(
-            body.message
-        )
-    ):
+        and _should_hard_gate_calendar_candidate(body.message)
+    )
+    if calendar_candidate_hard_gate:
         calendar_candidate_result = (
             await calendar_candidate_extractor.extract_and_persist(
                 user_id=user_id,
@@ -973,26 +974,35 @@ async def chat(
                 address_term=calendar_address_term,
             )
         )
-        if calendar_candidate_preview:
-            return StreamingResponse(
-                _stream_static_assistant_response(
-                    assistant_text=calendar_candidate_preview,
-                    assistant_name=assistant_name,
-                    detected_mode=detected_mode,
-                    assistant_mode=assistant_mode,
-                    conversation_id=body.conversation_id,
-                    calendar_snapshot_dirty=bool(
-                        calendar_candidate_result.get("saved")
-                    ),
-                ),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache, no-transform",
-                    "X-Accel-Buffering": "no",
-                    "Connection": "keep-alive",
-                },
-                background=background_tasks,
+        if not calendar_candidate_preview:
+            calendar_candidate_preview = _render_calendar_hard_gate_clarification(
+                address_term=calendar_address_term,
             )
+
+        return StreamingResponse(
+            _stream_static_assistant_response(
+                assistant_text=calendar_candidate_preview,
+                assistant_name=assistant_name,
+                detected_mode=detected_mode,
+                assistant_mode=assistant_mode,
+                conversation_id=body.conversation_id,
+                calendar_snapshot_dirty=bool(
+                    calendar_candidate_result.get("saved")
+                ),
+                calendar_receipt_source=(
+                    "deterministic_candidate_preview"
+                    if calendar_candidate_result.get("candidate")
+                    else "deterministic_calendar_clarification"
+                ),
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+            background=background_tasks,
+        )
 
     if (
         not is_calendar_draft_action_turn
@@ -1024,6 +1034,7 @@ async def chat(
                     calendar_snapshot_dirty=bool(
                         google_create_result.get("google_event_id")
                     ),
+                    calendar_receipt_source="deterministic_google_calendar_create",
                 ),
                 media_type="text/event-stream",
                 headers={
@@ -1389,6 +1400,119 @@ async def chat(
     )
 
 
+def _should_hard_gate_calendar_candidate(user_message: str | None) -> bool:
+    """Hard gate Calendar-like turns before Claude can answer freely."""
+    raw = str(user_message or "").strip()
+    if not raw:
+        return False
+
+    lower = raw.casefold()
+    compact = " ".join(lower.split())
+
+    if compact in {
+        "iya",
+        "ya",
+        "yes",
+        "y",
+        "oke",
+        "ok",
+        "sip",
+        "siap",
+        "batal",
+        "gajadi",
+        "ga jadi",
+        "nggak jadi",
+        "tidak jadi",
+    }:
+        return False
+
+    if calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(raw):
+        return True
+
+    date_terms = (
+        "tgl",
+        "tanggal",
+        "besok",
+        "lusa",
+        "hari ini",
+        "malam ini",
+        "pagi ini",
+        "siang ini",
+        "sore ini",
+        "senin",
+        "selasa",
+        "rabu",
+        "kamis",
+        "jumat",
+        "jum'at",
+        "sabtu",
+        "minggu",
+        "januari",
+        "februari",
+        "maret",
+        "april",
+        "mei",
+        "juni",
+        "juli",
+        "agustus",
+        "september",
+        "oktober",
+        "november",
+        "desember",
+    )
+    activity_terms = (
+        "aku mau",
+        "saya mau",
+        "ada",
+        "acara",
+        "agenda",
+        "jadwal",
+        "meeting",
+        "rapat",
+        "ketemu",
+        "appointment",
+        "janji",
+        "dokter",
+        "klinik",
+        "fisioterapi",
+        "terapi",
+        "gym",
+        "golf",
+        "dinner",
+        "lunch",
+        "makan",
+        "nonton",
+        "bioskop",
+        "flight",
+        "terbang",
+        "event",
+        "launching",
+    )
+
+    has_date = any(term in compact for term in date_terms)
+    has_time = bool(
+        re.search(r"\bjam\s*\d{1,2}(?:[.:]\d{2})?\b", compact)
+        or re.search(r"\b\d{1,2}[.:]\d{2}\b", compact)
+        or re.search(r"\b\d{1,2}\s*(?:pagi|siang|sore|malam)\b", compact)
+    )
+    has_activity = any(term in compact for term in activity_terms)
+
+    return bool(has_activity and (has_date or has_time))
+
+
+def _render_calendar_hard_gate_clarification(
+    *,
+    address_term: str | None = None,
+) -> str:
+    term = _clean_calendar_address_term(address_term)
+    prefix = f"{term}, " if term else ""
+
+    return (
+        f"{prefix}ini kayaknya agenda, tapi aku belum cukup yakin detailnya.\n\n"
+        "Bisa sebutkan acara, tanggal, waktu, dan lokasi?"
+    )
+
+
 async def _load_calendar_address_term(
     *,
     user_id: str,
@@ -1467,6 +1591,7 @@ async def _stream_static_assistant_response(
     assistant_mode: str = "life_companion",
     conversation_id: str | None = None,
     calendar_snapshot_dirty: bool = False,
+    calendar_receipt_source: str | None = None,
 ) -> AsyncIterator[str]:
     """Stream a deterministic assistant response without calling Claude."""
     mood = _mode_to_mood(detected_mode)
@@ -1479,6 +1604,8 @@ async def _stream_static_assistant_response(
         "background_palette_hint": _mood_to_palette(mood),
         "assistant_name": assistant_name,
     }
+    if calendar_receipt_source:
+        meta_event["calendar_receipt_source"] = calendar_receipt_source
     yield f"data: {json.dumps(meta_event)}\n\n"
     yield f"data: {json.dumps({'type': 'delta', 'text': assistant_text})}\n\n"
 

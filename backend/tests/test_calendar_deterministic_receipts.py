@@ -296,3 +296,29 @@ def test_chat_has_dynamic_calendar_address_and_candidate_preview_path():
     assert "calendar_address_term" in CHAT
     assert "render_calendar_candidate_preview" in CHAT
     assert "address_term=calendar_address_term" in CHAT
+
+
+def test_chat_calendar_hard_gate_prevents_claude_preview_fallback():
+    assert "_should_hard_gate_calendar_candidate" in CHAT
+    assert "calendar_candidate_hard_gate" in CHAT
+    assert "_render_calendar_hard_gate_clarification" in CHAT
+    assert "deterministic_candidate_preview" in CHAT
+    assert "deterministic_calendar_clarification" in CHAT
+
+
+def test_static_stream_marks_calendar_receipt_source():
+    assert "calendar_receipt_source: str | None = None" in CHAT
+    assert 'meta_event["calendar_receipt_source"] = calendar_receipt_source' in CHAT
+
+
+def test_calendar_hard_gate_catches_natural_schedule_messages():
+    assert "nonton" in CHAT
+    assert "bioskop" in CHAT
+    assert "fisioterapi" in CHAT
+    assert "has_activity and (has_date or has_time)" in CHAT
+
+
+def test_calendar_hard_gate_clarification_has_no_markdown_or_hardcoded_beb():
+    assert "Bisa sebutkan acara, tanggal, waktu, dan lokasi?" in CHAT
+    assert "**Acara:**" not in CHAT
+    assert "Beb, ini kayaknya" not in CHAT
