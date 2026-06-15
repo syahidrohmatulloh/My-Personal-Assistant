@@ -533,6 +533,13 @@ def _deterministic_confirmation_decision(
     if not normalized:
         return None
 
+    indexed_decision = _deterministic_indexed_confirmation_decision(
+        normalized_message=normalized,
+        suggestions=suggestions,
+    )
+    if indexed_decision:
+        return indexed_decision
+
     action: str | None = None
     if normalized in {
         "iya",
@@ -597,6 +604,117 @@ def _deterministic_confirmation_decision(
     )
 
 
+def _deterministic_indexed_confirmation_decision(
+    *,
+    normalized_message: str,
+    suggestions: list[dict[str, Any]],
+) -> calendar_decision_router.CalendarDecision | None:
+    index = _extract_indexed_pending_selection(normalized_message)
+    if index is None:
+        return None
+
+    action = _extract_indexed_pending_action(normalized_message)
+    if not action:
+        return calendar_decision_router.CalendarDecision(
+            action="clarify",
+            target_memory_id=None,
+            confidence=1.0,
+            reason="indexed_action_missing",
+        )
+
+    if index < 1 or index > len(suggestions):
+        return calendar_decision_router.CalendarDecision(
+            action="clarify",
+            target_memory_id=None,
+            confidence=1.0,
+            reason="indexed_target_out_of_range",
+        )
+
+    target = suggestions[index - 1]
+    target_id = str(target.get("id") or "").strip() or None
+    return calendar_decision_router.CalendarDecision(
+        action=action,
+        target_memory_id=target_id,
+        confidence=1.0,
+        reason="deterministic_indexed_reply",
+    )
+
+
+def _extract_indexed_pending_action(normalized_message: str) -> str | None:
+    if any(
+        term in normalized_message
+        for term in (
+            "batal",
+            "cancel",
+            "skip",
+            "abaikan",
+            "gajadi",
+            "ga jadi",
+            "nggak jadi",
+            "tidak jadi",
+        )
+    ):
+        return "dismiss"
+
+    if "google" in normalized_message or "gcal" in normalized_message:
+        if any(term in normalized_message for term in ("sync", "masukin", "masukkan", "tambahin", "tambahkan")):
+            return "accept_google"
+
+    if any(
+        term in normalized_message
+        for term in (
+            "masukin",
+            "masukkan",
+            "tambahin",
+            "tambahkan",
+            "add",
+            "iya",
+            "ya",
+            "oke",
+            "ok",
+            "lanjut",
+            "pilih",
+        )
+    ):
+        return "accept_local"
+
+    return None
+
+
+def _extract_indexed_pending_selection(normalized_message: str) -> int | None:
+    patterns = (
+        r"\byang\s+(\d{1,2})\b",
+        r"\bnomor\s+(\d{1,2})\b",
+        r"\bno\.?\s*(\d{1,2})\b",
+        r"\bpilihan\s+(\d{1,2})\b",
+        r"#\s*(\d{1,2})\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized_message)
+        if match:
+            return int(match.group(1))
+
+    ordinal_map = {
+        "pertama": 1,
+        "kesatu": 1,
+        "satu": 1,
+        "kedua": 2,
+        "dua": 2,
+        "ketiga": 3,
+        "tiga": 3,
+        "keempat": 4,
+        "empat": 4,
+        "kelima": 5,
+        "lima": 5,
+    }
+
+    for word, index in ordinal_map.items():
+        if re.search(rf"\b(?:yang|nomor|no|pilihan)\s+{re.escape(word)}\b", normalized_message):
+            return index
+
+    return None
+
+
 async def _apply_pending_detail_update_if_possible(
     *,
     user_id: str,
@@ -643,6 +761,24 @@ def _looks_like_pending_detail_update(user_message: str | None) -> bool:
         user_message=normalized,
         suggestions=[{"id": "placeholder"}],
     ):
+        return False
+
+    if _extract_indexed_pending_selection(normalized) is not None:
+        return False
+
+    actionish_terms = (
+        "batal",
+        "cancel",
+        "skip",
+        "abaikan",
+        "masukin",
+        "masukkan",
+        "sync",
+        "google",
+        "calendar",
+        "kalender",
+    )
+    if any(term in normalized for term in actionish_terms):
         return False
 
     explicit_markers = (
