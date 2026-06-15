@@ -454,8 +454,10 @@ export default function CalendarPage() {
 
     try {
       const range = buildCalendarReadRange({
-        daysBefore: 7,
-        daysAfter: 45,
+        // Backend Google Calendar read is capped at 31 days.
+        // Keep this window safely below the cap so direct Google events stay visible.
+        daysBefore: 3,
+        daysAfter: 26,
       })
       const mergedEvents = await loadMergedCalendarEvents(range)
 
