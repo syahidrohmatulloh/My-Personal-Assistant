@@ -84,8 +84,12 @@ def render_calendar_confirmation_user_receipt(
     reason = str(result.get("reason") or "").strip()
     if action == "clarify" and reason == "multiple_pending_suggestions":
         return (
-            _receipt_opener("Aku menemukan beberapa agenda pending", address_term)
+            _receipt_opener(
+                "Aku menemukan beberapa agenda yang belum dikonfirmasi",
+                address_term,
+            )
             + " Yang mana yang kamu maksud?"
+            + _receipt_pending_options_block(result)
         )
     if reason in {"no_pending_suggestions", "low_confidence_or_no_action"}:
         return None
@@ -236,7 +240,7 @@ async def load_pending_calendar_suggestions(
                     "id, content, structured_value, due_date, source_conversation_id, "
                     "calendar_candidate, calendar_event_status, calendar_event_title, calendar_event_location, "
                     "calendar_event_date, calendar_event_start_at, calendar_event_end_at, "
-                    "calendar_event_all_day, archived, superseded, updated_at, created_at"
+                    "calendar_event_all_day, expires_at, archived, superseded, updated_at, created_at"
                 )
                 .eq("user_id", user_id)
                 .eq("calendar_candidate", True)
@@ -245,14 +249,182 @@ async def load_pending_calendar_suggestions(
             )
             if conversation_id:
                 query = query.eq("source_conversation_id", conversation_id)
-            return query.order("updated_at", desc=True).limit(limit).execute()
+            return query.order("updated_at", desc=True).limit(max(limit * 3, 10)).execute()
 
         result = safe_execute(run_query)
     except Exception as exc:  # noqa: BLE001
         log.warning("calendar_confirmation_actions: load pending failed: %s", exc)
         return []
 
-    return list(result.data or [])
+    rows = list(result.data or [])
+    active_rows, expired_rows = _partition_active_pending_calendar_suggestions(rows)
+    if expired_rows:
+        _archive_expired_pending_calendar_suggestions(
+            user_id=user_id,
+            rows=expired_rows,
+        )
+
+    return active_rows[:limit]
+
+
+def _partition_active_pending_calendar_suggestions(
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    active_rows: list[dict[str, Any]] = []
+    expired_rows: list[dict[str, Any]] = []
+
+    for row in rows:
+        if _pending_calendar_suggestion_is_expired(row):
+            expired_rows.append(row)
+        else:
+            active_rows.append(row)
+
+    return active_rows, expired_rows
+
+
+def _pending_calendar_suggestion_is_expired(
+    row: dict[str, Any],
+    *,
+    now: datetime | None = None,
+) -> bool:
+    current = now or datetime.now(timezone.utc)
+
+    expires_at = _parse_pending_datetime(row.get("expires_at"))
+    if expires_at and expires_at <= current:
+        return True
+
+    event_date = _parse_pending_date(
+        row.get("calendar_event_date") or row.get("due_date")
+    )
+    if event_date and event_date < datetime.now(_RECEIPT_TZ).date():
+        return True
+
+    return False
+
+
+def _parse_pending_datetime(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    return parsed.astimezone(timezone.utc)
+
+
+def _parse_pending_date(value: Any) -> date | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+
+    try:
+        return date.fromisoformat(raw[:10])
+    except Exception:
+        return None
+
+
+def _archive_expired_pending_calendar_suggestions(
+    *,
+    user_id: str,
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    ids = [
+        str(row.get("id") or "").strip()
+        for row in rows
+        if str(row.get("id") or "").strip()
+    ]
+    if not ids:
+        return {"attempted": False, "archived_count": 0}
+
+    now = _now_iso()
+    try:
+        result = safe_execute(
+            lambda sb: sb.table("memories")
+            .update(
+                {
+                    "calendar_candidate": False,
+                    "archived": True,
+                    "archived_by": "calendar_pending_expired",
+                    "archived_at": now,
+                    "updated_at": now,
+                }
+            )
+            .in_("id", ids)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("calendar_confirmation_actions: expired pending archive failed: %s", exc)
+        return {
+            "attempted": True,
+            "archived_count": 0,
+            "reason": "archive_failed",
+            "ids": ids,
+        }
+
+    return {
+        "attempted": True,
+        "archived_count": len(list(result.data or [])),
+        "reason": "archived_expired_pending",
+        "ids": ids,
+    }
+
+
+def _pending_suggestion_options(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    options: list[dict[str, Any]] = []
+    for row in rows[:5]:
+        options.append(
+            {
+                "id": row.get("id"),
+                "title": _event_title_from_row(row),
+                "date": _event_date_from_row(row),
+                "start_at": row.get("calendar_event_start_at"),
+                "end_at": row.get("calendar_event_end_at"),
+                "location": row.get("calendar_event_location"),
+            }
+        )
+    return options
+
+
+def _receipt_pending_options_block(result: dict[str, Any]) -> str:
+    options = result.get("pending_suggestions")
+    if not isinstance(options, list) or not options:
+        return ""
+
+    lines: list[str] = []
+    for index, row in enumerate(options[:5], start=1):
+        if not isinstance(row, dict):
+            continue
+
+        title = _receipt_text(row.get("title")) or "Agenda"
+        detail_parts = [
+            part
+            for part in (
+                _format_receipt_date(row.get("date")),
+                _format_receipt_time_range(row.get("start_at"), row.get("end_at")),
+                _receipt_text(row.get("location")),
+            )
+            if part
+        ]
+        suffix = f" — {', '.join(detail_parts)}" if detail_parts else ""
+        lines.append(f"{index}. {title}{suffix}")
+
+    if not lines:
+        return ""
+
+    return (
+        "\n\n"
+        + "\n".join(lines)
+        + "\n\nBalas misalnya: “masukin yang 1” atau “batal yang 2”."
+    )
 
 
 async def apply_calendar_confirmation_decision(
@@ -297,13 +469,16 @@ async def apply_calendar_confirmation_decision(
         )
 
     if not calendar_decision_router.should_execute_decision(decision):
-        return {
+        result = {
             "attempted": True,
             "executed": False,
             "action": decision.action,
             "confidence": decision.confidence,
             "reason": decision.reason or "low_confidence_or_no_action",
         }
+        if decision.action == "clarify" and decision.reason == "multiple_pending_suggestions":
+            result["pending_suggestions"] = _pending_suggestion_options(suggestions)
+        return result
 
     target = next((row for row in suggestions if str(row.get("id")) == str(decision.target_memory_id)), None)
     if not target:
@@ -437,6 +612,7 @@ async def _apply_pending_detail_update_if_possible(
             "executed": False,
             "action": "clarify",
             "reason": "multiple_pending_suggestions",
+            "pending_suggestions": _pending_suggestion_options(suggestions),
         }
 
     row = suggestions[0]
