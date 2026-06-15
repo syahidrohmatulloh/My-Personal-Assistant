@@ -35,6 +35,7 @@ import {
 } from "./mode-events";
 import type { WorkspaceContext } from "./workspace/types";
 import { WorkspacePanel } from "./workspace/workspace-panel";
+import { ChatV2CommandMenu } from "./chat-v2-command-menu";
 import {
   loadTodayWorkspaceAgenda,
   loadUpcomingWorkspaceReminders,
@@ -588,18 +589,21 @@ export function ChatV2Client({
 
       <div className="relative z-10 mx-auto flex min-h-dvh w-full max-w-[1500px] flex-col px-4 py-5 sm:px-6 lg:px-8">
         <header className="mb-5 flex items-center justify-between gap-3">
-          <Link
-            href="/chat"
-            className={[
-              "inline-flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-medium shadow-sm backdrop-blur transition active:scale-[0.98]",
-              isChief
-                ? "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/[0.07] hover:text-white"
-                : "border-stone-200 bg-white/70 text-stone-600 hover:bg-white hover:text-stone-950",
-            ].join(" ")}
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back home
-          </Link>
+          <div className="flex items-center gap-2">
+            <ChatV2CommandMenu assistantName={assistantName} mode={mode} />
+            <Link
+              href="/chat"
+              className={[
+                "inline-flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-medium shadow-sm backdrop-blur transition active:scale-[0.98]",
+                isChief
+                  ? "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/[0.07] hover:text-white"
+                  : "border-stone-200 bg-white/70 text-stone-600 hover:bg-white hover:text-stone-950",
+              ].join(" ")}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back home
+            </Link>
+          </div>
 
           <div
             className={[
