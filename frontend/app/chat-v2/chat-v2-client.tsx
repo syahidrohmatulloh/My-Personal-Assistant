@@ -3,14 +3,18 @@
 import Link from "next/link";
 import {
   ArrowLeft,
-  ArrowUp,
   BriefcaseBusiness,
   CheckCircle2,
   CircleDot,
   Expand,
+  FileText,
   Heart,
+  ImageIcon,
+  Loader2,
   Minimize2,
+  Paperclip,
   Sparkles,
+  X,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useChatStreamSender } from "@/components/chat/use-chat-stream-sender";
@@ -24,6 +28,8 @@ import {
   listMessages,
   listPeople,
   patchCompanionSettings,
+  uploadAttachment,
+  type AttachmentMeta,
   type ChatStreamMeta,
   type Message,
 } from "@/lib/api";
@@ -513,7 +519,7 @@ export function ChatV2Client({
 
   useEffect(() => {
     scrollMessagesToBottom();
-  }, [messages.length]);
+  }, [messages]);
 
   useEffect(() => {
     if (!activeConversationId) return;
@@ -709,8 +715,8 @@ export function ChatV2Client({
               sending={sending}
               canSend={Boolean(activeConversationId)}
               onInputChange={setInput}
-              onSubmit={async () => {
-                await handleSend([]);
+              onSubmit={async (attachmentIds = []) => {
+                await handleSend(attachmentIds);
                 await refreshMessagesFromServer();
               }}
               messagesScrollRef={messagesScrollRef}
@@ -826,6 +832,282 @@ function ModeToggle({
   );
 }
 
+type ChatV2PendingUpload =
+  | { kind: "uploading"; clientId: string; filename: string; fileKind: "image" | "document" }
+  | { kind: "done"; clientId: string; meta: AttachmentMeta }
+  | { kind: "error"; clientId: string; filename: string; error: string };
+
+const CHAT_V2_ATTACHMENT_ACCEPT = "image/jpeg,image/png,image/gif,image/webp,application/pdf";
+
+function chatV2FileKind(mimeType: string): "image" | "document" {
+  return mimeType.startsWith("image/") ? "image" : "document";
+}
+
+function ChatV2Composer({
+  mode,
+  value,
+  onChange,
+  onSubmit,
+  disabled,
+  placeholder,
+}: {
+  mode: AssistantMode;
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: (attachmentIds?: string[]) => void;
+  disabled: boolean;
+  placeholder: string;
+}) {
+  const isChief = mode === "chief_of_staff";
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [pendingUploads, setPendingUploads] = useState<ChatV2PendingUpload[]>([]);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 176)}px`;
+  }, [value]);
+
+  async function handleFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+
+    for (const file of Array.from(files).slice(0, 10)) {
+      const clientId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const fileKind = chatV2FileKind(file.type);
+
+      setPendingUploads((current) => [
+        ...current,
+        {
+          kind: "uploading",
+          clientId,
+          filename: file.name,
+          fileKind,
+        },
+      ]);
+
+      try {
+        const meta = await uploadAttachment(file);
+
+        setPendingUploads((current) =>
+          current.map((item) =>
+            item.clientId === clientId ? { kind: "done", clientId, meta } : item,
+          ),
+        );
+      } catch (error) {
+        setPendingUploads((current) =>
+          current.map((item) =>
+            item.clientId === clientId
+              ? {
+                  kind: "error",
+                  clientId,
+                  filename: file.name,
+                  error: error instanceof Error ? error.message : "Upload failed",
+                }
+              : item,
+          ),
+        );
+      }
+    }
+  }
+
+  function removeUpload(clientId: string) {
+    setPendingUploads((current) => current.filter((item) => item.clientId !== clientId));
+  }
+
+  function submit() {
+    const attachmentIds = pendingUploads
+      .filter((item): item is Extract<ChatV2PendingUpload, { kind: "done" }> => item.kind === "done")
+      .map((item) => item.meta.id);
+    const hasText = value.trim().length > 0;
+    const hasAttachments = attachmentIds.length > 0;
+    const hasUploading = pendingUploads.some((item) => item.kind === "uploading");
+
+    if (disabled || hasUploading || (!hasText && !hasAttachments)) return;
+
+    onSubmit(attachmentIds);
+    setPendingUploads([]);
+  }
+
+  const uploadingCount = pendingUploads.filter((item) => item.kind === "uploading").length;
+  const canSend =
+    !disabled &&
+    uploadingCount === 0 &&
+    (value.trim().length > 0 || pendingUploads.some((item) => item.kind === "done"));
+
+  return (
+    <div className="shrink-0 px-4 pb-4 pt-3 sm:px-5">
+      <div className="mx-auto w-full max-w-4xl">
+        {pendingUploads.length > 0 ? (
+          <div className="mb-2 flex flex-wrap gap-2 px-1">
+            {pendingUploads.map((item) => (
+              <ChatV2AttachmentChip
+                key={item.clientId}
+                item={item}
+                isChief={isChief}
+                onRemove={() => removeUpload(item.clientId)}
+              />
+            ))}
+          </div>
+        ) : null}
+
+        <div
+          className={[
+            "flex items-end gap-2 rounded-[1.75rem] border px-2.5 py-2 shadow-sm backdrop-blur-xl transition",
+            isChief
+              ? "border-white/10 bg-white/[0.055] text-slate-100 shadow-black/20 focus-within:border-white/20 focus-within:bg-white/[0.075]"
+              : "border-white/75 bg-white/64 text-stone-950 shadow-stone-200/50 focus-within:border-white/90 focus-within:bg-white/82",
+          ].join(" ")}
+        >
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled}
+            aria-label="Attach file"
+            className={[
+              "grid h-10 w-10 shrink-0 place-items-center rounded-full transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-35",
+              isChief
+                ? "text-slate-400 hover:bg-white/[0.07] hover:text-white"
+                : "text-stone-500 hover:bg-stone-900/[0.06] hover:text-stone-950",
+            ].join(" ")}
+          >
+            <Paperclip className="h-4 w-4" />
+          </button>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={CHAT_V2_ATTACHMENT_ACCEPT}
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              void handleFiles(event.target.files);
+              event.target.value = "";
+            }}
+          />
+
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || event.shiftKey) return;
+
+              const isMobile = window.matchMedia("(max-width: 640px)").matches;
+              if (isMobile) return;
+
+              event.preventDefault();
+              submit();
+            }}
+            rows={1}
+            disabled={disabled}
+            placeholder={placeholder}
+            enterKeyHint="send"
+            autoCapitalize="sentences"
+            autoCorrect="on"
+            spellCheck
+            className={[
+              "min-h-10 max-h-44 flex-1 resize-none bg-transparent px-1 py-2 text-base leading-7 outline-none placeholder:opacity-60 sm:text-[16px]",
+              isChief
+                ? "text-slate-100 placeholder:text-slate-500"
+                : "text-stone-950 placeholder:text-stone-500",
+            ].join(" ")}
+          />
+
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!canSend}
+            aria-label="Send message"
+            className={[
+              "grid h-10 w-10 shrink-0 place-items-center rounded-full transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-30",
+              isChief
+                ? "bg-slate-100 text-slate-950 hover:bg-white"
+                : "bg-stone-950 text-white hover:bg-stone-800",
+            ].join(" ")}
+          >
+            {uploadingCount > 0 ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ArrowLeft className="h-4 w-4 rotate-90" />
+            )}
+          </button>
+        </div>
+
+        <div className="mt-2 flex items-center justify-center gap-2 text-[11px]">
+          {uploadingCount > 0 ? (
+            <span className={isChief ? "text-slate-500" : "text-stone-500"}>
+              Uploading {uploadingCount} file{uploadingCount > 1 ? "s" : ""}…
+            </span>
+          ) : (
+            <span className={isChief ? "text-slate-600" : "text-stone-400"}>
+              Attach images or PDFs · Shift + Enter for newline
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChatV2AttachmentChip({
+  item,
+  isChief,
+  onRemove,
+}: {
+  item: ChatV2PendingUpload;
+  isChief: boolean;
+  onRemove: () => void;
+}) {
+  const isImage =
+    item.kind === "done"
+      ? item.meta.kind === "image"
+      : item.kind === "uploading"
+        ? item.fileKind === "image"
+        : false;
+  const label =
+    item.kind === "done"
+      ? item.meta.original_filename
+      : item.kind === "uploading"
+        ? item.filename
+        : item.error;
+
+  return (
+    <div
+      className={[
+        "group flex max-w-[16rem] items-center gap-2 rounded-full border px-3 py-1.5 text-xs backdrop-blur",
+        item.kind === "error"
+          ? "border-red-300/40 bg-red-50/70 text-red-700"
+          : isChief
+            ? "border-white/10 bg-white/[0.055] text-slate-300"
+            : "border-white/75 bg-white/70 text-stone-600",
+      ].join(" ")}
+    >
+      {item.kind === "uploading" ? (
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin opacity-70" />
+      ) : isImage ? (
+        <ImageIcon className="h-3.5 w-3.5 shrink-0 opacity-70" />
+      ) : (
+        <FileText className="h-3.5 w-3.5 shrink-0 opacity-70" />
+      )}
+
+      <span className="min-w-0 truncate">{label}</span>
+
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label="Remove attachment"
+        className="grid h-5 w-5 shrink-0 place-items-center rounded-full opacity-60 transition hover:bg-black/5 hover:opacity-100"
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+
 function ChatFrame({
   mode,
   assistantName,
@@ -848,7 +1130,7 @@ function ChatFrame({
   sending: boolean;
   canSend: boolean;
   onInputChange: (value: string) => void;
-  onSubmit: () => void;
+  onSubmit: (attachmentIds?: string[]) => void;
   messagesScrollRef: { current: HTMLDivElement | null };
 }) {
   const isChief = mode === "chief_of_staff";
@@ -897,13 +1179,13 @@ function ChatFrame({
       </div>
 
       <div ref={messagesScrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-6 pr-3 scroll-smooth [scrollbar-width:thin]">
-        {(messages.length > 0 ? messages.slice(-12) : null)?.map((message) => (
+        {(messages.length > 0 ? messages : null)?.map((message) => (
           <div
             key={message.id}
             className={[
               message.role === "user"
-                ? "ml-auto max-w-[78%] rounded-full px-5 py-3 text-sm leading-6"
-                : "max-w-[86%] rounded-3xl border px-5 py-4 text-sm leading-7",
+                ? "ml-auto max-w-[min(88%,48rem)] rounded-[1.6rem] rounded-br-md px-4 py-3 text-sm leading-7 sm:px-5"
+                : "max-w-[min(92%,52rem)] rounded-[1.6rem] rounded-bl-md border px-4 py-4 text-sm leading-7 sm:px-5",
               message.role === "user"
                 ? isChief
                   ? "bg-slate-100 text-slate-950"
@@ -913,7 +1195,7 @@ function ChatFrame({
                   : "border-white/80 bg-white/72 text-stone-800",
             ].join(" ")}
           >
-            <span className="whitespace-pre-wrap break-words">
+            <span className="block whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
               {message.content}
             </span>
           </div>
@@ -923,7 +1205,7 @@ function ChatFrame({
           <>
             <div
               className={[
-                "ml-auto max-w-[78%] rounded-full px-5 py-3 text-sm leading-6",
+                "ml-auto max-w-[min(88%,48rem)] rounded-[1.6rem] rounded-br-md px-4 py-3 text-sm leading-7 sm:px-5",
                 isChief ? "bg-slate-100 text-slate-950" : "bg-stone-900 text-stone-50",
               ].join(" ")}
             >
@@ -965,57 +1247,14 @@ function ChatFrame({
         </div>
       </div>
 
-      <div className="shrink-0 p-5">
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!canSend || sending || input.trim().length === 0) return;
-            onSubmit();
-          }}
-          className={[
-            "flex items-end gap-3 rounded-2xl border px-4 py-3 shadow-sm transition",
-            isChief
-              ? "border-white/15 bg-black/15 text-slate-100 focus-within:border-teal-200/35"
-              : "border-white/80 bg-white/76 text-stone-950 focus-within:border-stone-300",
-          ].join(" ")}
-        >
-          <textarea
-            value={input}
-            onChange={(event) => onInputChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                const isMobile = window.matchMedia("(max-width: 640px)").matches;
-                if (!isMobile) {
-                  event.preventDefault();
-                  if (canSend && !sending && input.trim().length > 0) {
-                    onSubmit();
-                  }
-                }
-              }
-            }}
-            rows={1}
-            disabled={!canSend || sending}
-            placeholder={canSend ? copy.input : "No conversation is available yet."}
-            className={[
-              "min-h-[36px] max-h-36 flex-1 resize-none bg-transparent py-1 text-sm leading-6 outline-none placeholder:opacity-70 disabled:cursor-not-allowed disabled:opacity-60",
-              isChief ? "text-slate-100 placeholder:text-slate-500" : "text-stone-950 placeholder:text-stone-500",
-            ].join(" ")}
-          />
-          <button
-            type="submit"
-            disabled={!canSend || sending || input.trim().length === 0}
-            aria-label="Send message"
-            className={[
-              "grid h-9 w-9 shrink-0 place-items-center rounded-full transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-35",
-              isChief
-                ? "bg-teal-100 text-slate-950 hover:bg-teal-50"
-                : "bg-stone-950 text-white hover:bg-stone-800",
-            ].join(" ")}
-          >
-            <ArrowUp className="h-4 w-4" />
-          </button>
-        </form>
-      </div>
+      <ChatV2Composer
+        mode={mode}
+        value={input}
+        onChange={onInputChange}
+        onSubmit={onSubmit}
+        disabled={!canSend || sending}
+        placeholder={canSend ? copy.input : "No conversation is available yet."}
+      />
     </div>
   );
 }
