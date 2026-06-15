@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import logging
 import re
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.routers.calendar_oauth import get_active_google_calendar_access_token
 from app.services import calendar_decision_router
@@ -17,6 +18,146 @@ from app.services.supabase_client import safe_execute
 from app.services.google_calendar_payload import build_google_event_body
 
 log = logging.getLogger(__name__)
+
+
+_RECEIPT_TZ = ZoneInfo("Asia/Jakarta")
+_RECEIPT_MONTHS_ID = {
+    1: "Januari",
+    2: "Februari",
+    3: "Maret",
+    4: "April",
+    5: "Mei",
+    6: "Juni",
+    7: "Juli",
+    8: "Agustus",
+    9: "September",
+    10: "Oktober",
+    11: "November",
+    12: "Desember",
+}
+
+
+def render_calendar_confirmation_user_receipt(
+    result: dict[str, Any] | None,
+) -> str | None:
+    """Render deterministic user-facing receipt for Calendar confirmations."""
+    if not isinstance(result, dict):
+        return None
+
+    if not result.get("attempted"):
+        return None
+
+    action = str(result.get("action") or "").strip()
+    executed = bool(result.get("executed"))
+
+    if executed and action == "accept_local":
+        return (
+            "Sudah aku masukin ke Calendar, beb."
+            + _receipt_details_block(result)
+        )
+
+    if executed and action == "accept_google":
+        return (
+            "Sudah aku sync ke Google Calendar, beb."
+            + _receipt_details_block(result)
+        )
+
+    if executed and action == "dismiss":
+        return "Oke beb, aku abaikan jadwal itu."
+
+    reason = str(result.get("reason") or "").strip()
+    if reason in {"no_pending_suggestions", "low_confidence_or_no_action"}:
+        return None
+
+    if action in {"accept_local", "accept_google"}:
+        return (
+            "Belum berhasil aku masukin ke Calendar, beb. "
+            "Coba ulangi dengan detail acara, tanggal, dan jamnya ya."
+        )
+
+    return None
+
+
+def _receipt_details_block(result: dict[str, Any]) -> str:
+    lines = _receipt_detail_lines(result)
+    if not lines:
+        return ""
+    return "\n\n" + "\n".join(lines)
+
+
+def _receipt_detail_lines(result: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+
+    title = _receipt_text(result.get("title"))
+    if title:
+        lines.append(f"Acara: {title}")
+
+    date_text = _format_receipt_date(result.get("date"))
+    if date_text:
+        lines.append(f"Tanggal: {date_text}")
+
+    time_text = _format_receipt_time_range(
+        result.get("start_at"),
+        result.get("end_at"),
+    )
+    if time_text:
+        lines.append(f"Waktu: {time_text}")
+
+    location = _receipt_text(result.get("location"))
+    if location:
+        lines.append(f"Lokasi: {location}")
+
+    return lines
+
+
+def _receipt_text(value: Any) -> str:
+    return " ".join(str(value or "").split()).strip()
+
+
+def _format_receipt_date(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        try:
+            parsed = datetime.fromisoformat(f"{raw}T00:00:00")
+        except Exception:
+            return raw
+
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(_RECEIPT_TZ)
+
+    month = _RECEIPT_MONTHS_ID.get(parsed.month, str(parsed.month))
+    return f"{parsed.day} {month} {parsed.year}"
+
+
+def _format_receipt_time_range(start_value: Any, end_value: Any) -> str:
+    start_text = _format_receipt_time(start_value)
+    end_text = _format_receipt_time(end_value)
+
+    if start_text and end_text:
+        return f"{start_text}–{end_text}"
+
+    return start_text or end_text
+
+
+def _format_receipt_time(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return raw
+
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(_RECEIPT_TZ)
+
+    return f"{parsed.hour:02d}.{parsed.minute:02d}"
 
 
 async def render_pending_calendar_confirmation_context(
@@ -196,6 +337,10 @@ async def _accept_pending_suggestion_local(
         "action": "accept_local",
         "memory_id": row.get("id"),
         "title": title,
+        "date": event_date,
+        "start_at": row.get("calendar_event_start_at"),
+        "end_at": row.get("calendar_event_end_at"),
+        "location": row.get("calendar_event_location"),
         "confidence": decision.confidence,
         "data": result.data,
     }
@@ -259,7 +404,12 @@ async def _accept_pending_suggestion_to_google(
         "action": "accept_google",
         "memory_id": row.get("id"),
         "title": title,
+        "date": event_date,
+        "start_at": row.get("calendar_event_start_at"),
+        "end_at": row.get("calendar_event_end_at"),
+        "location": row.get("calendar_event_location"),
         "google_event_id": google_event_id,
+        "google_event_link": created.get("htmlLink"),
         "confidence": decision.confidence,
         "data": result.data,
     }

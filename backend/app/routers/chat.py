@@ -908,6 +908,81 @@ async def chat(
             background=background_tasks,
         )
 
+    if not is_calendar_draft_action_turn:
+        calendar_confirmation_result = (
+            await calendar_confirmation_actions.apply_calendar_confirmation_decision(
+                user_id=user_id,
+                conversation_id=body.conversation_id,
+                user_message=body.message,
+                client_context=body.client_context,
+                recent_messages=messages,
+            )
+        )
+        calendar_confirmation_receipt = (
+            calendar_confirmation_actions.render_calendar_confirmation_user_receipt(
+                calendar_confirmation_result
+            )
+        )
+        if calendar_confirmation_receipt:
+            return StreamingResponse(
+                _stream_static_assistant_response(
+                    assistant_text=calendar_confirmation_receipt,
+                    assistant_name=assistant_name,
+                    detected_mode=detected_mode,
+                    assistant_mode=assistant_mode,
+                    conversation_id=body.conversation_id,
+                    calendar_snapshot_dirty=bool(
+                        calendar_confirmation_result.get("executed")
+                    ),
+                ),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache, no-transform",
+                    "X-Accel-Buffering": "no",
+                    "Connection": "keep-alive",
+                },
+                background=background_tasks,
+            )
+
+    if (
+        not is_calendar_draft_action_turn
+        and calendar_draft_actions.is_google_calendar_create_request(body.message)
+    ):
+        google_create_result = (
+            await calendar_draft_actions.create_google_calendar_event_from_chat(
+                user_id=user_id,
+                conversation_id=body.conversation_id,
+                user_message=body.message,
+                client_context=body.client_context,
+                recent_messages=messages,
+            )
+        )
+        google_create_receipt = (
+            calendar_draft_actions.render_google_calendar_create_user_receipt(
+                google_create_result
+            )
+        )
+        if google_create_receipt:
+            return StreamingResponse(
+                _stream_static_assistant_response(
+                    assistant_text=google_create_receipt,
+                    assistant_name=assistant_name,
+                    detected_mode=detected_mode,
+                    assistant_mode=assistant_mode,
+                    conversation_id=body.conversation_id,
+                    calendar_snapshot_dirty=bool(
+                        google_create_result.get("google_event_id")
+                    ),
+                ),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache, no-transform",
+                    "X-Accel-Buffering": "no",
+                    "Connection": "keep-alive",
+                },
+                background=background_tasks,
+            )
+
     # === Build prompt with cached base + volatile context ===
     volatile_context = render_context(context)
     if chronology_context:

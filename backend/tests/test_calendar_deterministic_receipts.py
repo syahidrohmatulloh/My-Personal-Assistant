@@ -121,3 +121,84 @@ def test_static_stream_persists_and_emits_done_for_calendar_receipts():
 def test_service_exposes_user_receipt_renderer():
     assert "def render_calendar_action_user_receipt" in SERVICE
     assert "This is intentionally not LLM-written" in SERVICE
+
+
+def test_calendar_confirmation_local_receipt_is_multiline():
+    from app.services import calendar_confirmation_actions
+
+    receipt = calendar_confirmation_actions.render_calendar_confirmation_user_receipt(
+        {
+            "attempted": True,
+            "executed": True,
+            "action": "accept_local",
+            "title": "Test Meeting",
+            "date": "2026-06-16",
+            "start_at": "2026-06-16T03:00:00+00:00",
+            "end_at": "2026-06-16T03:30:00+00:00",
+            "location": "Zoom",
+        }
+    )
+
+    assert receipt is not None
+    assert receipt.startswith("Sudah aku masukin ke Calendar")
+    assert "\n\nAcara: Test Meeting" in receipt
+    assert "Tanggal: 16 Juni 2026" in receipt
+    assert "Waktu: 10.00–10.30" in receipt
+    assert "Lokasi: Zoom" in receipt
+    assert "**Acara:**" not in receipt
+
+
+def test_calendar_confirmation_google_receipt_is_multiline():
+    from app.services import calendar_confirmation_actions
+
+    receipt = calendar_confirmation_actions.render_calendar_confirmation_user_receipt(
+        {
+            "attempted": True,
+            "executed": True,
+            "action": "accept_google",
+            "title": "Test Meeting",
+            "date": "2026-06-16",
+            "start_at": "2026-06-16T03:00:00+00:00",
+            "end_at": "2026-06-16T03:30:00+00:00",
+            "location": "Zoom",
+            "google_event_id": "google-1",
+        }
+    )
+
+    assert receipt is not None
+    assert receipt.startswith("Sudah aku sync ke Google Calendar")
+    assert "\n\nAcara: Test Meeting" in receipt
+    assert "Tanggal: 16 Juni 2026" in receipt
+    assert "Waktu: 10.00–10.30" in receipt
+    assert "Lokasi: Zoom" in receipt
+    assert "**Acara:**" not in receipt
+
+
+def test_direct_google_create_receipt_is_multiline():
+    receipt = calendar_draft_actions.render_google_calendar_create_user_receipt(
+        {
+            "attempted": True,
+            "created": True,
+            "title": "Test Meeting",
+            "date": "2026-06-16",
+            "start_at": "2026-06-16T03:00:00+00:00",
+            "end_at": "2026-06-16T03:30:00+00:00",
+            "location": "Zoom",
+            "google_event_id": "google-1",
+        }
+    )
+
+    assert receipt is not None
+    assert receipt.startswith("Sudah aku sync ke Google Calendar")
+    assert "\n\nAcara: Test Meeting" in receipt
+    assert "Tanggal: 16 Juni 2026" in receipt
+    assert "Waktu: 10.00–10.30" in receipt
+    assert "Lokasi: Zoom" in receipt
+    assert "**Acara:**" not in receipt
+
+
+def test_chat_bypasses_claude_for_confirmation_and_google_create_receipts():
+    assert "render_calendar_confirmation_user_receipt" in CHAT
+    assert "apply_calendar_confirmation_decision" in CHAT
+    assert "render_google_calendar_create_user_receipt" in CHAT
+    assert "create_google_calendar_event_from_chat" in CHAT

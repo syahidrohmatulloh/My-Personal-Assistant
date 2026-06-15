@@ -512,6 +512,11 @@ def _mark_memory_as_synced_google(
         "created": source_reason == "synced_existing_local_event",
         "reason": source_reason,
         "memory_id": memory_id,
+        "title": title,
+        "date": event_date,
+        "start_at": start_at,
+        "end_at": end_at,
+        "location": location,
         "google_event_id": google_event_id,
         "google_event_link": google_event_link,
         "duplicate_cleanup": duplicate_cleanup,
@@ -582,6 +587,11 @@ def _insert_synced_memory_for_existing_google_event(
         "attempted": True,
         "created": False,
         "reason": "linked_existing_google_event",
+        "title": title,
+        "date": event_date,
+        "start_at": start_at,
+        "end_at": end_at,
+        "location": location,
         "google_event_id": google_event.get("id"),
         "google_event_link": google_event.get("html_link"),
         "data": result.data,
@@ -735,6 +745,11 @@ async def create_google_calendar_event_from_chat(
             "created": False,
             "reason": "calendar_event_already_synced",
             "memory_id": existing_memory.get("id"),
+            "title": existing_memory.get("calendar_event_title") or title,
+            "date": existing_memory.get("calendar_event_date") or event_date,
+            "start_at": existing_memory.get("calendar_event_start_at") or start_at_text,
+            "end_at": existing_memory.get("calendar_event_end_at") or end_at_text,
+            "location": existing_memory.get("calendar_event_location") or location_text,
             "google_event_id": existing_memory.get("google_calendar_event_id"),
             "google_event_link": existing_memory.get("google_calendar_event_link"),
         }
@@ -785,9 +800,9 @@ async def create_google_calendar_event_from_chat(
         title=title,
         event_date=event_date,
         description=_google_event_description_from_draft(draft),
-        start_at=str(start_at) if start_at else None,
-        end_at=str(end_at) if end_at else None,
-        location=_clean_optional_text(draft.get("location")),
+        start_at=start_at_text,
+        end_at=end_at_text,
+        location=location_text,
     )
 
     google_event_id = created.get("id")
@@ -799,13 +814,13 @@ async def create_google_calendar_event_from_chat(
     structured_value = _structured_value(
         title=title,
         event_date=event_date,
-        start_at=str(start_at) if start_at else None,
-        end_at=str(end_at) if end_at else None,
-        location=draft.get("location"),
+        start_at=start_at_text,
+        end_at=end_at_text,
+        location=location_text,
     )
     content = f"User has a scheduled event: {title} on {event_date}"
-    if draft.get("location"):
-        content += f" at {draft['location']}"
+    if location_text:
+        content += f" at {location_text}"
 
     try:
         embedding = await embed_document(content)
@@ -885,6 +900,11 @@ async def create_google_calendar_event_from_chat(
     return {
         "attempted": True,
         "created": True,
+        "title": title,
+        "date": event_date,
+        "start_at": start_at_text,
+        "end_at": end_at_text,
+        "location": location_text,
         "google_event_id": google_event_id,
         "google_event_link": google_event_link,
         "duplicate_cleanup": duplicate_cleanup,
@@ -1025,6 +1045,9 @@ async def apply_chat_calendar_draft_action(
             "target_memory_id": target.get("id"),
             "title": payload.get("calendar_event_title") or _title_from_target(target),
             "date": payload.get("calendar_event_date") or target.get("calendar_event_date") or target.get("due_date"),
+            "start_at": payload.get("calendar_event_start_at") or target.get("calendar_event_start_at"),
+            "end_at": payload.get("calendar_event_end_at") or target.get("calendar_event_end_at"),
+            "location": payload.get("calendar_event_location") or target.get("calendar_event_location"),
             "data": result.data,
         }
 
@@ -1602,6 +1625,48 @@ _RECEIPT_MONTHS_ID = {
     11: "November",
     12: "Desember",
 }
+
+
+def render_google_calendar_create_user_receipt(
+    result: dict[str, Any] | None,
+) -> str | None:
+    """Render deterministic receipt for direct Google Calendar sync/create."""
+    if not isinstance(result, dict):
+        return None
+
+    if not result.get("attempted"):
+        return None
+
+    reason = str(result.get("reason") or "").strip()
+
+    if result.get("google_event_id") and reason == "calendar_event_already_synced":
+        return (
+            "Jadwal itu sudah tersync ke Google Calendar, beb."
+            + _receipt_details_block(result)
+        )
+
+    if result.get("google_event_id"):
+        return (
+            "Sudah aku sync ke Google Calendar, beb."
+            + _receipt_details_block(result)
+        )
+
+    if reason == "no_confident_draft":
+        return (
+            "Aku belum cukup yakin detail jadwalnya, beb. "
+            "Coba sebutkan nama acara, tanggal, jam, dan lokasinya."
+        )
+
+    if reason in {"missing_required_fields", "google_missing_event_id"}:
+        return (
+            "Belum berhasil aku sync ke Google Calendar, beb. "
+            "Coba ulangi dengan detail acara, tanggal, dan jamnya ya."
+        )
+
+    return (
+        "Belum berhasil aku sync ke Google Calendar, beb. "
+        "Coba ulangi sebentar lagi."
+    )
 
 
 def render_calendar_action_user_receipt(
