@@ -811,7 +811,9 @@ function ChatFrame({
                   : "border-white/80 bg-white/72 text-stone-800",
             ].join(" ")}
           >
-            {message.content}
+            <span className="whitespace-pre-wrap break-words">
+              {message.content}
+            </span>
           </div>
         ))}
 
