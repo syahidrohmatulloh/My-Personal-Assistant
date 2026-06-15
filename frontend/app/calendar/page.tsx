@@ -18,7 +18,6 @@ import {
 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 
-import { BackToLastChat } from "@/components/navigation/back-to-last-chat"
 import { createClient } from "@/lib/supabase/client"
 import {
   type CalendarEvent,
@@ -245,7 +244,7 @@ function handoffCalendarActionToChat(event: CalendarEvent, mode: "sync" | "resch
   const draft =
     mode === "sync"
       ? [
-          `Beb, tolong sync agenda ini ke Google Calendar: ${event.title}.`,
+          `Tolong sync agenda ini ke Google Calendar: ${event.title}.`,
           `Tanggal: ${formatDate(event.date)}.`,
           `Waktu: ${eventTimeLabel(event)}.`,
           event.location ? `Lokasi: ${event.location}.` : "",
@@ -254,7 +253,7 @@ function handoffCalendarActionToChat(event: CalendarEvent, mode: "sync" | "resch
           .replace(/\s+/g, " ")
           .trim()
       : [
-          "Beb, tolong bantu atur ulang jadwalku yang mepet di Calendar.",
+          "Tolong bantu atur ulang jadwalku yang mepet di Calendar.",
           `Agenda: ${event.title} (${eventTimeLabel(event)}).`,
           warning ? `Warning: ${warning}.` : "",
           "Tolong bantu carikan opsi waktu yang lebih masuk akal dan kalau perlu bantu update event-nya.",
@@ -265,10 +264,8 @@ function handoffCalendarActionToChat(event: CalendarEvent, mode: "sync" | "resch
 
   window.localStorage.setItem(CALENDAR_CHAT_HANDOFF_DRAFT_KEY, draft)
 
-  const lastChatPath = window.localStorage.getItem(LAST_CHAT_PATH_KEY)
-  const target = lastChatPath && lastChatPath.startsWith("/chat/") ? lastChatPath : "/chat"
-
-  window.location.assign(target)
+  window.localStorage.getItem(LAST_CHAT_PATH_KEY)
+  window.location.assign("/chat-v2")
 }
 
 function StatCard({
@@ -543,24 +540,24 @@ export default function CalendarPage() {
   const googleCount = events.filter((event) => event.source === "google").length
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#f7f3ea] px-4 py-5 text-stone-950 sm:px-6 lg:px-8">
+    <main className="relative h-[100dvh] overflow-hidden bg-[#f7f3ea] px-4 py-4 text-stone-950 sm:px-6 lg:px-8">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,rgba(244,194,194,0.42),transparent_28rem),radial-gradient(circle_at_78%_12%,rgba(206,220,183,0.36),transparent_30rem),radial-gradient(circle_at_48%_92%,rgba(235,224,166,0.34),transparent_34rem)]" />
         <div className="absolute -left-24 bottom-[-12rem] h-[34rem] w-[34rem] rounded-full bg-lime-200/25 blur-[120px]" />
         <div className="absolute -right-28 top-24 h-[36rem] w-[36rem] rounded-full bg-rose-200/25 blur-[130px]" />
       </div>
 
-      <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-5">
-        <header className="flex flex-col gap-4 rounded-[2rem] border border-white/70 bg-white/48 p-5 shadow-sm backdrop-blur-xl sm:flex-row sm:items-start sm:justify-between sm:p-6">
+      <div className="relative mx-auto flex h-full w-full max-w-7xl flex-col gap-4">
+        <header className="shrink-0 flex flex-col gap-3 rounded-[2rem] border border-white/70 bg-white/48 p-4 shadow-sm backdrop-blur-xl sm:flex-row sm:items-start sm:justify-between sm:p-5">
           <div>
             <p className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white/60 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-500 shadow-sm">
               <Sparkles className="h-3.5 w-3.5" />
               Calendar command center
             </p>
-            <h1 className="mt-5 text-4xl font-semibold tracking-[-0.065em] text-stone-950 sm:text-5xl lg:text-6xl">
+            <h1 className="mt-4 text-4xl font-semibold tracking-[-0.065em] text-stone-950 sm:text-5xl">
               Calendar
             </h1>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-stone-600 sm:text-base">
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-stone-600">
               A clean command deck for Aliyya events, Google Calendar sync, daily flow, and schedule gaps.
             </p>
           </div>
@@ -586,14 +583,17 @@ export default function CalendarPage() {
               Google Calendar
             </a>
 
-            <BackToLastChat className="inline-flex h-10 items-center justify-center rounded-full bg-stone-950 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-stone-800">
+            <a
+              href="/chat-v2"
+              className="inline-flex h-10 items-center justify-center rounded-full bg-stone-950 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-stone-800"
+            >
               Back to chat
-            </BackToLastChat>
+            </a>
           </div>
         </header>
 
-        <section className="grid gap-4 lg:grid-cols-[0.76fr_1.24fr]">
-          <aside className="space-y-4">
+        <section className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[0.72fr_1.28fr]">
+          <aside className="min-h-0 space-y-4 overflow-y-auto pr-1 xl:[scrollbar-width:thin]">
             <div className="rounded-[2rem] border border-white/70 bg-white/50 p-4 shadow-sm backdrop-blur-xl">
               <div className="flex items-center gap-3">
                 <span className="grid h-11 w-11 place-items-center rounded-2xl bg-stone-950 text-white shadow-sm">
@@ -694,7 +694,7 @@ export default function CalendarPage() {
             </div>
           </aside>
 
-          <section className="rounded-[2.25rem] border border-white/70 bg-white/45 p-4 shadow-xl shadow-stone-200/50 backdrop-blur-xl sm:p-5">
+          <section className="min-h-0 overflow-y-auto rounded-[2.25rem] border border-white/70 bg-white/45 p-4 shadow-xl shadow-stone-200/50 backdrop-blur-xl sm:p-5 xl:[scrollbar-width:thin]">
             <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-stone-400">
