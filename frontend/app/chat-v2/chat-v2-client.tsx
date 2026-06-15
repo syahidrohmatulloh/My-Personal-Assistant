@@ -554,15 +554,8 @@ export function ChatV2Client({
   // Name precedence mirrors the app's architecture: stream meta is the
   // freshest server-pushed value (in-chat renames), companion settings is the
   // authoritative store, identity remains a legacy fallback.
-  const streamAssistantName =
-    typeof streamMeta?.assistant_name === "string" && streamMeta.assistant_name.trim()
-      ? streamMeta.assistant_name.trim()
-      : null;
-  const identityAssistantName =
-    typeof workspaceContext.assistantName === "string" &&
-    workspaceContext.assistantName.trim()
-      ? workspaceContext.assistantName.trim()
-      : null;
+  const streamAssistantName = cleanAssistantName(streamMeta?.assistant_name);
+  const identityAssistantName = cleanAssistantName(workspaceContext.assistantName);
   const assistantName =
     streamAssistantName ?? settingsAssistantName ?? identityAssistantName;
   const workspaceContextWithName: WorkspaceContext = {

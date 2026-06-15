@@ -399,7 +399,10 @@ export function useChatStreamSender({
             }
 
             if (event.assistant_name) {
-              const assistantName = String(event.assistant_name).trim()
+              const assistantName = String(event.assistant_name)
+                .trim()
+                .replace(/^(sekarang|jadi|menjadi|adalah|namanya|itu)\s+/i, "")
+                .trim()
 
               if (assistantName) {
                 try {

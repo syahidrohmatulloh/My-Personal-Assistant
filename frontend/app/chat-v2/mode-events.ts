@@ -47,13 +47,23 @@ export function createAssistantModeDetail(
  * layer (lib/api.ts patchCompanionSettings) broadcasts the full companion
  * settings object on success, which carries `assistant_name`.
  */
+function cleanAssistantName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+
+  const cleaned = value
+    .trim()
+    .replace(/^(sekarang|jadi|menjadi|adalah|namanya|itu)\s+/i, "")
+    .trim();
+
+  return cleaned.length > 0 ? cleaned : null;
+}
+
 export function extractAssistantName(detail: unknown): string | null {
   const value = (detail && typeof detail === "object" ? detail : {}) as {
     assistant_name?: unknown;
   };
-  return typeof value.assistant_name === "string" && value.assistant_name.trim()
-    ? value.assistant_name.trim()
-    : null;
+
+  return cleanAssistantName(value.assistant_name);
 }
 
 /**
