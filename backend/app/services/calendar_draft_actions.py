@@ -698,6 +698,177 @@ def _archive_duplicate_calendar_memories_for_event(
     }
 
 
+def _find_latest_confirmed_local_calendar_event_for_google_sync(
+    *,
+    user_id: str,
+    conversation_id: str,
+) -> dict[str, Any] | None:
+    try:
+        def run_query(sb):
+            query = (
+                sb.table("memories")
+                .select(
+                    "id, content, structured_value, due_date, source_conversation_id, "
+                    "calendar_candidate, calendar_event_status, calendar_event_title, "
+                    "calendar_event_date, calendar_event_start_at, calendar_event_end_at, "
+                    "calendar_event_all_day, calendar_event_location, "
+                    "google_calendar_event_id, google_calendar_event_link, "
+                    "archived, superseded, updated_at, created_at"
+                )
+                .eq("user_id", user_id)
+                .eq("archived", False)
+                .eq("superseded", False)
+                .eq("calendar_candidate", False)
+                .or_("calendar_event_status.in.(confirmed_local,synced_google)")
+            )
+            if conversation_id:
+                query = query.eq("source_conversation_id", conversation_id)
+            return query.order("updated_at", desc=True).limit(5).execute()
+
+        result = safe_execute(run_query)
+    except Exception as exc:
+        log.warning(
+            "calendar_draft_actions: latest local calendar sync lookup failed: %s",
+            exc,
+        )
+        return None
+
+    for row in list(result.data or []):
+        if row.get("calendar_event_title") and row.get("calendar_event_date"):
+            return row
+
+    return None
+
+
+async def sync_latest_confirmed_local_event_to_google_from_chat(
+    *,
+    user_id: str,
+    conversation_id: str,
+    user_message: str,
+) -> dict[str, Any]:
+    """Sync the latest local Calendar event when the user gives a Google follow-up.
+
+    Example:
+    - User confirms local Calendar event.
+    - User says: "masukkan ke Google Calendar ya".
+    This should sync the latest confirmed local event from the same conversation,
+    not ask for event details again.
+    """
+    if not is_google_calendar_create_request(user_message):
+        return {
+            "attempted": False,
+            "created": False,
+            "reason": "not_google_calendar_create",
+        }
+
+    row = _find_latest_confirmed_local_calendar_event_for_google_sync(
+        user_id=user_id,
+        conversation_id=conversation_id,
+    )
+    if not row:
+        return {
+            "attempted": True,
+            "created": False,
+            "reason": "no_recent_confirmed_local_event",
+        }
+
+    title = str(row.get("calendar_event_title") or "").strip()
+    event_date = str(row.get("calendar_event_date") or row.get("due_date") or "").strip()
+    start_at = row.get("calendar_event_start_at")
+    end_at = row.get("calendar_event_end_at")
+    location = _clean_optional_text(row.get("calendar_event_location"))
+    all_day = bool(row.get("calendar_event_all_day")) or not bool(start_at)
+
+    if not title or not event_date:
+        return {
+            "attempted": True,
+            "created": False,
+            "reason": "missing_required_fields",
+            "memory_id": row.get("id"),
+        }
+
+    if row.get("google_calendar_event_id") or row.get("calendar_event_status") == "synced_google":
+        return {
+            "attempted": True,
+            "created": False,
+            "reason": "calendar_event_already_synced",
+            "memory_id": row.get("id"),
+            "title": title,
+            "date": event_date,
+            "start_at": start_at,
+            "end_at": end_at,
+            "location": location,
+            "google_event_id": row.get("google_calendar_event_id"),
+            "google_event_link": row.get("google_calendar_event_link"),
+        }
+
+    access_token = await get_active_google_calendar_access_token(user_id=user_id)
+
+    existing_google = await _find_existing_google_event_for_draft(
+        user_id=user_id,
+        title=title,
+        event_date=event_date,
+        start_at=start_at,
+        end_at=end_at,
+        location=location,
+    )
+
+    if existing_google:
+        return _mark_memory_as_synced_google(
+            user_id=user_id,
+            memory_id=str(row["id"]),
+            google_event_id=str(existing_google.get("id") or ""),
+            google_event_link=existing_google.get("html_link"),
+            title=title,
+            event_date=event_date,
+            start_at=start_at,
+            end_at=end_at,
+            all_day=all_day,
+            location=location,
+            source_reason="linked_existing_google_event",
+        )
+
+    created = await _create_google_calendar_event(
+        access_token=access_token,
+        title=title,
+        event_date=event_date,
+        description="Synced from Aliyya local Calendar.",
+        start_at=start_at,
+        end_at=end_at,
+        location=location,
+    )
+
+    google_event_id = created.get("id")
+    google_event_link = created.get("htmlLink")
+
+    if not google_event_id:
+        return {
+            "attempted": True,
+            "created": False,
+            "reason": "google_missing_event_id",
+            "memory_id": row.get("id"),
+            "title": title,
+            "date": event_date,
+            "start_at": start_at,
+            "end_at": end_at,
+            "location": location,
+        }
+
+    return _mark_memory_as_synced_google(
+        user_id=user_id,
+        memory_id=str(row["id"]),
+        google_event_id=str(google_event_id),
+        google_event_link=google_event_link,
+        title=title,
+        event_date=event_date,
+        start_at=start_at,
+        end_at=end_at,
+        all_day=all_day,
+        location=location,
+        source_reason="synced_existing_local_event",
+    )
+
+
 async def create_google_calendar_event_from_chat(
     *,
     user_id: str,

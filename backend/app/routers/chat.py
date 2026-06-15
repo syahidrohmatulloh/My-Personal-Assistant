@@ -1017,6 +1017,27 @@ async def chat(
                 recent_messages=messages,
             )
         )
+
+        if str(google_create_result.get("reason") or "") in {
+            "no_confident_draft",
+            "missing_required_fields",
+        }:
+            latest_local_google_sync_result = (
+                await calendar_draft_actions.sync_latest_confirmed_local_event_to_google_from_chat(
+                    user_id=user_id,
+                    conversation_id=body.conversation_id,
+                    user_message=body.message,
+                )
+            )
+            latest_local_google_sync_receipt = (
+                calendar_draft_actions.render_google_calendar_create_user_receipt(
+                    latest_local_google_sync_result,
+                    address_term=calendar_address_term,
+                )
+            )
+            if latest_local_google_sync_receipt:
+                google_create_result = latest_local_google_sync_result
+
         google_create_receipt = (
             calendar_draft_actions.render_google_calendar_create_user_receipt(
                 google_create_result,
