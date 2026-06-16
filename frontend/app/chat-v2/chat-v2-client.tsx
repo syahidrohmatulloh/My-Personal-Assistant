@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  ArrowDown,
   ArrowLeft,
   BriefcaseBusiness,
   CheckCircle2,
@@ -159,6 +160,8 @@ export function ChatV2Client({
   });
   const [settingsAssistantName, setSettingsAssistantName] = useState<string | null>(() => readCachedAssistantName());
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
+  const stickToLatestRef = useRef(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
 
   const isChief = mode === "chief_of_staff";
 
@@ -470,12 +473,53 @@ export function ChatV2Client({
 
   const activeConversationId = conversationId ?? "";
 
-  function scrollMessagesToBottom() {
-    requestAnimationFrame(() => {
-      const el = messagesScrollRef.current;
-      if (!el) return;
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  function isNearLatest(threshold = 96): boolean {
+    const el = messagesScrollRef.current;
+    if (!el) return true;
+
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+  }
+
+  function scrollMessagesToBottom(behavior: ScrollBehavior = "auto") {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior,
     });
+
+    stickToLatestRef.current = true;
+    setShowJumpToLatest(false);
+  }
+
+  function markShouldStickToBottom() {
+    stickToLatestRef.current = true;
+    setShowJumpToLatest(false);
+
+    requestAnimationFrame(() => {
+      scrollMessagesToBottom("auto");
+    });
+  }
+
+  function maybeAutoScrollToBottom() {
+    if (stickToLatestRef.current || isNearLatest()) {
+      scrollMessagesToBottom("auto");
+      return;
+    }
+
+    setShowJumpToLatest(true);
+  }
+
+  function handleMessagesScroll() {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+
+    const nearLatest = isNearLatest();
+    stickToLatestRef.current = nearLatest;
+
+    const hasScrollableHistory = el.scrollHeight > el.clientHeight + 24;
+    setShowJumpToLatest(hasScrollableHistory && !nearLatest);
   }
 
   async function refreshMessagesFromServer() {
@@ -484,7 +528,7 @@ export function ChatV2Client({
     try {
       const latest = await listMessages(activeConversationId, { limit: 80 });
       setMessages(latest);
-      scrollMessagesToBottom();
+      maybeAutoScrollToBottom();
     } catch {}
   }
 
@@ -497,7 +541,7 @@ export function ChatV2Client({
     messagesLength: messages.length,
     setMessages,
     setStreamMeta,
-    markShouldStickToBottom: scrollMessagesToBottom,
+    markShouldStickToBottom,
   });
 
   useEffect(() => {
@@ -528,7 +572,7 @@ export function ChatV2Client({
   }, [conversationTitle]);
 
   useEffect(() => {
-    scrollMessagesToBottom();
+    maybeAutoScrollToBottom();
   }, [messages]);
 
   useEffect(() => {
@@ -559,7 +603,7 @@ export function ChatV2Client({
       }
 
       requestAnimationFrame(() => {
-        scrollMessagesToBottom();
+        scrollMessagesToBottom("auto");
       });
     }
 
@@ -769,6 +813,9 @@ export function ChatV2Client({
                 await refreshMessagesFromServer();
               }}
               messagesScrollRef={messagesScrollRef}
+              showJumpToLatest={showJumpToLatest}
+              onJumpToLatest={() => scrollMessagesToBottom("smooth")}
+              onMessagesScroll={handleMessagesScroll}
             />
           </section>
         </section>
@@ -1357,6 +1404,9 @@ function ChatFrame({
   onInputChange,
   onSubmit,
   messagesScrollRef,
+  showJumpToLatest,
+  onJumpToLatest,
+  onMessagesScroll,
 }: {
   mode: AssistantMode;
   assistantName: string | null;
@@ -1369,6 +1419,9 @@ function ChatFrame({
   onInputChange: (value: string) => void;
   onSubmit: (attachmentIds?: string[]) => void;
   messagesScrollRef: { current: HTMLDivElement | null };
+  showJumpToLatest: boolean;
+  onJumpToLatest: () => void;
+  onMessagesScroll: () => void;
 }) {
   const isChief = mode === "chief_of_staff";
   const copy = getModeCopy(mode, assistantName);
@@ -1376,7 +1429,7 @@ function ChatFrame({
   return (
     <div
       className={[
-        "flex h-[calc(100dvh-8.75rem)] min-h-[520px] flex-col overflow-hidden rounded-[2rem] border shadow-2xl backdrop-blur-xl transition-all duration-700",
+        "relative flex h-[calc(100dvh-8.75rem)] min-h-[520px] flex-col overflow-hidden rounded-[2rem] border shadow-2xl backdrop-blur-xl transition-all duration-700",
         isExpanded ? "mx-auto w-full max-w-5xl" : "w-full",
         isChief
           ? "border-teal-100/20 bg-[#0b141d]/82 shadow-black/35"
@@ -1415,7 +1468,11 @@ function ChatFrame({
         </div>
       </div>
 
-      <div ref={messagesScrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-6 pr-3 scroll-smooth [scrollbar-width:thin]">
+      <div
+        ref={messagesScrollRef}
+        onScroll={onMessagesScroll}
+        className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-6 pr-3 scroll-smooth [scrollbar-width:thin]"
+      >
         {(messages.length > 0 ? messages : null)?.map((message) => (
           <ChatV2MessageBubble
             key={message.id}
@@ -1469,6 +1526,23 @@ function ChatFrame({
           ))}
         </div>
       </div>
+
+      {showJumpToLatest ? (
+        <button
+          type="button"
+          onClick={onJumpToLatest}
+          className={[
+            "absolute bottom-[6.75rem] left-1/2 z-20 inline-flex -translate-x-1/2 items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-semibold shadow-lg backdrop-blur-xl transition active:scale-[0.98]",
+            isChief
+              ? "border-white/10 bg-slate-950/80 text-slate-100 shadow-black/25 hover:bg-slate-900"
+              : "border-white/80 bg-white/85 text-stone-700 shadow-stone-300/30 hover:bg-white hover:text-stone-950",
+          ].join(" ")}
+          aria-label="Jump to latest message"
+        >
+          <ArrowDown className="h-3.5 w-3.5" />
+          Jump to latest
+        </button>
+      ) : null}
 
       <ChatV2Composer
         mode={mode}
