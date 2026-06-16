@@ -5,6 +5,7 @@ import {
   ArrowDown,
   ArrowLeft,
   BriefcaseBusiness,
+  CalendarDays,
   CheckCircle2,
   CircleDot,
   Copy,
@@ -16,11 +17,13 @@ import {
   Minimize2,
   Paperclip,
   Sparkles,
+  Target,
   X,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useChatStreamSender } from "@/components/chat/use-chat-stream-sender";
 import {
+  createGoal,
   getCompanionSettings,
   getIdentity,
   getTodayBriefing,
@@ -31,6 +34,7 @@ import {
   listMessages,
   listPeople,
   patchCompanionSettings,
+  postJournal,
   uploadAttachment,
   type AttachmentMeta,
   type ChatStreamMeta,
@@ -1223,14 +1227,30 @@ function formatAttachmentSize(sizeBytes?: number | null): string | null {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function compactActionSeed(value: string, maxLength = 4000): string {
+  const compacted = value.replace(/\s+/g, " ").trim();
+  if (compacted.length <= maxLength) return compacted;
+  return `${compacted.slice(0, maxLength - 1).trim()}…`;
+}
+
+function goalTitleFromMessage(value: string): string {
+  const compacted = compactActionSeed(value, 110);
+  if (!compacted) return "Follow up from chat";
+  return compacted.length > 100 ? `${compacted.slice(0, 99).trim()}…` : compacted;
+}
+
 function ChatV2MessageBubble({
   message,
   isChief,
+  onDraftPrompt,
 }: {
   message: LocalMessage;
   isChief: boolean;
+  onDraftPrompt: (value: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState<"journal" | "goal" | null>(null);
   const isUser = message.role === "user";
   const attachments = getMessageAttachments(message);
   const pending = isPendingAssistantMessage(message);
@@ -1250,10 +1270,90 @@ function ChatV2MessageBubble({
     try {
       await navigator.clipboard.writeText(copyText);
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 1200);
+      setActionFeedback("Copied");
+      window.setTimeout(() => {
+        setCopied(false);
+        setActionFeedback(null);
+      }, 1200);
     } catch {
       setCopied(false);
     }
+  }
+
+  function seedForAction(): string {
+    return compactActionSeed(
+      [
+        displayContent.trim(),
+        ...attachments.map((attachment) => attachment.original_filename).filter(Boolean),
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
+  }
+
+  async function saveAsJournal() {
+    const seed = seedForAction();
+    if (!seed) return;
+
+    setActionBusy("journal");
+    setActionFeedback(null);
+
+    try {
+      await postJournal({
+        note: seed,
+      });
+      setActionFeedback("Saved to journal");
+    } catch (error) {
+      setActionFeedback(error instanceof Error ? error.message : "Journal save failed");
+    } finally {
+      setActionBusy(null);
+      window.setTimeout(() => setActionFeedback(null), 2200);
+    }
+  }
+
+  async function createGoalFromMessage() {
+    const seed = seedForAction();
+    if (!seed) return;
+
+    setActionBusy("goal");
+    setActionFeedback(null);
+
+    try {
+      await createGoal({
+        title: goalTitleFromMessage(seed),
+        description: seed,
+        horizon: "quarter",
+        emotional_weight: 6,
+      });
+      setActionFeedback("Goal created");
+    } catch (error) {
+      setActionFeedback(error instanceof Error ? error.message : "Goal creation failed");
+    } finally {
+      setActionBusy(null);
+      window.setTimeout(() => setActionFeedback(null), 2200);
+    }
+  }
+
+  function draftCalendarPrompt() {
+    const seed = seedForAction();
+    if (!seed) return;
+
+    onDraftPrompt(
+      `Help me turn this into a calendar item. Ask me for missing date, time, duration, or location if needed.\n\n${seed}`,
+    );
+    setActionFeedback("Drafted in composer");
+    window.setTimeout(() => setActionFeedback(null), 1800);
+  }
+
+  function draftMemoryReviewPrompt() {
+    const seed = seedForAction();
+    if (!seed) return;
+
+    onDraftPrompt(
+      `Review this as a possible memory. If it is worth saving, ask me for confirmation and follow the protected memory flow. Do not save it automatically.\n\n${seed}`,
+    );
+    setActionFeedback("Memory review drafted");
+    window.setTimeout(() => setActionFeedback(null), 1800);
   }
 
   if (!isUser && pending && !displayContent.trim()) {
@@ -1302,27 +1402,105 @@ function ChatV2MessageBubble({
       />
 
       {copyText ? (
-        <button
-          type="button"
-          onClick={copyMessage}
-          className={[
-            "mt-3 inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium opacity-70 transition hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100",
-            isUser
-              ? isChief
-                ? "border-slate-300/70 bg-slate-950/[0.04] text-slate-700"
-                : "border-white/15 bg-white/10 text-white/80 hover:text-white"
-              : isChief
-                ? "border-white/10 bg-white/[0.035] text-slate-400 hover:text-slate-100"
-                : "border-stone-200/80 bg-white/45 text-stone-500 hover:text-stone-800",
-          ].join(" ")}
-          aria-label={copied ? "Message copied" : "Copy message"}
-          title={copied ? "Copied" : "Copy"}
-        >
-          {copied ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          {copied ? "Copied" : "Copy"}
-        </button>
+        <>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <ChatV2BubbleActionButton
+              isChief={isChief}
+              isUser={isUser}
+              icon={copied ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              label={copied ? "Copied" : "Copy"}
+              onClick={copyMessage}
+            />
+            <ChatV2BubbleActionButton
+              isChief={isChief}
+              isUser={isUser}
+              icon={actionBusy === "journal" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+              label="Journal"
+              onClick={saveAsJournal}
+              disabled={actionBusy !== null}
+            />
+            <ChatV2BubbleActionButton
+              isChief={isChief}
+              isUser={isUser}
+              icon={actionBusy === "goal" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Target className="h-3.5 w-3.5" />}
+              label="Goal"
+              onClick={createGoalFromMessage}
+              disabled={actionBusy !== null}
+            />
+            <ChatV2BubbleActionButton
+              isChief={isChief}
+              isUser={isUser}
+              icon={<CalendarDays className="h-3.5 w-3.5" />}
+              label="Schedule"
+              onClick={draftCalendarPrompt}
+            />
+            <ChatV2BubbleActionButton
+              isChief={isChief}
+              isUser={isUser}
+              icon={<Sparkles className="h-3.5 w-3.5" />}
+              label="Memory review"
+              onClick={draftMemoryReviewPrompt}
+            />
+          </div>
+
+          {actionFeedback ? (
+            <p
+              className={[
+                "mt-2 text-[11px]",
+                isUser
+                  ? isChief
+                    ? "text-slate-600"
+                    : "text-white/65"
+                  : isChief
+                    ? "text-slate-500"
+                    : "text-stone-500",
+              ].join(" ")}
+            >
+              {actionFeedback}
+            </p>
+          ) : null}
+        </>
       ) : null}
     </div>
+  );
+}
+
+function ChatV2BubbleActionButton({
+  isChief,
+  isUser,
+  icon,
+  label,
+  onClick,
+  disabled = false,
+}: {
+  isChief: boolean;
+  isUser: boolean;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={[
+        "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium opacity-80 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-45 sm:opacity-0 sm:group-hover:opacity-100",
+        isUser
+          ? isChief
+            ? "border-slate-300/70 bg-slate-950/[0.04] text-slate-700"
+            : "border-white/15 bg-white/10 text-white/80 hover:text-white"
+          : isChief
+            ? "border-white/10 bg-white/[0.035] text-slate-400 hover:text-slate-100"
+            : "border-stone-200/80 bg-white/45 text-stone-500 hover:text-stone-800",
+      ].join(" ")}
+      aria-label={label}
+      title={label}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 
@@ -1478,6 +1656,7 @@ function ChatFrame({
             key={message.id}
             message={message}
             isChief={isChief}
+            onDraftPrompt={onInputChange}
           />
         ))}
 
