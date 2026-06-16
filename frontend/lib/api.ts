@@ -30,6 +30,15 @@ export type Message = {
   role: "user" | "assistant";
   content: string;
   created_at: string;
+  attachments?: Array<{
+    id: string;
+    kind: "image" | "document" | string;
+    media_type: string;
+    original_filename: string;
+    size_bytes?: number | null;
+    description?: string | null;
+    created_at?: string | null;
+  }>;
 };
 
 export type Memory = {

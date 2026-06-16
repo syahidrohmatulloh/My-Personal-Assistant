@@ -79,6 +79,59 @@ async def _is_protected_conversation(user_id: str, conversation_id: str) -> bool
     return bool(linked_briefing and linked_briefing.data)
 
 
+def _public_attachment_row(row: dict) -> dict:
+    return {
+        "id": row.get("id"),
+        "kind": row.get("kind"),
+        "media_type": row.get("media_type"),
+        "original_filename": row.get("original_filename"),
+        "size_bytes": row.get("size_bytes"),
+        "description": row.get("description"),
+        "created_at": row.get("created_at"),
+    }
+
+
+def _hydrate_message_attachments(
+    supabase,
+    *,
+    user_id: str,
+    messages: list[dict],
+) -> list[dict]:
+    if not messages:
+        return messages
+
+    message_ids = [message.get("id") for message in messages if message.get("id")]
+    if not message_ids:
+        return messages
+
+    attachment_result = (
+        supabase.table("message_attachments")
+        .select("id, message_id, kind, media_type, original_filename, size_bytes, description, created_at")
+        .eq("user_id", user_id)
+        .in_("message_id", message_ids)
+        .order("created_at", desc=False)
+        .execute()
+    )
+
+    grouped: dict[str, list[dict]] = {}
+    for row in attachment_result.data or []:
+        message_id = row.get("message_id")
+        if not message_id:
+            continue
+        grouped.setdefault(message_id, []).append(_public_attachment_row(row))
+
+    hydrated: list[dict] = []
+    for message in messages:
+        hydrated.append(
+            {
+                **message,
+                "attachments": grouped.get(message.get("id"), []),
+            }
+        )
+
+    return hydrated
+
+
 @router.get("", response_model=list[ConversationOut])
 async def list_conversations(user_id: str = Depends(get_current_user_id)):
     """Return all conversations for the current user, newest first."""
@@ -411,18 +464,18 @@ async def delete_conversation(
 async def list_messages(
     conversation_id: str,
     limit: int = Query(default=80, ge=1, le=200),
-    before: str | None = None,
+    before: str | None = Query(default=None),
     user_id: str = Depends(get_current_user_id),
 ):
     """Load a page of messages, oldest first within the returned page.
 
     By default this returns the latest 80 messages. Pass before=<created_at>
     to load messages older than the earliest message currently rendered.
+    Attachments are hydrated separately from message_attachments so the chat
+    history can render image/PDF/file chips without exposing private storage paths.
     """
     supabase = get_supabase()
 
-    # First, prove the conversation belongs to this user. Without this check,
-    # someone could fetch any conversation's messages by guessing its UUID.
     convo = (
         supabase.table("conversations")
         .select("id")
@@ -438,10 +491,18 @@ async def list_messages(
         supabase.table("messages")
         .select("id, role, content, created_at")
         .eq("conversation_id", conversation_id)
+        .order("created_at", desc=True)
+        .limit(limit)
     )
 
     if before:
         query = query.lt("created_at", before)
 
-    result = query.order("created_at", desc=True).limit(limit).execute()
-    return list(reversed(result.data or []))
+    result = query.execute()
+    messages = list(reversed(result.data or []))
+
+    return _hydrate_message_attachments(
+        supabase,
+        user_id=user_id,
+        messages=messages,
+    )

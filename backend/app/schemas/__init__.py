@@ -34,11 +34,22 @@ class CreateConversationIn(BaseModel):
 # --- Messages ---
 
 
+
+class AttachmentOut(BaseModel):
+    id: str
+    kind: str
+    media_type: str
+    original_filename: str
+    size_bytes: int | None = None
+    description: str | None = None
+    created_at: datetime | None = None
+
 class MessageOut(BaseModel):
     id: str
     role: Literal["user", "assistant"]
     content: str
     created_at: datetime
+    attachments: list[AttachmentOut] = Field(default_factory=list)
 
 
 # --- Chat ---

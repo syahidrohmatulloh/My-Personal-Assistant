@@ -6,6 +6,7 @@ import {
   BriefcaseBusiness,
   CheckCircle2,
   CircleDot,
+  Copy,
   Expand,
   FileText,
   Heart,
@@ -87,6 +88,8 @@ type LayoutMode = "split" | "expanded";
 type LocalMessage =
   | Message
   | { id: string; role: "assistant"; content: string; pending: true; created_at?: string };
+
+type ChatV2MessageAttachment = NonNullable<Message["attachments"]>[number];
 
 function getModeCopy(mode: AssistantMode, assistantName: string | null) {
   const name = assistantName && assistantName.trim() ? assistantName.trim() : null;
@@ -1154,6 +1157,194 @@ function ChatV2AttachmentChip({
 }
 
 
+function getMessageAttachments(message: LocalMessage): ChatV2MessageAttachment[] {
+  if ("attachments" in message && Array.isArray(message.attachments)) {
+    return message.attachments;
+  }
+
+  return [];
+}
+
+function isPendingAssistantMessage(message: LocalMessage): boolean {
+  return message.role === "assistant" && "pending" in message && message.pending === true;
+}
+
+function formatAttachmentSize(sizeBytes?: number | null): string | null {
+  if (!sizeBytes || sizeBytes <= 0) return null;
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) return `${Math.round(sizeBytes / 1024)} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function ChatV2MessageBubble({
+  message,
+  isChief,
+}: {
+  message: LocalMessage;
+  isChief: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  const isUser = message.role === "user";
+  const attachments = getMessageAttachments(message);
+  const pending = isPendingAssistantMessage(message);
+  const isAttachmentOnlyPlaceholder =
+    attachments.length > 0 && message.content.trim() === "(shared an attachment)";
+  const displayContent = isAttachmentOnlyPlaceholder ? "" : message.content;
+  const copyText = [
+    displayContent.trim(),
+    ...attachments.map((attachment) => attachment.original_filename).filter(Boolean),
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  async function copyMessage() {
+    if (!copyText || typeof navigator === "undefined" || !navigator.clipboard) return;
+
+    try {
+      await navigator.clipboard.writeText(copyText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  if (!isUser && pending && !displayContent.trim()) {
+    return (
+      <div className="max-w-[min(92%,52rem)] rounded-[1.6rem] rounded-bl-md border px-4 py-4 text-sm leading-7 sm:px-5">
+        <div
+          className={[
+            "inline-flex items-center gap-2",
+            isChief ? "text-slate-300" : "text-stone-500",
+          ].join(" ")}
+        >
+          <ChatV2TypingDots />
+          <span className="text-xs">Thinking</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={[
+        "group relative",
+        isUser
+          ? "ml-auto max-w-[min(88%,48rem)] rounded-[1.6rem] rounded-br-md px-4 py-3 text-sm leading-7 sm:px-5"
+          : "max-w-[min(92%,52rem)] rounded-[1.6rem] rounded-bl-md border px-4 py-4 text-sm leading-7 sm:px-5",
+        isUser
+          ? isChief
+            ? "bg-slate-100 text-slate-950"
+            : "bg-stone-900 text-stone-50"
+          : isChief
+            ? "border-white/10 bg-white/[0.055] text-slate-200"
+            : "border-white/80 bg-white/72 text-stone-800",
+      ].join(" ")}
+    >
+      {displayContent.trim() ? (
+        <span className="block whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+          {displayContent}
+        </span>
+      ) : null}
+
+      <ChatV2MessageAttachments
+        attachments={attachments}
+        isChief={isChief}
+        isUser={isUser}
+        flushTop={!displayContent.trim()}
+      />
+
+      {copyText ? (
+        <button
+          type="button"
+          onClick={copyMessage}
+          className={[
+            "mt-3 inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium opacity-70 transition hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100",
+            isUser
+              ? isChief
+                ? "border-slate-300/70 bg-slate-950/[0.04] text-slate-700"
+                : "border-white/15 bg-white/10 text-white/80 hover:text-white"
+              : isChief
+                ? "border-white/10 bg-white/[0.035] text-slate-400 hover:text-slate-100"
+                : "border-stone-200/80 bg-white/45 text-stone-500 hover:text-stone-800",
+          ].join(" ")}
+          aria-label={copied ? "Message copied" : "Copy message"}
+          title={copied ? "Copied" : "Copy"}
+        >
+          {copied ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function ChatV2MessageAttachments({
+  attachments,
+  isChief,
+  isUser,
+  flushTop = false,
+}: {
+  attachments: ChatV2MessageAttachment[];
+  isChief: boolean;
+  isUser: boolean;
+  flushTop?: boolean;
+}) {
+  if (attachments.length === 0) return null;
+
+  return (
+    <div className={[flushTop ? "mt-0" : "mt-3", "flex flex-wrap gap-2"].join(" ")}>
+      {attachments.map((attachment) => {
+        const isImage =
+          attachment.kind === "image" || attachment.media_type?.startsWith("image/");
+        const sizeLabel = formatAttachmentSize(attachment.size_bytes);
+
+        return (
+          <div
+            key={attachment.id}
+            className={[
+              "inline-flex max-w-[18rem] items-center gap-2 rounded-2xl border px-3 py-2 text-xs backdrop-blur",
+              isUser
+                ? isChief
+                  ? "border-slate-300/70 bg-slate-950/[0.04] text-slate-700"
+                  : "border-white/15 bg-white/10 text-white/85"
+                : isChief
+                  ? "border-white/10 bg-white/[0.04] text-slate-300"
+                  : "border-stone-200/80 bg-white/55 text-stone-600",
+            ].join(" ")}
+          >
+            {isImage ? (
+              <ImageIcon className="h-4 w-4 shrink-0 opacity-75" />
+            ) : (
+              <FileText className="h-4 w-4 shrink-0 opacity-75" />
+            )}
+            <span className="min-w-0">
+              <span className="block truncate font-medium">
+                {attachment.original_filename || "Attachment"}
+              </span>
+              <span className="block truncate opacity-65">
+                {isImage ? "Image" : "Document"}
+                {sizeLabel ? ` · ${sizeLabel}` : ""}
+              </span>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ChatV2TypingDots() {
+  return (
+    <span className="inline-flex items-center gap-1" aria-hidden="true">
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current opacity-45 [animation-delay:-0.2s]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current opacity-55 [animation-delay:-0.1s]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current opacity-65" />
+    </span>
+  );
+}
+
+
 function ChatFrame({
   mode,
   assistantName,
@@ -1226,25 +1417,11 @@ function ChatFrame({
 
       <div ref={messagesScrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-6 pr-3 scroll-smooth [scrollbar-width:thin]">
         {(messages.length > 0 ? messages : null)?.map((message) => (
-          <div
+          <ChatV2MessageBubble
             key={message.id}
-            className={[
-              message.role === "user"
-                ? "ml-auto max-w-[min(88%,48rem)] rounded-[1.6rem] rounded-br-md px-4 py-3 text-sm leading-7 sm:px-5"
-                : "max-w-[min(92%,52rem)] rounded-[1.6rem] rounded-bl-md border px-4 py-4 text-sm leading-7 sm:px-5",
-              message.role === "user"
-                ? isChief
-                  ? "bg-slate-100 text-slate-950"
-                  : "bg-stone-900 text-stone-50"
-                : isChief
-                  ? "border-white/10 bg-white/[0.055] text-slate-200"
-                  : "border-white/80 bg-white/72 text-stone-800",
-            ].join(" ")}
-          >
-            <span className="block whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-              {message.content}
-            </span>
-          </div>
+            message={message}
+            isChief={isChief}
+          />
         ))}
 
         {messages.length === 0 ? (
