@@ -46,13 +46,13 @@ import {
   extractAssistantMode,
   extractAssistantName,
 } from "./mode-events";
-import type { WorkspaceContext } from "./workspace/types";
+import type { WorkspaceContext } from "@/lib/assistant-context/types";
 import { WorkspacePanel } from "./workspace/workspace-panel";
 import { ChatV2CommandMenu } from "./chat-v2-command-menu";
 import {
   loadTodayWorkspaceAgenda,
   loadUpcomingWorkspaceReminders,
-} from "./workspace/load-live-context";
+} from "@/lib/assistant-context/load-live-context";
 
 
 const ASSISTANT_NAME_CACHE_KEY = "app:assistant-name";
