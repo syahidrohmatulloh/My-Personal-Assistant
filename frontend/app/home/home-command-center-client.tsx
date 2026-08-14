@@ -18,6 +18,7 @@ import {
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { getCompanionSettings, patchCompanionSettings } from "@/lib/api";
 import { loadAssistantWorkspaceContext } from "@/lib/assistant-context/load-workspace-context";
+import { saveChatV2Handoff } from "@/lib/chat-handoff";
 import type {
   WorkspaceAgendaItem,
   WorkspaceContext,
@@ -283,6 +284,7 @@ export function HomeCommandCenterClient() {
   const [mode, setModeState] = useState<AssistantMode>("life_companion");
   const [assistantName, setAssistantName] = useState<string>(() => readCachedAssistantName() ?? "Hana");
   const [now, setNow] = useState<Date>(() => new Date());
+  const [handoffInput, setHandoffInput] = useState("");
   const [workspaceContext, setWorkspaceContext] = useState<WorkspaceContext>(() =>
     emptyWorkspaceContext(readCachedAssistantName() ?? "Hana"),
   );
@@ -381,6 +383,34 @@ export function HomeCommandCenterClient() {
   const dayTime = formatDayTime(now);
   const liveSummary = buildLiveSummary(contextWithName, assistantName, isChief);
   const offers = buildHomeOffers(contextWithName, mode, assistantName);
+
+  function openChatWithHandoff(text: string, label = "home") {
+    const cleaned = text.replace(/\s+/g, " ").trim();
+
+    if (cleaned) {
+      saveChatV2Handoff({
+        source: "home",
+        text: cleaned,
+        mode,
+        label,
+      });
+    }
+
+    window.location.assign("/chat-v2");
+  }
+
+  function submitHandoff(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    openChatWithHandoff(handoffInput, "home-composer");
+  }
+
+  function offerPrompt(label: string): string {
+    if (mode === "chief_of_staff") {
+      return `${assistantName}, ${label}. Use my visible Home context — agenda, reminders, goals, memory, people, and daily brief — and turn it into a concise execution plan.`;
+    }
+
+    return `${assistantName}, ${label}. Use my visible Home context gently and help me continue from there.`;
+  }
 
   function applyModeLocally(nextMode: AssistantMode) {
     setModeState(nextMode);
@@ -513,39 +543,53 @@ export function HomeCommandCenterClient() {
                       : "border-white/75 bg-white/68",
                   ].join(" ")}
                 >
-                  <div
-                    className={[
-                      "min-h-28 rounded-[1.55rem] border px-4 py-4 text-sm leading-7",
-                      isChief
-                        ? "border-white/10 bg-white/[0.045] text-slate-400"
-                        : "border-stone-200/80 bg-white/64 text-stone-500",
-                    ].join(" ")}
-                  >
-                    {copy.prompt}
-                    <span className="mt-3 block text-xs opacity-70">
+                  <form onSubmit={submitHandoff}>
+                    <textarea
+                      value={handoffInput}
+                      onChange={(event) => setHandoffInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" || event.shiftKey) return;
+
+                        const isMobile = window.matchMedia("(max-width: 640px)").matches;
+                        if (isMobile) return;
+
+                        event.preventDefault();
+                        openChatWithHandoff(handoffInput, "home-composer");
+                      }}
+                      rows={3}
+                      placeholder={copy.prompt}
+                      className={[
+                        "min-h-28 w-full resize-none rounded-[1.55rem] border px-4 py-4 text-sm leading-7 outline-none transition placeholder:text-current placeholder:opacity-65",
+                        isChief
+                          ? "border-white/10 bg-white/[0.045] text-slate-300 focus:border-teal-200/25 focus:bg-white/[0.06]"
+                          : "border-stone-200/80 bg-white/64 text-stone-700 focus:border-stone-300 focus:bg-white/80",
+                      ].join(" ")}
+                    />
+
+                    <span className={isChief ? "mt-2 block px-1 text-xs text-slate-500" : "mt-2 block px-1 text-xs text-stone-500"}>
                       {copy.summary}
                     </span>
-                  </div>
 
-                  <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex flex-wrap gap-2">
-                      <HomeChip icon={<Sparkles className="h-3.5 w-3.5" />} label={copy.secondary} isChief={isChief} />
-                      <HomeChip icon={<Mic className="h-3.5 w-3.5" />} label="Voice later" isChief={isChief} />
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex flex-wrap gap-2">
+                        <HomeChip icon={<Sparkles className="h-3.5 w-3.5" />} label={copy.secondary} isChief={isChief} />
+                        <HomeChip icon={<Mic className="h-3.5 w-3.5" />} label="Voice later" isChief={isChief} />
+                      </div>
+
+                      <button
+                        type="submit"
+                        className={[
+                          "inline-flex h-11 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold shadow-sm transition active:scale-[0.98]",
+                          isChief
+                            ? "bg-teal-100 text-slate-950 hover:bg-white"
+                            : "bg-stone-950 text-white hover:bg-stone-800",
+                        ].join(" ")}
+                      >
+                        {handoffInput.trim() ? "Continue in Chat V2" : copy.primary}
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
                     </div>
-
-                    <Link
-                      href="/chat-v2"
-                      className={[
-                        "inline-flex h-11 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold shadow-sm transition active:scale-[0.98]",
-                        isChief
-                          ? "bg-teal-100 text-slate-950 hover:bg-white"
-                          : "bg-stone-950 text-white hover:bg-stone-800",
-                      ].join(" ")}
-                    >
-                      {copy.primary}
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
-                  </div>
+                  </form>
                 </div>
 
                 <div className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -581,11 +625,12 @@ export function HomeCommandCenterClient() {
             >
               <div className="grid gap-2">
                 {offers.map((item) => (
-                  <Link
+                  <button
                     key={item}
-                    href="/chat-v2"
+                    type="button"
+                    onClick={() => openChatWithHandoff(offerPrompt(item), `home-offer:${item}`)}
                     className={[
-                      "flex items-center justify-between rounded-2xl border px-4 py-3 text-sm transition",
+                      "flex items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm transition",
                       isChief
                         ? "border-white/10 bg-white/[0.035] text-slate-300 hover:bg-white/[0.06]"
                         : "border-stone-200/75 bg-white/52 text-stone-600 hover:bg-white/75 hover:text-stone-950",
@@ -593,7 +638,7 @@ export function HomeCommandCenterClient() {
                   >
                     {item}
                     <ArrowRight className="h-3.5 w-3.5 opacity-55" />
-                  </Link>
+                  </button>
                 ))}
               </div>
             </HomePanel>

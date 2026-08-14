@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useChatStreamSender } from "@/components/chat/use-chat-stream-sender";
+import { consumeChatV2Handoff } from "@/lib/chat-handoff";
 import {
   createGoal,
   getCompanionSettings,
@@ -165,6 +166,7 @@ export function ChatV2Client({
   const [settingsAssistantName, setSettingsAssistantName] = useState<string | null>(() => readCachedAssistantName());
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const stickToLatestRef = useRef(true);
+  const handoffConsumedRef = useRef(false);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
 
   const isChief = mode === "chief_of_staff";
@@ -547,6 +549,22 @@ export function ChatV2Client({
     setStreamMeta,
     markShouldStickToBottom,
   });
+
+  useEffect(() => {
+    if (!modeReady || handoffConsumedRef.current) return;
+
+    handoffConsumedRef.current = true;
+
+    const handoff = consumeChatV2Handoff();
+    if (!handoff?.text) return;
+
+    setInput((current) => (current.trim() ? current : handoff.text));
+
+    requestAnimationFrame(() => {
+      const textarea = document.querySelector<HTMLTextAreaElement>("textarea");
+      textarea?.focus();
+    });
+  }, [modeReady]);
 
   useEffect(() => {
     const assistantMode = streamMeta?.assistant_mode;

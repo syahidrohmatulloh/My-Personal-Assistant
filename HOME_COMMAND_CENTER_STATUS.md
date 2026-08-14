@@ -33,4 +33,4 @@ One source of truth, two views.
 
 Default ambient preset recommendation: `nebula-drift` for Life Companion.
 Use `cosmic-fluid` later for Chief of Staff or interactive/voice moments.
-\n\n## H2 — Real Vital Cards\n\nStatus: REVIEW\n\n`/home` now uses real assistant context data for agenda, reminders, brief, goals, memories, and people. `/` cutover remains untouched.\n
+\n\n## H2 — Real Vital Cards\n\nStatus: REVIEW\n\n`/home` now uses real assistant context data for agenda, reminders, brief, goals, memories, and people. `/` cutover remains untouched.\n\n\n## H3 — Conversation Handoff\n\nStatus: REVIEW\n\nHome composer and offer buttons now prefill `/chat-v2` via sessionStorage handoff. Auto-send is intentionally disabled. `/` cutover remains untouched.\n
