@@ -266,7 +266,7 @@ def _deterministic_identity_candidates(transcript: str) -> list[CandidateMemory]
                 )
 
         user_match = re.search(
-            r"\b(?:nama\s+saya|nama\s+aku|my\s+name\s+is|i\s+am|i'm)\s+([A-Za-zÀ-ÖØ-öø-ÿ' -]{2,60})",
+            r"\b(?:nama\s+saya|nama\s+aku|my\s+name\s+is)\s+([A-Za-zÀ-ÖØ-öø-ÿ' -]{2,60})",
             text,
             flags=re.IGNORECASE,
         )
