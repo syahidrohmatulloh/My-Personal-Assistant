@@ -163,7 +163,127 @@ Rules:
 """
 
 
+
+
+_NON_CALENDAR_DRAFT_CONTEXT_TERMS = (
+    "codebase",
+    "repo",
+    "repository",
+    "github",
+    "commit",
+    "deploy",
+    "deployment",
+    "vercel",
+    "frontend",
+    "backend",
+    "database",
+    "supabase",
+    "fastapi",
+    "api",
+    "route",
+    "component",
+    "function",
+    "file",
+    "folder",
+    "patch",
+    "build",
+    "prompt",
+    "response",
+    "jawaban",
+    "teks",
+    "wording",
+    "slide",
+    "deck",
+    "ppt",
+    "memory",
+    "rag",
+    "retrieval",
+    "embedding",
+    "pipeline",
+    "summarization",
+    "summary",
+    "session summarization",
+    "hybrid memory",
+    "llm",
+    "claude",
+    "voyageai",
+)
+
+_STRONG_CALENDAR_ACTION_TERMS = (
+    "google calendar",
+    "calendar",
+    "kalender",
+    "jadwal",
+    "agenda",
+    "event",
+    "acara",
+    "meeting",
+    "rapat",
+    "appointment",
+    "janji",
+    "reminder",
+    "pengingat",
+    "deadline",
+    "reschedule",
+    "jadwal ulang",
+)
+
+_CALENDAR_DATE_TIME_SIGNAL_RE = re.compile(
+    r"\b("
+    r"hari ini|besok|lusa|minggu depan|next week|today|tomorrow|"
+    r"senin|selasa|rabu|kamis|jumat|jum'at|sabtu|minggu|"
+    r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"tanggal|tgl|jam|pukul|"
+    r"\d{1,2}[:.]\d{2}|"
+    r"\d{1,2}\s*(am|pm|pagi|siang|sore|malam)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _compact_calendar_action_text(text: str | None) -> str:
+    return " ".join(str(text or "").casefold().split())
+
+
+def _has_strong_calendar_draft_action_signal(text: str | None) -> bool:
+    """Prevent generic update/edit wording from being routed as Calendar action.
+
+    Calendar draft actions are destructive or state-changing. A turn must include
+    an update/delete verb AND clear Calendar grounding. Generic product/code/memory
+    requests such as "update memory pipeline" must stay in normal chat.
+    """
+    normalized = _compact_calendar_action_text(text)
+    if not normalized:
+        return False
+
+    has_action_term = any(term in normalized for term in (*_UPDATE_TERMS, *_DELETE_TERMS))
+    if not has_action_term:
+        return False
+
+    has_strong_calendar_term = any(term in normalized for term in _STRONG_CALENDAR_ACTION_TERMS)
+    has_date_time_signal = bool(_CALENDAR_DATE_TIME_SIGNAL_RE.search(normalized))
+
+    if has_strong_calendar_term:
+        return True
+
+    if has_date_time_signal and any(term in normalized for term in ("meeting", "rapat", "call", "appointment", "deadline", "reminder")):
+        return True
+
+    # Explicitly keep technical/product/memory updates out of Calendar action routing.
+    if any(term in normalized for term in _NON_CALENDAR_DRAFT_CONTEXT_TERMS):
+        return False
+
+    return False
+
+
 def is_calendar_draft_action_request(text: str | None) -> bool:
+    if not _has_strong_calendar_draft_action_signal(text):
+        return False
+
+    return _is_calendar_draft_action_request_base(text)
+
+
+def _is_calendar_draft_action_request_base(text: str | None) -> bool:
     normalized = _norm(text)
     if not normalized:
         return False
