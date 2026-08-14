@@ -331,7 +331,7 @@ function goalDetail(item: WorkspaceGoal): string {
 export function HomeCommandCenterClient() {
   const [mode, setModeState] = useState<AssistantMode>("life_companion");
   const [assistantName, setAssistantName] = useState<string>(() => readCachedAssistantName() ?? "Hana");
-  const [now, setNow] = useState<Date>(() => new Date());
+  const [now, setNow] = useState<Date | null>(null);
   const [handoffInput, setHandoffInput] = useState("");
   const [workspaceContext, setWorkspaceContext] = useState<WorkspaceContext>(() =>
     emptyWorkspaceContext(readCachedAssistantName() ?? "Hana"),
@@ -427,8 +427,8 @@ export function HomeCommandCenterClient() {
   );
   const copy = useMemo(() => getModeCopy(mode, assistantName), [assistantName, mode]);
   const isChief = mode === "chief_of_staff";
-  const greeting = getGreeting(now);
-  const dayTime = formatDayTime(now);
+  const greeting = now ? getGreeting(now) : "";
+  const dayTime = now ? formatDayTime(now) : "";
   const liveSummary = buildLiveSummary(contextWithName, assistantName, isChief);
   const offers = buildHomeOffers(contextWithName, mode, assistantName);
 
@@ -554,7 +554,7 @@ export function HomeCommandCenterClient() {
                       {dayTime}
                     </p>
                     <h1 className="mt-5 max-w-3xl text-5xl font-semibold tracking-[-0.065em] sm:text-6xl lg:text-7xl">
-                      {greeting}, Syahid.
+                      {greeting || "Selamat datang"}, Syahid.
                     </h1>
                   </div>
 
