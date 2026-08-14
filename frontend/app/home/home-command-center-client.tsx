@@ -15,8 +15,17 @@ import {
   Target,
   Users,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { getCompanionSettings, patchCompanionSettings } from "@/lib/api";
+import { loadAssistantWorkspaceContext } from "@/lib/assistant-context/load-workspace-context";
+import type {
+  WorkspaceAgendaItem,
+  WorkspaceContext,
+  WorkspaceGoal,
+  WorkspaceMemory,
+  WorkspacePerson,
+  WorkspaceReminder,
+} from "@/lib/assistant-context/types";
 import {
   ASSISTANT_MODE_EVENT,
   changeAssistantMode,
@@ -58,6 +67,25 @@ function readCachedMode(): AssistantMode {
   }
 }
 
+function emptyWorkspaceContext(assistantName?: string | null): WorkspaceContext {
+  return {
+    status: "loading",
+    briefingContent: null,
+    briefingOpenedAt: null,
+    briefingConversationId: null,
+    journaledToday: false,
+    activeGoals: [],
+    pausedGoals: [],
+    people: [],
+    recentMemories: [],
+    todayAgenda: [],
+    upcomingReminders: [],
+    agendaStatus: "loading",
+    remindersStatus: "loading",
+    assistantName: assistantName ?? null,
+  };
+}
+
 function getGreeting(now = new Date()): string {
   const hour = now.getHours();
 
@@ -76,6 +104,52 @@ function formatDayTime(now = new Date()): string {
     .format(now)
     .replace(".", ":")
     .toUpperCase();
+}
+
+function formatClock(value: string | null | undefined): string | null {
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return new Intl.DateTimeFormat("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function formatDateTime(value: string | null | undefined): string | null {
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const today = new Date();
+  const sameDay =
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate();
+
+  if (sameDay) {
+    return `Hari ini ${formatClock(value) || ""}`.trim();
+  }
+
+  return new Intl.DateTimeFormat("id-ID", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function truncateText(value: string | null | undefined, maxLength = 110): string {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1).trim()}…`;
 }
 
 function getModeCopy(mode: AssistantMode, assistantName: string) {
@@ -102,10 +176,116 @@ function getModeCopy(mode: AssistantMode, assistantName: string) {
   };
 }
 
+function buildLiveSummary(context: WorkspaceContext, assistantName: string, isChief: boolean): string {
+  const agendaCount = context.todayAgenda?.length ?? 0;
+  const reminderCount = context.upcomingReminders?.length ?? 0;
+  const goalCount = context.activeGoals?.length ?? 0;
+
+  if (context.status === "loading") return "Loading your live context…";
+
+  if (isChief) {
+    if (agendaCount || reminderCount || goalCount) {
+      return `${agendaCount} agenda, ${reminderCount} reminders, ${goalCount} active goals are surfaced for execution.`;
+    }
+
+    return "No heavy operating signal is surfaced yet. Clean window for focused execution.";
+  }
+
+  if (agendaCount || reminderCount) {
+    return `${assistantName} sees ${agendaCount} agenda item${agendaCount === 1 ? "" : "s"} and ${reminderCount} reminder${reminderCount === 1 ? "" : "s"} waiting gently.`;
+  }
+
+  if (context.journaledToday) {
+    return `${assistantName} can continue from your journal signal today.`;
+  }
+
+  return "Tidak ada yang terlalu mendesak dari sinyal yang terlihat sekarang.";
+}
+
+function buildHomeOffers(context: WorkspaceContext, mode: AssistantMode, assistantName: string) {
+  const agendaCount = context.todayAgenda?.length ?? 0;
+  const reminderCount = context.upcomingReminders?.length ?? 0;
+  const goalCount = context.activeGoals?.length ?? 0;
+
+  if (mode === "chief_of_staff") {
+    return [
+      agendaCount > 0 ? "Brief me for today’s agenda" : "Create a focus plan",
+      goalCount > 0 ? "Prioritize active goals" : "Set execution priorities",
+      reminderCount > 0 ? "Review reminders and blockers" : "Find hidden blockers",
+    ];
+  }
+
+  return [
+    context.journaledToday ? "Lanjutkan refleksi hari ini" : "Tulis refleksi singkat",
+    agendaCount > 0 ? "Bantu jalani agenda hari ini" : "Apa yang perlu ditengok?",
+    reminderCount > 0 ? `Ubah reminder jadi langkah kecil` : `Cerita pelan-pelan ke ${assistantName}`,
+  ];
+}
+
+function statusLabel(status: WorkspaceContext["agendaStatus"] | WorkspaceContext["remindersStatus"]): string {
+  if (status === "loading") return "Loading";
+  if (status === "error") return "Stale";
+  return "Live";
+}
+
+function agendaTitle(item: WorkspaceAgendaItem): string {
+  return truncateText(item.title || "Untitled event", 80);
+}
+
+function agendaDetail(item: WorkspaceAgendaItem): string {
+  const time =
+    item.allDay
+      ? "All day"
+      : [formatClock(item.startAt), formatClock(item.endAt)].filter(Boolean).join("–") ||
+        "Time pending";
+  const meta = [time, item.location, item.source === "google" ? "Google" : item.source]
+    .filter(Boolean)
+    .join(" · ");
+
+  return meta || "Calendar item";
+}
+
+function reminderTitle(item: WorkspaceReminder): string {
+  return truncateText(item.title || item.message || "Reminder", 80);
+}
+
+function reminderDetail(item: WorkspaceReminder): string {
+  return [formatDateTime(item.dueAt), truncateText(item.message, 70)]
+    .filter(Boolean)
+    .join(" · ") || "Reminder";
+}
+
+function memoryTitle(item: WorkspaceMemory): string {
+  return truncateText(item.content || "Memory", 88);
+}
+
+function memoryDetail(item: WorkspaceMemory): string {
+  return item.kind ? item.kind[0].toUpperCase() + item.kind.slice(1) : "Memory";
+}
+
+function personTitle(item: WorkspacePerson): string {
+  return truncateText(item.name || "Person", 80);
+}
+
+function personDetail(item: WorkspacePerson): string {
+  return item.relationship ? truncateText(item.relationship, 80) : "Relationship context";
+}
+
+function goalTitle(item: WorkspaceGoal): string {
+  return truncateText(item.title || "Goal", 82);
+}
+
+function goalDetail(item: WorkspaceGoal): string {
+  return item.status ? item.status[0].toUpperCase() + item.status.slice(1) : "Active";
+}
+
 export function HomeCommandCenterClient() {
   const [mode, setModeState] = useState<AssistantMode>("life_companion");
   const [assistantName, setAssistantName] = useState<string>(() => readCachedAssistantName() ?? "Hana");
   const [now, setNow] = useState<Date>(() => new Date());
+  const [workspaceContext, setWorkspaceContext] = useState<WorkspaceContext>(() =>
+    emptyWorkspaceContext(readCachedAssistantName() ?? "Hana"),
+  );
 
   useEffect(() => {
     setModeState(readCachedMode());
@@ -120,7 +300,10 @@ export function HomeCommandCenterClient() {
         if (nextMode) setModeState(nextMode);
 
         const nextName = cleanAssistantName(settings.assistant_name);
-        if (nextName) setAssistantName(nextName);
+        if (nextName) {
+          setAssistantName(nextName);
+          setWorkspaceContext((current) => ({ ...current, assistantName: nextName }));
+        }
       })
       .catch(() => {
         // Home shell stays available even if companion settings are temporarily unavailable.
@@ -143,10 +326,61 @@ export function HomeCommandCenterClient() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refreshWorkspace(showLoading = false) {
+      if (showLoading) {
+        setWorkspaceContext((current) => ({
+          ...current,
+          status: "loading",
+          agendaStatus: "loading",
+          remindersStatus: "loading",
+        }));
+      }
+
+      try {
+        const next = await loadAssistantWorkspaceContext({
+          assistantName: readCachedAssistantName() ?? assistantName,
+        });
+
+        if (cancelled) return;
+
+        setWorkspaceContext(next);
+      } catch {
+        if (cancelled) return;
+
+        setWorkspaceContext((current) => ({
+          ...current,
+          status: "error",
+          agendaStatus: "error",
+          remindersStatus: "error",
+        }));
+      }
+    }
+
+    void refreshWorkspace(true);
+    const timer = window.setInterval(() => void refreshWorkspace(false), 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const contextWithName = useMemo<WorkspaceContext>(
+    () => ({
+      ...workspaceContext,
+      assistantName,
+    }),
+    [assistantName, workspaceContext],
+  );
   const copy = useMemo(() => getModeCopy(mode, assistantName), [assistantName, mode]);
   const isChief = mode === "chief_of_staff";
   const greeting = getGreeting(now);
   const dayTime = formatDayTime(now);
+  const liveSummary = buildLiveSummary(contextWithName, assistantName, isChief);
+  const offers = buildHomeOffers(contextWithName, mode, assistantName);
 
   function applyModeLocally(nextMode: AssistantMode) {
     setModeState(nextMode);
@@ -201,7 +435,7 @@ export function HomeCommandCenterClient() {
                 : "border-white/75 bg-white/60 text-stone-500",
             ].join(" ")}
           >
-            Home Command Center
+            Calendar · Memory · Goals {contextWithName.status === "loading" ? "loading" : "live"}
           </div>
         </header>
 
@@ -267,7 +501,7 @@ export function HomeCommandCenterClient() {
                       isChief ? "text-slate-300" : "text-stone-600",
                     ].join(" ")}
                   >
-                    {copy.summary}
+                    {liveSummary}
                   </p>
                 </div>
 
@@ -288,6 +522,9 @@ export function HomeCommandCenterClient() {
                     ].join(" ")}
                   >
                     {copy.prompt}
+                    <span className="mt-3 block text-xs opacity-70">
+                      {copy.summary}
+                    </span>
                   </div>
 
                   <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -312,9 +549,24 @@ export function HomeCommandCenterClient() {
                 </div>
 
                 <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                  <VitalSign label="Calendar" value="Ready" icon={<CalendarDays className="h-4 w-4" />} isChief={isChief} />
-                  <VitalSign label="Memory" value="Ready" icon={<Brain className="h-4 w-4" />} isChief={isChief} />
-                  <VitalSign label="Goals" value="Ready" icon={<Target className="h-4 w-4" />} isChief={isChief} />
+                  <VitalSign
+                    label="Calendar"
+                    value={`${statusLabel(contextWithName.agendaStatus)} · ${contextWithName.todayAgenda?.length ?? 0} today`}
+                    icon={<CalendarDays className="h-4 w-4" />}
+                    isChief={isChief}
+                  />
+                  <VitalSign
+                    label="Memory"
+                    value={`${contextWithName.recentMemories?.length ?? 0} surfaced`}
+                    icon={<Brain className="h-4 w-4" />}
+                    isChief={isChief}
+                  />
+                  <VitalSign
+                    label="Goals"
+                    value={`${contextWithName.activeGoals?.length ?? 0} active`}
+                    icon={<Target className="h-4 w-4" />}
+                    isChief={isChief}
+                  />
                 </div>
               </div>
             </div>
@@ -322,16 +574,13 @@ export function HomeCommandCenterClient() {
 
           <aside className="grid min-h-0 gap-4 lg:h-[calc(100dvh-8.75rem)] lg:overflow-y-auto lg:overscroll-contain lg:pr-1 lg:[scrollbar-width:thin]">
             <HomePanel
-              title="Aliyya offers"
-              badge="Preview"
+              title={`${assistantName} offers`}
+              badge={contextWithName.status === "loading" ? "Loading" : "Live"}
               icon={<Sparkles className="h-4 w-4" />}
               isChief={isChief}
             >
               <div className="grid gap-2">
-                {(isChief
-                  ? ["Brief me for today", "Prioritize next actions", "Find blockers"]
-                  : ["Tulis refleksi singkat", "Apa yang perlu ditengok?", "Bantu aku mulai pelan-pelan"]
-                ).map((item) => (
+                {offers.map((item) => (
                   <Link
                     key={item}
                     href="/chat-v2"
@@ -352,22 +601,80 @@ export function HomeCommandCenterClient() {
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-1">
               <HomePanel
                 title="Today’s agenda"
-                badge="Calendar"
+                badge={`Calendar · ${statusLabel(contextWithName.agendaStatus)}`}
                 icon={<CalendarDays className="h-4 w-4" />}
                 isChief={isChief}
               >
-                <PreviewLine title="05:52 Golf dengan Indosat" detail="Rainbow Hills" />
-                <PreviewLine title="14:00 Sync banking Q2" detail="Online" />
+                <PreviewList
+                  items={contextWithName.todayAgenda || []}
+                  empty="No agenda surfaced for today."
+                  render={(item) => (
+                    <PreviewLine
+                      key={item.id || `${item.title}-${item.startAt}`}
+                      title={agendaTitle(item)}
+                      detail={agendaDetail(item)}
+                      href={item.googleLink || undefined}
+                    />
+                  )}
+                />
               </HomePanel>
 
               <HomePanel
                 title="Upcoming reminders"
-                badge="Reminders"
+                badge={`Reminders · ${statusLabel(contextWithName.remindersStatus)}`}
                 icon={<Bell className="h-4 w-4" />}
                 isChief={isChief}
               >
-                <PreviewLine title="Dalam 2 jam" detail={`Chat sama ${assistantName}`} />
-                <PreviewLine title="Besok 09:00" detail="Review goals mingguan" />
+                <PreviewList
+                  items={contextWithName.upcomingReminders || []}
+                  empty="No upcoming reminders surfaced."
+                  render={(item) => (
+                    <PreviewLine
+                      key={item.id || `${item.title}-${item.dueAt}`}
+                      title={reminderTitle(item)}
+                      detail={reminderDetail(item)}
+                    />
+                  )}
+                />
+              </HomePanel>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-1">
+              <HomePanel
+                title="Daily brief"
+                badge="Brief"
+                icon={<MessageCircle className="h-4 w-4" />}
+                isChief={isChief}
+              >
+                {contextWithName.briefingContent ? (
+                  <PreviewLine
+                    title="Today’s briefing"
+                    detail={truncateText(contextWithName.briefingContent, 160)}
+                    href={contextWithName.briefingConversationId ? `/chat-v2/${contextWithName.briefingConversationId}` : undefined}
+                  />
+                ) : (
+                  <EmptyLine label={contextWithName.journaledToday ? "Journal signal is available today." : "No daily brief surfaced yet."} />
+                )}
+              </HomePanel>
+
+              <HomePanel
+                title="Active goals"
+                badge="Goals"
+                icon={<Target className="h-4 w-4" />}
+                isChief={isChief}
+              >
+                <PreviewList
+                  items={contextWithName.activeGoals || []}
+                  empty="No active goals surfaced."
+                  render={(item) => (
+                    <PreviewLine
+                      key={item.id || item.title}
+                      title={goalTitle(item)}
+                      detail={goalDetail(item)}
+                      href="/goals"
+                    />
+                  )}
+                />
               </HomePanel>
             </div>
 
@@ -378,8 +685,18 @@ export function HomeCommandCenterClient() {
                 icon={<Brain className="h-4 w-4" />}
                 isChief={isChief}
               >
-                <PreviewLine title="Suka kopi tanpa gula" detail="Preference" />
-                <PreviewLine title="Main padel Sabtu pagi" detail="Routine" />
+                <PreviewList
+                  items={contextWithName.recentMemories || []}
+                  empty="No recent memories surfaced."
+                  render={(item) => (
+                    <PreviewLine
+                      key={item.id || item.content}
+                      title={memoryTitle(item)}
+                      detail={memoryDetail(item)}
+                      href="/memories"
+                    />
+                  )}
+                />
               </HomePanel>
 
               <HomePanel
@@ -388,8 +705,18 @@ export function HomeCommandCenterClient() {
                 icon={<Users className="h-4 w-4" />}
                 isChief={isChief}
               >
-                <PreviewLine title="Indah" detail="Belum follow up" />
-                <PreviewLine title="Tim Indosat" detail="Golf hari ini" />
+                <PreviewList
+                  items={(contextWithName.people || []).slice(0, 5)}
+                  empty="No people context surfaced."
+                  render={(item) => (
+                    <PreviewLine
+                      key={item.id || item.name}
+                      title={personTitle(item)}
+                      detail={personDetail(item)}
+                      href="/people"
+                    />
+                  )}
+                />
               </HomePanel>
             </div>
           </aside>
@@ -485,7 +812,7 @@ function HomeChip({
   label,
   isChief,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   isChief: boolean;
 }) {
@@ -512,7 +839,7 @@ function VitalSign({
 }: {
   label: string;
   value: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   isChief: boolean;
 }) {
   return (
@@ -552,9 +879,9 @@ function HomePanel({
 }: {
   title: string;
   badge: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   isChief: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <section
@@ -591,11 +918,57 @@ function HomePanel({
   );
 }
 
-function PreviewLine({ title, detail }: { title: string; detail: string }) {
+function PreviewList<T>({
+  items,
+  empty,
+  render,
+}: {
+  items: T[];
+  empty: string;
+  render: (item: T) => ReactNode;
+}) {
+  if (items.length === 0) return <EmptyLine label={empty} />;
+  return <>{items.slice(0, 5).map(render)}</>;
+}
+
+function EmptyLine({ label }: { label: string }) {
   return (
-    <div className="rounded-2xl border border-current/10 bg-white/[0.035] px-3 py-3">
+    <div className="rounded-2xl border border-dashed border-current/15 bg-white/[0.025] px-3 py-4 text-sm opacity-65">
+      {label}
+    </div>
+  );
+}
+
+function PreviewLine({
+  title,
+  detail,
+  href,
+}: {
+  title: string;
+  detail: string;
+  href?: string | null;
+}) {
+  const content = (
+    <>
       <p className="text-sm font-semibold leading-5">{title}</p>
       <p className="mt-1 text-xs leading-5 opacity-60">{detail}</p>
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className="rounded-2xl border border-current/10 bg-white/[0.035] px-3 py-3 transition hover:bg-white/[0.08]"
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-current/10 bg-white/[0.035] px-3 py-3">
+      {content}
     </div>
   );
 }
