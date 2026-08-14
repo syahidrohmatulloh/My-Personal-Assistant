@@ -18,7 +18,7 @@ One source of truth, two views.
 | H1 | Home Shell | REVIEW |
 | H2 | Real Cards | TODO |
 | H3 | Handoff to Chat V2 | TODO |
-| H4 | Context Health Strip | TODO |
+| H4 | Context Health Strip | REVIEW |
 | H5 | Cutover `/` to `/home` | TODO |
 
 ## H0 done when

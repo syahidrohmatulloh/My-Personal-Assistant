@@ -60,6 +60,25 @@ export type WorkspaceReminder = {
   status?: string;
 };
 
+export type WorkspaceSourceHealthStatus = "loading" | "live" | "empty" | "stale" | "failed";
+
+export type WorkspaceSourceHealthId =
+  | "agenda"
+  | "reminders"
+  | "brief"
+  | "journal"
+  | "goals"
+  | "memories"
+  | "people";
+
+export type WorkspaceSourceHealth = {
+  id: WorkspaceSourceHealthId;
+  label: string;
+  status: WorkspaceSourceHealthStatus;
+  detail?: string;
+  updatedAt?: string;
+};
+
 export type WorkspaceContext = {
   status: "loading" | "ready" | "error";
   briefingContent?: string | null;
@@ -74,6 +93,7 @@ export type WorkspaceContext = {
   upcomingReminders?: WorkspaceReminder[];
   agendaStatus?: "loading" | "ready" | "error";
   remindersStatus?: "loading" | "ready" | "error";
+  sourceHealth?: WorkspaceSourceHealth[];
   assistantName?: string | null;
 };
 

@@ -83,6 +83,15 @@ function emptyWorkspaceContext(assistantName?: string | null): WorkspaceContext 
     upcomingReminders: [],
     agendaStatus: "loading",
     remindersStatus: "loading",
+    sourceHealth: [
+      { id: "agenda", label: "Calendar", status: "loading", detail: "Loading calendar" },
+      { id: "reminders", label: "Reminders", status: "loading", detail: "Loading reminders" },
+      { id: "brief", label: "Brief", status: "loading", detail: "Loading brief" },
+      { id: "journal", label: "Journal", status: "loading", detail: "Loading journal" },
+      { id: "goals", label: "Goals", status: "loading", detail: "Loading goals" },
+      { id: "memories", label: "Memory", status: "loading", detail: "Loading memory" },
+      { id: "people", label: "People", status: "loading", detail: "Loading people" },
+    ],
     assistantName: assistantName ?? null,
   };
 }
@@ -226,6 +235,45 @@ function buildHomeOffers(context: WorkspaceContext, mode: AssistantMode, assista
 function statusLabel(status: WorkspaceContext["agendaStatus"] | WorkspaceContext["remindersStatus"]): string {
   if (status === "loading") return "Loading";
   if (status === "error") return "Stale";
+  return "Live";
+}
+
+function healthStatusClass(status: string, isChief: boolean): string {
+  if (status === "failed") {
+    return isChief
+      ? "border-rose-300/20 bg-rose-300/[0.08] text-rose-100"
+      : "border-rose-200 bg-rose-50 text-rose-700";
+  }
+
+  if (status === "loading" || status === "stale") {
+    return isChief
+      ? "border-amber-300/20 bg-amber-300/[0.08] text-amber-100"
+      : "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  if (status === "empty") {
+    return isChief
+      ? "border-slate-300/15 bg-white/[0.045] text-slate-300"
+      : "border-stone-200 bg-white/60 text-stone-600";
+  }
+
+  return isChief
+    ? "border-teal-300/20 bg-teal-300/[0.08] text-teal-100"
+    : "border-emerald-200 bg-emerald-50 text-emerald-700";
+}
+
+function healthStatusDotClass(status: string, isChief: boolean): string {
+  if (status === "failed") return isChief ? "bg-rose-200" : "bg-rose-500";
+  if (status === "loading" || status === "stale") return isChief ? "bg-amber-200" : "bg-amber-500";
+  if (status === "empty") return isChief ? "bg-slate-400" : "bg-stone-400";
+  return isChief ? "bg-teal-200" : "bg-emerald-500";
+}
+
+function healthStatusLabel(status: string): string {
+  if (status === "failed") return "Failed";
+  if (status === "loading") return "Loading";
+  if (status === "stale") return "Stale";
+  if (status === "empty") return "Empty";
   return "Live";
 }
 
@@ -612,6 +660,8 @@ export function HomeCommandCenterClient() {
                     isChief={isChief}
                   />
                 </div>
+
+                <ContextHealthStrip context={contextWithName} isChief={isChief} />
               </div>
             </div>
           </section>
@@ -911,6 +961,60 @@ function VitalSign({
         <CircleDot className={isChief ? "h-3.5 w-3.5 text-teal-200" : "h-3.5 w-3.5 text-emerald-600"} />
         {value}
       </p>
+    </div>
+  );
+}
+
+function ContextHealthStrip({
+  context,
+  isChief,
+}: {
+  context: WorkspaceContext;
+  isChief: boolean;
+}) {
+  const sources = context.sourceHealth || [];
+
+  if (sources.length === 0) return null;
+
+  return (
+    <div
+      className={[
+        "mt-4 rounded-[1.5rem] border p-3 backdrop-blur",
+        isChief
+          ? "border-white/10 bg-black/12"
+          : "border-white/75 bg-white/52",
+      ].join(" ")}
+    >
+      <div className="mb-2 flex items-center justify-between gap-3 px-1">
+        <p
+          className={[
+            "text-[10px] font-bold uppercase tracking-[0.22em]",
+            isChief ? "text-teal-100/55" : "text-stone-400",
+          ].join(" ")}
+        >
+          Live context health
+        </p>
+        <span className={isChief ? "text-[11px] text-slate-500" : "text-[11px] text-stone-500"}>
+          {context.status === "loading" ? "Checking sources" : "Updated every 60s"}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {sources.map((source) => (
+          <span
+            key={source.id}
+            title={source.detail}
+            className={[
+              "inline-flex min-h-8 items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold",
+              healthStatusClass(source.status, isChief),
+            ].join(" ")}
+          >
+            <span className={["h-1.5 w-1.5 rounded-full", healthStatusDotClass(source.status, isChief)].join(" ")} />
+            {source.label}
+            <span className="opacity-65">{healthStatusLabel(source.status)}</span>
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
