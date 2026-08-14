@@ -39,7 +39,7 @@ export default function WelcomePage() {
       .then((data) => {
         if (cancelled) return;
         if (data.profile && Object.keys(data.profile).length > 0) {
-          router.replace("/chat-v2");
+          router.replace("/home");
           return;
         }
         setLoading(false);
@@ -70,7 +70,7 @@ export default function WelcomePage() {
         await createGoal(goal);
       }
 
-      router.replace("/chat-v2");
+      router.replace("/home");
     } catch (e) {
       setError(String(e));
       setSaving(false);
@@ -143,7 +143,7 @@ export default function WelcomePage() {
             ) : (
               <button
                 type="button"
-                onClick={() => router.replace("/chat-v2")}
+                onClick={() => router.replace("/home")}
                 className="text-sm text-fg-subtle hover:text-fg-muted"
               >
                 Skip for now

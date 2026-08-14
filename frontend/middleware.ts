@@ -56,7 +56,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
   if (user && isAuthRoute) {
-    return NextResponse.redirect(new URL("/chat-v2", request.url));
+    return NextResponse.redirect(new URL("/home", request.url));
   }
 
   return response;

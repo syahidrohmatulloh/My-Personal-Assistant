@@ -19,7 +19,7 @@ One source of truth, two views.
 | H2 | Real Cards | TODO |
 | H3 | Handoff to Chat V2 | TODO |
 | H4 | Context Health Strip | REVIEW |
-| H5 | Cutover `/` to `/home` | TODO |
+| H5 | Cutover `/` to `/home` | REVIEW |
 
 ## H0 done when
 

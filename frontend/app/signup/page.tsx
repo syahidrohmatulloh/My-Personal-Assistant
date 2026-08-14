@@ -31,7 +31,7 @@ export default function SignupPage() {
     }
 
     if (data.session) {
-      router.push("/chat-v2");
+      router.push("/home");
       router.refresh();
     } else {
       setMessage("Check your email to confirm your account.");
