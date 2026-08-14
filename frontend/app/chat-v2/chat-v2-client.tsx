@@ -713,7 +713,7 @@ export function ChatV2Client({
           <div className="flex items-center gap-2">
             <ChatV2CommandMenu assistantName={assistantName} mode={mode} />
             <Link
-              href="/chat-v2"
+              href="/home"
               className={[
                 "inline-flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-medium shadow-sm backdrop-blur transition active:scale-[0.98]",
                 isChief
@@ -722,7 +722,7 @@ export function ChatV2Client({
               ].join(" ")}
             >
               <ArrowLeft className="h-4 w-4" />
-              Main chat
+              Home
             </Link>
           </div>
 
