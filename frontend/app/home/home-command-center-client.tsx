@@ -592,7 +592,7 @@ export function HomeCommandCenterClient() {
                   ].join(" ")}
                 >
                   <form onSubmit={submitHandoff}>
-                    <textarea
+                    <textarea style={{ colorScheme: "light", backgroundColor: "rgba(255, 255, 255, 0.82)", color: "#18181b", caretColor: "#18181b" }}
                       value={handoffInput}
                       onChange={(event) => setHandoffInput(event.target.value)}
                       onKeyDown={(event) => {
@@ -668,7 +668,7 @@ export function HomeCommandCenterClient() {
 
           <aside className="grid min-h-0 gap-4 lg:h-[calc(100dvh-8.75rem)] lg:overflow-y-auto lg:overscroll-contain lg:pr-1 lg:[scrollbar-width:thin]">
             <HomePanel
-              title={`$Quick starts`}
+              title={`Quick starts`}
               badge={contextWithName.status === "loading" ? "Loading" : "Live"}
               icon={<Sparkles className="h-4 w-4" />}
               isChief={isChief}
