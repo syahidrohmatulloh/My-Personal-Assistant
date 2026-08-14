@@ -15,7 +15,7 @@ One source of truth, two views.
 | Phase | Name | Status |
 | --- | --- | --- |
 | H0 | Shared Context Foundation | REVIEW |
-| H1 | Home Shell | TODO |
+| H1 | Home Shell | REVIEW |
 | H2 | Real Cards | TODO |
 | H3 | Handoff to Chat V2 | TODO |
 | H4 | Context Health Strip | TODO |
