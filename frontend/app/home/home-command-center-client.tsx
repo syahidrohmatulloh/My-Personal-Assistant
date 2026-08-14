@@ -502,7 +502,7 @@ export function HomeCommandCenterClient() {
             ].join(" ")}
           >
             <MessageCircle className="h-4 w-4" />
-            Chat V2
+            Chat
           </Link>
 
           <div
@@ -633,7 +633,7 @@ export function HomeCommandCenterClient() {
                             : "bg-stone-950 text-white hover:bg-stone-800",
                         ].join(" ")}
                       >
-                        {handoffInput.trim() ? "Continue in Chat V2" : copy.primary}
+                        {handoffInput.trim() ? "Continue in Chat" : copy.primary}
                         <ArrowRight className="h-4 w-4" />
                       </button>
                     </div>

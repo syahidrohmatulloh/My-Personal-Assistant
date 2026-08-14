@@ -444,7 +444,7 @@ export function ChatV2Client({
     };
   }, []);
 
-  // Updates this surface only: React state + localStorage. Chat V2 never
+  // Updates this surface only: React state + localStorage. Chat runtime never
   // dispatches the global event itself — the persistence layer (lib/api.ts on
   // successful settings save) and the stream sender are the app's
   // broadcasters, and this surface's listener applies whatever they announce.
@@ -734,7 +734,7 @@ export function ChatV2Client({
                 : "border-stone-200 bg-white/65 text-stone-500",
             ].join(" ")}
           >
-            Companion Chat
+            Assistant Chat
           </div>
         </header>
 
