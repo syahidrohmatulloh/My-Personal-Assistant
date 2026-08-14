@@ -138,7 +138,7 @@ function formatConversationTitle(
   const name = cleanAssistantName(assistantName) || "your assistant";
 
   if (!title) return isExpanded ? "Expanded chat" : "Split assistant desk";
-  if (title.startsWith("Main Chat -")) return `Main Chat - ${name}`;
+  if (title.startsWith("Main Chat ·")) return `Main Chat · ${name}`;
 
   return title;
 }
@@ -734,7 +734,7 @@ export function ChatV2Client({
                 : "border-stone-200 bg-white/65 text-stone-500",
             ].join(" ")}
           >
-            Assistant Chat
+            Chat
           </div>
         </header>
 
@@ -789,7 +789,7 @@ export function ChatV2Client({
                     isChief ? "text-slate-400" : "text-stone-500",
                   ].join(" ")}
                 >
-                  {isExpanded ? "Focus chat active" : "Assistant desk active"}
+                  {isExpanded ? "Chat active" : "Assistant desk active"}
                 </p>
               </div>
 

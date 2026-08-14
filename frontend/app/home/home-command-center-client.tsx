@@ -179,9 +179,9 @@ function getModeCopy(mode: AssistantMode, assistantName: string) {
     eyebrow: "Life Companion command center",
     title: "Calm overview before you start talking.",
     summary:
-      "A soft landing for your day: what matters, what can wait, and one gentle doorway into conversation.",
+      "A calm entry point for what matters now.",
     prompt: `Cerita apa pun ke ${assistantName}...`,
-    primary: "Talk to companion",
+    primary: "Start chat",
     secondary: "Start reflection",
   };
 }
@@ -633,7 +633,7 @@ export function HomeCommandCenterClient() {
                             : "bg-stone-950 text-white hover:bg-stone-800",
                         ].join(" ")}
                       >
-                        {handoffInput.trim() ? "Continue in Chat" : copy.primary}
+                        {handoffInput.trim() ? "Continue in chat" : copy.primary}
                         <ArrowRight className="h-4 w-4" />
                       </button>
                     </div>
@@ -668,7 +668,7 @@ export function HomeCommandCenterClient() {
 
           <aside className="grid min-h-0 gap-4 lg:h-[calc(100dvh-8.75rem)] lg:overflow-y-auto lg:overscroll-contain lg:pr-1 lg:[scrollbar-width:thin]">
             <HomePanel
-              title={`${assistantName} offers`}
+              title={`$Quick starts`}
               badge={contextWithName.status === "loading" ? "Loading" : "Live"}
               icon={<Sparkles className="h-4 w-4" />}
               isChief={isChief}
@@ -702,7 +702,7 @@ export function HomeCommandCenterClient() {
               >
                 <PreviewList
                   items={contextWithName.todayAgenda || []}
-                  empty="No agenda surfaced for today."
+                  empty="No agenda for today."
                   render={(item) => (
                     <PreviewLine
                       key={item.id || `${item.title}-${item.startAt}`}
@@ -722,7 +722,7 @@ export function HomeCommandCenterClient() {
               >
                 <PreviewList
                   items={contextWithName.upcomingReminders || []}
-                  empty="No upcoming reminders surfaced."
+                  empty="No upcoming reminders."
                   render={(item) => (
                     <PreviewLine
                       key={item.id || `${item.title}-${item.dueAt}`}
