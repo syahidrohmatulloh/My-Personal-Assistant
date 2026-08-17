@@ -320,96 +320,29 @@ def _preview_time(value: Any) -> str:
 
 
 def looks_like_self_regulation_memory_preference(text: str | None) -> bool:
-    """Detect self-regulation preferences that should be remembered, not scheduled.
-
-    Example:
-    "ke depan kalau aku tiba-tiba marah, kamu ingetin aku aja"
-
-    This is intentionally narrow:
-    - emotional/self-regulation state
-    - plus future-preference or self-reminder wording
-    - plus no concrete calendar date/time specificity
-
-    It should not catch generic operational phrases such as "server down",
-    "saham drop", or "battery low".
-    """
+    """Detect self-regulation preferences that should be remembered, not scheduled."""
     raw = " ".join(str(text or "").lower().split())
     if not raw:
         return False
 
     strong_state_terms = (
-        # Indonesian / mixed Indonesian-English
-        "marah",
-        "emosi",
-        "emosian",
-        "kesal",
-        "sebel",
-        "sedih",
-        "panik",
-        "cemas",
-        "gelisah",
-        "khawatir",
-        "overthinking",
-        "overthink",
-        "insecure",
-        "insekyur",
-        "minder",
-        "capek",
-        "lelah",
-        "burnout",
-        "burn out",
-        "stres",
-        "stress",
-        "tertekan",
-        "kewalahan",
-        "galau",
-        "bad mood",
-        "badmood",
-        "mood jelek",
-        "gak mood",
-        "ga mood",
-        "nggak mood",
-        "hopeless",
-        "putus asa",
-        "frustrasi",
-        "frustasi",
-        "kalut",
-        # English
-        "angry",
-        "upset",
-        "anxious",
-        "anxiety",
-        "worried",
-        "worry",
-        "stressed",
-        "overwhelmed",
-        "tired",
-        "exhausted",
-        "sad",
-        "panic",
-        "panicking",
-        "frustrated",
-        "spiraling",
-        "spiralling",
+        "marah", "emosi", "emosian", "kesal", "sebel", "sedih", "panik",
+        "cemas", "gelisah", "khawatir", "overthinking", "overthink",
+        "insecure", "insekyur", "minder", "capek", "lelah", "burnout",
+        "burn out", "stres", "stress", "tertekan", "kewalahan", "galau",
+        "bad mood", "badmood", "mood jelek", "gak mood", "ga mood",
+        "nggak mood", "hopeless", "putus asa", "frustrasi", "frustasi",
+        "kalut", "angry", "upset", "anxious", "anxiety", "worried",
+        "worry", "stressed", "overwhelmed", "tired", "exhausted", "sad",
+        "panic", "panicking", "frustrated", "spiraling", "spiralling",
     )
     contextual_state_phrases = (
-        "feel down",
-        "feeling down",
-        "lagi down",
-        "mood down",
-        "feeling low",
-        "low mood",
-        "mood low",
-        "mood lagi drop",
-        "mood drop",
-        "mental drop",
-        "mental lagi gelap",
-        "pikiran gelap",
-        "mood gelap",
-        "mulai spiral",
-        "lagi spiral",
-        "spiral lagi",
+        "feel down", "feeling down", "lagi down", "mood down",
+        "feeling low", "low mood", "mood low", "mood lagi drop",
+        "mood drop", "mental drop", "mental lagi gelap", "pikiran gelap",
+        "mood gelap", "mulai spiral", "lagi spiral", "spiral lagi",
     )
+
     if not (
         any(term in raw for term in strong_state_terms)
         or any(term in raw for term in contextual_state_phrases)
@@ -417,35 +350,14 @@ def looks_like_self_regulation_memory_preference(text: str | None) -> bool:
         return False
 
     future_preference_terms = (
-        "ke depan",
-        "kedepan",
-        "mulai sekarang",
-        "going forward",
-        "from now on",
-        "next time",
-        "for future",
-        "kalau aku",
-        "kalo aku",
-        "kalau saya",
-        "kalo saya",
-        "kalau lagi",
-        "pas aku",
-        "if i",
-        "if i'm",
-        "if im",
-        "when i",
-        "when i'm",
-        "when im",
+        "ke depan", "kedepan", "mulai sekarang", "going forward",
+        "from now on", "next time", "for future", "kalau aku", "kalo aku",
+        "kalau saya", "kalo saya", "kalau lagi", "pas aku", "if i",
+        "if i'm", "if im", "when i", "when i'm", "when im",
     )
     self_reminder_terms = (
-        "ingetin aku",
-        "ingatkan aku",
-        "ingetin saya",
-        "ingatkan saya",
-        "remind me",
-        "kamu ingetin",
-        "tolong ingetin",
-        "tolong ingatkan",
+        "ingetin aku", "ingatkan aku", "ingetin saya", "ingatkan saya",
+        "remind me", "kamu ingetin", "tolong ingetin", "tolong ingatkan",
     )
 
     if not (
@@ -455,40 +367,18 @@ def looks_like_self_regulation_memory_preference(text: str | None) -> bool:
         return False
 
     concrete_calendar_terms = (
-        "hari ini",
-        "besok",
-        "lusa",
-        "nanti malam",
-        "nanti pagi",
-        "nanti sore",
-        "malam ini",
-        "pagi ini",
-        "sore ini",
-        "tanggal ",
-        "jam ",
-        "pukul ",
-        "today",
-        "tomorrow",
-        "tonight",
-        "this morning",
-        "this afternoon",
-        "this evening",
-        "next monday",
-        "next tuesday",
-        "next wednesday",
-        "next thursday",
-        "next friday",
-        "next saturday",
-        "next sunday",
+        "hari ini", "besok", "lusa", "nanti malam", "nanti pagi",
+        "nanti sore", "malam ini", "pagi ini", "sore ini", "tanggal ",
+        "jam ", "pukul ", "today", "tomorrow", "tonight",
+        "this morning", "this afternoon", "this evening",
+        "next monday", "next tuesday", "next wednesday", "next thursday",
+        "next friday", "next saturday", "next sunday",
     )
     has_digit_time = any(ch.isdigit() for ch in raw) and any(
         marker in raw for marker in ("jam", "pukul", ":", ".", "am", "pm")
     )
 
-    if has_digit_time or any(term in raw for term in concrete_calendar_terms):
-        return False
-
-    return True
+    return not (has_digit_time or any(term in raw for term in concrete_calendar_terms))
 
 
 def should_attempt_calendar_candidate_extraction(text: str | None) -> bool:
