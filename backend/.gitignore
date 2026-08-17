@@ -7,3 +7,6 @@ __pycache__/
 .mypy_cache/
 *.egg-info/
 .DS_Store
+
+# MR0 retrieval eval — private eval sets never committed
+eval/*.local.json

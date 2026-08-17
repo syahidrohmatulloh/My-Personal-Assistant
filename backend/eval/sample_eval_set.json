@@ -1,0 +1,18 @@
+{
+  "_comment": "Synthetic sample only. Fake IDs, no private content. For real eval, copy this shape to retrieval_eval.local.json, which is gitignored.",
+  "user_id": "00000000-0000-0000-0000-000000000000",
+  "queries": [
+    {
+      "query": "sample query one",
+      "relevant_ids": ["mem-sample-0001", "mem-sample-0002"]
+    },
+    {
+      "query": "sample query two",
+      "relevant_ids": ["mem-sample-0003"]
+    },
+    {
+      "query": "sample query three",
+      "relevant_ids": ["mem-sample-0004", "mem-sample-0005"]
+    }
+  ]
+}
