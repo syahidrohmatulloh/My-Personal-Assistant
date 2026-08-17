@@ -287,6 +287,26 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
     return [r for r in rows if r.get("similarity", 0) >= MIN_SIMILARITY]
 
 
+def _mi_prompt_label(row: dict) -> str:
+    parts: list[str] = []
+
+    category = row.get("category")
+    structured_field = row.get("structured_field")
+    confidence = row.get("confidence")
+    retrieval_score = row.get("retrieval_score")
+
+    if category:
+        parts.append(str(category))
+    if structured_field:
+        parts.append(str(structured_field))
+    if confidence is not None:
+        parts.append(f"confidence={_mi_as_float(confidence, 0.0):.2f}")
+    if retrieval_score is not None:
+        parts.append(f"score={_mi_as_float(retrieval_score, 0.0):.2f}")
+
+    return " | ".join(parts)
+
+
 def format_for_prompt(memories: list[dict]) -> str:
     """Render retrieved memories into a system-prompt-ready string."""
     if not memories:
@@ -421,12 +441,47 @@ def _mi_metadata_priority(row: dict) -> float:
         CATEGORY_PRIORITY.get(category, 0.0)
         + HIGH_PRIORITY_STRUCTURED_FIELDS.get(structured_field, 0.0)
         + SOURCE_PRIORITY.get(source_priority, 0.0)
+        + _mi_memory_governance_trust_bonus(row)
         + KIND_PRIORITY.get(kind, 0.0)
     )
 
 
 def _mi_is_active_memory(row: dict) -> bool:
+    status = str(row.get("status") or "").strip().lower()
+    if status in {"archived", "superseded", "deleted"}:
+        return False
+    if row.get("deleted_at"):
+        return False
+    if _mi_as_bool(row.get("archived")):
+        return False
     return not _mi_as_bool(row.get("superseded"))
+
+
+def _mi_memory_governance_trust_bonus(row: dict) -> float:
+    """Small invisible ranking lift for memories the system can trust more.
+
+    This is not a user-facing review inbox. It simply makes confirmed/manual
+    memories win close retrieval ties while high-confidence auto memories remain
+    usable immediately.
+    """
+    if not _mi_is_active_memory(row):
+        return -10.0
+
+    source = str(row.get("source") or "").strip().lower()
+    source_priority = str(row.get("source_priority") or "").strip().lower()
+    confidence = _mi_as_float(row.get("confidence"), 0.0)
+
+    if source in {"manual", "manual_review"}:
+        return 0.060
+    if row.get("last_confirmed_at"):
+        return 0.045
+    if (
+        source == "auto"
+        and confidence >= 0.90
+        and source_priority in {"explicit_user_statement", "user_correction"}
+    ):
+        return 0.020
+    return 0.0
 
 
 def _mi_similarity_score(row: dict) -> float:
@@ -446,59 +501,53 @@ def memory_retrieval_score(row: dict) -> float:
         + _mi_metadata_priority(row)
         + _mi_recency_score(row)
         + _mi_salience_score(row)
+        + _mi_memory_governance_trust_bonus(row)
     )
 
     return round(score, 6)
 
 
 def rank_memory_rows(rows: list[dict]) -> list[dict]:
-    active_rows = [r for r in rows if _mi_is_active_memory(r)]
-    ranked: list[dict] = []
-    seen_keys: set[tuple[str, str, str]] = set()
+    scored: list[dict] = []
 
-    for row in active_rows:
+    for row in rows:
+        if not _mi_is_active_memory(row):
+            continue
         if _mi_similarity_score(row) < MIN_SIMILARITY:
             continue
 
-        # Lightweight dedup within the retrieved set.
-        content_key = str(row.get("content") or "").strip().lower()
-        field_key = str(row.get("structured_field") or "").strip().lower()
-        value_key = str(row.get("structured_value") or "").strip().lower()
-        key = (field_key, value_key, content_key)
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-
         enriched = dict(row)
         enriched["retrieval_score"] = memory_retrieval_score(row)
-        ranked.append(enriched)
+        scored.append(enriched)
 
-    ranked.sort(
+    # Trust/confidence/recency must win close ties before lightweight dedupe.
+    scored.sort(
         key=lambda r: (
             _mi_as_float(r.get("retrieval_score"), 0.0),
             _mi_as_float(r.get("similarity"), 0.0),
             _mi_as_float(r.get("confidence"), 0.0),
+            str(r.get("last_confirmed_at") or ""),
+            str(r.get("created_at") or ""),
         ),
         reverse=True,
     )
+
+    ranked: list[dict] = []
+    seen_keys: set[tuple[str, str, str]] = set()
+
+    for row in scored:
+        content_key = str(row.get("content") or "").strip().lower()
+        field_key = str(row.get("structured_field") or "").strip().lower()
+        value_key = str(row.get("structured_value") or "").strip().lower()
+        key = (field_key, value_key, content_key)
+
+        if key in seen_keys:
+            continue
+
+        seen_keys.add(key)
+        ranked.append(row)
+
     return ranked
-
-
-def _mi_prompt_label(row: dict) -> str:
-    parts: list[str] = []
-    category = row.get("category")
-    structured_field = row.get("structured_field")
-    confidence = row.get("confidence")
-
-    if category:
-        parts.append(str(category))
-    if structured_field:
-        parts.append(str(structured_field))
-    if confidence is not None:
-        parts.append(f"confidence={_mi_as_float(confidence):.2f}")
-
-    return f" [{' | '.join(parts)}]" if parts else ""
-
 
 async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> list[dict]:
     """Find and rank memories relevant to the current user message.
