@@ -1370,7 +1370,7 @@ function ChatV2MessageBubble({
     onDraftPrompt(
       `Review this as a possible memory. If it is worth saving, ask me for confirmation and follow the protected memory flow. Do not save it automatically.\n\n${seed}`,
     );
-    setActionFeedback("Memory review drafted");
+    setActionFeedback("Memory note drafted");
     window.setTimeout(() => setActionFeedback(null), 1800);
   }
 
@@ -1456,7 +1456,7 @@ function ChatV2MessageBubble({
               isChief={isChief}
               isUser={isUser}
               icon={<Sparkles className="h-3.5 w-3.5" />}
-              label="Memory review"
+              label="Remember"
               onClick={draftMemoryReviewPrompt}
             />
           </div>

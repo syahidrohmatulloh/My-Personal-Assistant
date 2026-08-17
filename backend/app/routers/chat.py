@@ -1078,6 +1078,15 @@ async def chat(
         "\n- Do not ask the user to open Memories or Calendar just to confirm a newly detected agenda."
         "\n- Confirmation should happen in chat."
     )
+
+    volatile_context += (
+        "\n\nMemory response style policy:"
+        "\n- When the user gives a durable preference, boundary, self-regulation instruction, or personal context, acknowledge it naturally."
+        "\n- Prefer wording like: 'Noted', 'Aku inget', 'Ke depan aku akan...', or 'Siap, aku pegang itu.'"
+        "\n- Do not say you saved, added, stored, or recorded something in Memories unless the user explicitly asks about memory management."
+        "\n- Do not ask the user to open Memory Review just to confirm a normal preference."
+        "\n- If the preference is ambiguous, ask a short natural clarification in chat instead of turning it into an admin/review task."
+    )
     volatile_context += (
         "\n\nCalendar confirmation UX rule — strict:"
         "\n- When the user mentions a possible schedule/event, do NOT say it has been prepared, added, saved, created, or inserted yet."
