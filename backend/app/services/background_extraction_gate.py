@@ -211,6 +211,66 @@ def _looks_like_direct_identity_answer(user_message: str, recent_messages: list[
     return question_signal and bool(text)
 
 
+def _looks_like_self_regulation_memory_preference(text: str | None) -> bool:
+    raw = " ".join(str(text or "").lower().split())
+    if not raw:
+        return False
+
+    emotion_terms = (
+        "marah",
+        "emosi",
+        "kesal",
+        "sedih",
+        "panik",
+        "cemas",
+        "anxious",
+        "angry",
+        "upset",
+        "stress",
+        "stressed",
+        "overwhelmed",
+        "capek",
+    )
+    if not any(term in raw for term in emotion_terms):
+        return False
+
+    future_or_reminder_terms = (
+        "ke depan",
+        "kedepan",
+        "mulai sekarang",
+        "going forward",
+        "from now on",
+        "kalau aku",
+        "kalo aku",
+        "if i",
+        "when i",
+        "ingetin aku",
+        "ingatkan aku",
+        "remind me",
+        "kamu ingetin",
+    )
+    if not any(term in raw for term in future_or_reminder_terms):
+        return False
+
+    concrete_calendar_terms = (
+        "hari ini",
+        "besok",
+        "lusa",
+        "nanti malam",
+        "tanggal ",
+        "jam ",
+        "pukul ",
+        "today",
+        "tomorrow",
+        "tonight",
+    )
+    has_digit_time = any(ch.isdigit() for ch in raw) and any(
+        marker in raw for marker in ("jam", "pukul", ":", ".", "am", "pm")
+    )
+
+    return not (has_digit_time or any(term in raw for term in concrete_calendar_terms))
+
+
 def decide(
     *,
     user_message: str,
@@ -258,7 +318,7 @@ def decide(
 
     # Goal intelligence is an LLM call. Run only on goal-like turns.
     run_goal_intelligence = has_goal_signal
-    run_calendar_candidate_extraction = has_calendar_signal
+    run_calendar_candidate_extraction = has_calendar_signal and not _looks_like_self_regulation_memory_preference(text)
 
     return ExtractionDecision(
         run_legacy_memory=run_legacy_memory,

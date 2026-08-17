@@ -319,7 +319,112 @@ def _preview_time(value: Any) -> str:
     return f"{parsed.hour:02d}.{parsed.minute:02d}"
 
 
+def looks_like_self_regulation_memory_preference(text: str | None) -> bool:
+    """Detect self-regulation preferences that should be remembered, not scheduled.
+
+    Example:
+    "ke depan kalau aku tiba-tiba marah, kamu ingetin aku aja"
+
+    This is intentionally narrow: it requires an emotional/self-regulation term
+    plus future-preference or self-reminder wording, and it does not block
+    messages with concrete calendar date/time specificity.
+    """
+    raw = " ".join(str(text or "").lower().split())
+    if not raw:
+        return False
+
+    emotion_terms = (
+        "marah",
+        "emosi",
+        "kesal",
+        "sedih",
+        "panik",
+        "cemas",
+        "anxious",
+        "anxiety",
+        "angry",
+        "upset",
+        "stress",
+        "stressed",
+        "overwhelmed",
+        "capek",
+        "tired",
+    )
+    if not any(term in raw for term in emotion_terms):
+        return False
+
+    future_preference_terms = (
+        "ke depan",
+        "kedepan",
+        "mulai sekarang",
+        "going forward",
+        "from now on",
+        "next time",
+        "for future",
+        "kalau aku",
+        "kalo aku",
+        "kalau saya",
+        "kalo saya",
+        "if i",
+        "when i",
+    )
+    self_reminder_terms = (
+        "ingetin aku",
+        "ingatkan aku",
+        "ingetin saya",
+        "ingatkan saya",
+        "remind me",
+        "kamu ingetin",
+        "tolong ingetin",
+        "tolong ingatkan",
+    )
+
+    if not (
+        any(term in raw for term in future_preference_terms)
+        or any(term in raw for term in self_reminder_terms)
+    ):
+        return False
+
+    concrete_calendar_terms = (
+        "hari ini",
+        "besok",
+        "lusa",
+        "nanti malam",
+        "nanti pagi",
+        "nanti sore",
+        "malam ini",
+        "pagi ini",
+        "sore ini",
+        "tanggal ",
+        "jam ",
+        "pukul ",
+        "today",
+        "tomorrow",
+        "tonight",
+        "this morning",
+        "this afternoon",
+        "this evening",
+        "next monday",
+        "next tuesday",
+        "next wednesday",
+        "next thursday",
+        "next friday",
+        "next saturday",
+        "next sunday",
+    )
+    has_digit_time = any(ch.isdigit() for ch in raw) and any(
+        marker in raw for marker in ("jam", "pukul", ":", ".", "am", "pm")
+    )
+
+    if has_digit_time or any(term in raw for term in concrete_calendar_terms):
+        return False
+
+    return True
+
+
 def should_attempt_calendar_candidate_extraction(text: str | None) -> bool:
+    if looks_like_self_regulation_memory_preference(text):
+        return False
     normalized = _normalize(text)
     if not normalized:
         return False

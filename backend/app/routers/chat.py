@@ -1428,6 +1428,8 @@ async def chat(
 
 
 def _should_hard_gate_calendar_candidate(user_message: str | None) -> bool:
+    if calendar_candidate_extractor.looks_like_self_regulation_memory_preference(user_message):
+        return False
     """Hard gate Calendar-like turns before Claude can answer freely."""
     raw = str(user_message or "").strip()
     if not raw:
