@@ -216,53 +216,48 @@ def _looks_like_self_regulation_memory_preference(text: str | None) -> bool:
     if not raw:
         return False
 
-    emotion_terms = (
-        "marah",
-        "emosi",
-        "kesal",
-        "sedih",
-        "panik",
-        "cemas",
-        "anxious",
-        "angry",
-        "upset",
-        "stress",
-        "stressed",
-        "overwhelmed",
-        "capek",
+    strong_state_terms = (
+        "marah", "emosi", "emosian", "kesal", "sebel", "sedih", "panik",
+        "cemas", "gelisah", "khawatir", "overthinking", "overthink",
+        "insecure", "insekyur", "minder", "capek", "lelah", "burnout",
+        "burn out", "stres", "stress", "tertekan", "kewalahan", "galau",
+        "bad mood", "badmood", "mood jelek", "gak mood", "ga mood",
+        "nggak mood", "hopeless", "putus asa", "frustrasi", "frustasi",
+        "kalut", "angry", "upset", "anxious", "anxiety", "worried",
+        "worry", "stressed", "overwhelmed", "tired", "exhausted", "sad",
+        "panic", "panicking", "frustrated", "spiraling", "spiralling",
     )
-    if not any(term in raw for term in emotion_terms):
+    contextual_state_phrases = (
+        "feel down", "feeling down", "lagi down", "mood down",
+        "feeling low", "low mood", "mood low", "mood lagi drop",
+        "mood drop", "mental drop", "mental lagi gelap", "pikiran gelap",
+        "mood gelap", "mulai spiral", "lagi spiral", "spiral lagi",
+    )
+
+    if not (
+        any(term in raw for term in strong_state_terms)
+        or any(term in raw for term in contextual_state_phrases)
+    ):
         return False
 
     future_or_reminder_terms = (
-        "ke depan",
-        "kedepan",
-        "mulai sekarang",
-        "going forward",
-        "from now on",
-        "kalau aku",
-        "kalo aku",
-        "if i",
-        "when i",
-        "ingetin aku",
-        "ingatkan aku",
-        "remind me",
-        "kamu ingetin",
+        "ke depan", "kedepan", "mulai sekarang", "going forward",
+        "from now on", "next time", "for future", "kalau aku", "kalo aku",
+        "kalau saya", "kalo saya", "kalau lagi", "pas aku", "if i",
+        "if i'm", "if im", "when i", "when i'm", "when im",
+        "ingetin aku", "ingatkan aku", "ingetin saya", "ingatkan saya",
+        "remind me", "kamu ingetin", "tolong ingetin", "tolong ingatkan",
     )
     if not any(term in raw for term in future_or_reminder_terms):
         return False
 
     concrete_calendar_terms = (
-        "hari ini",
-        "besok",
-        "lusa",
-        "nanti malam",
-        "tanggal ",
-        "jam ",
-        "pukul ",
-        "today",
-        "tomorrow",
-        "tonight",
+        "hari ini", "besok", "lusa", "nanti malam", "nanti pagi",
+        "nanti sore", "malam ini", "pagi ini", "sore ini", "tanggal ",
+        "jam ", "pukul ", "today", "tomorrow", "tonight",
+        "this morning", "this afternoon", "this evening",
+        "next monday", "next tuesday", "next wednesday", "next thursday",
+        "next friday", "next saturday", "next sunday",
     )
     has_digit_time = any(ch.isdigit() for ch in raw) and any(
         marker in raw for marker in ("jam", "pukul", ":", ".", "am", "pm")
@@ -306,6 +301,8 @@ def decide(
 
     # Legacy memory overlaps with memory_intelligence and is the most expensive
     # because it also embeds and dedup-checks rows. Keep it off by default.
+    has_memory_signal = has_memory_signal or _looks_like_self_regulation_memory_preference(text)
+
     run_legacy_memory = False
 
     # Structured memory intelligence handles identity, preferences, routines,

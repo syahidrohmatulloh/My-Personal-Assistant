@@ -325,32 +325,95 @@ def looks_like_self_regulation_memory_preference(text: str | None) -> bool:
     Example:
     "ke depan kalau aku tiba-tiba marah, kamu ingetin aku aja"
 
-    This is intentionally narrow: it requires an emotional/self-regulation term
-    plus future-preference or self-reminder wording, and it does not block
-    messages with concrete calendar date/time specificity.
+    This is intentionally narrow:
+    - emotional/self-regulation state
+    - plus future-preference or self-reminder wording
+    - plus no concrete calendar date/time specificity
+
+    It should not catch generic operational phrases such as "server down",
+    "saham drop", or "battery low".
     """
     raw = " ".join(str(text or "").lower().split())
     if not raw:
         return False
 
-    emotion_terms = (
+    strong_state_terms = (
+        # Indonesian / mixed Indonesian-English
         "marah",
         "emosi",
+        "emosian",
         "kesal",
+        "sebel",
         "sedih",
         "panik",
         "cemas",
-        "anxious",
-        "anxiety",
+        "gelisah",
+        "khawatir",
+        "overthinking",
+        "overthink",
+        "insecure",
+        "insekyur",
+        "minder",
+        "capek",
+        "lelah",
+        "burnout",
+        "burn out",
+        "stres",
+        "stress",
+        "tertekan",
+        "kewalahan",
+        "galau",
+        "bad mood",
+        "badmood",
+        "mood jelek",
+        "gak mood",
+        "ga mood",
+        "nggak mood",
+        "hopeless",
+        "putus asa",
+        "frustrasi",
+        "frustasi",
+        "kalut",
+        # English
         "angry",
         "upset",
-        "stress",
+        "anxious",
+        "anxiety",
+        "worried",
+        "worry",
         "stressed",
         "overwhelmed",
-        "capek",
         "tired",
+        "exhausted",
+        "sad",
+        "panic",
+        "panicking",
+        "frustrated",
+        "spiraling",
+        "spiralling",
     )
-    if not any(term in raw for term in emotion_terms):
+    contextual_state_phrases = (
+        "feel down",
+        "feeling down",
+        "lagi down",
+        "mood down",
+        "feeling low",
+        "low mood",
+        "mood low",
+        "mood lagi drop",
+        "mood drop",
+        "mental drop",
+        "mental lagi gelap",
+        "pikiran gelap",
+        "mood gelap",
+        "mulai spiral",
+        "lagi spiral",
+        "spiral lagi",
+    )
+    if not (
+        any(term in raw for term in strong_state_terms)
+        or any(term in raw for term in contextual_state_phrases)
+    ):
         return False
 
     future_preference_terms = (
@@ -365,8 +428,14 @@ def looks_like_self_regulation_memory_preference(text: str | None) -> bool:
         "kalo aku",
         "kalau saya",
         "kalo saya",
+        "kalau lagi",
+        "pas aku",
         "if i",
+        "if i'm",
+        "if im",
         "when i",
+        "when i'm",
+        "when im",
     )
     self_reminder_terms = (
         "ingetin aku",
