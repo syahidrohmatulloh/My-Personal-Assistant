@@ -1359,6 +1359,12 @@ async def chat(
         )
 
     timing_log.info(
+        "chat: user=%s %s",
+        user_id[:8],
+        memory.build_retrieval_diagnostics(legacy_memories, related_summaries),
+    )
+
+    timing_log.info(
         "chat: user=%s context_keys=%s legacy_mems=%d related_summaries=%d history_len=%d history_ms=%.1f attachments=%d mode=%s style=%s %s",
         user_id[:8],
         list(context.keys()),

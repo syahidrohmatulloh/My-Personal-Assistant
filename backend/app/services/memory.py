@@ -545,5 +545,70 @@ def format_for_prompt(memories: list[dict]) -> str:
         lines.append(f"- {m['content']}{label}")
     return "\n".join(lines)
 
+
+
+def _mi_safe_join(values: set[str], *, limit: int = 8) -> str:
+    cleaned = sorted(v for v in values if v)
+    if not cleaned:
+        return "-"
+    shown = cleaned[:limit]
+    suffix = f"+{len(cleaned) - limit}" if len(cleaned) > limit else ""
+    return ",".join(shown) + suffix
+
+
+def build_retrieval_diagnostics(
+    memories: list[dict],
+    related_summaries: list[dict] | None = None,
+) -> str:
+    """Return safe memory-context diagnostics for logs.
+
+    This intentionally does NOT include memory content, evidence, summary text,
+    titles, or user-provided values. It only exposes aggregate counts and
+    metadata useful for debugging whether retrieval/injection happened.
+    """
+    summaries = related_summaries or []
+    categories = {
+        str(m.get("category") or "").strip().lower()
+        for m in memories
+        if m.get("category")
+    }
+    fields = {
+        str(m.get("structured_field") or "").strip().lower()
+        for m in memories
+        if m.get("structured_field")
+    }
+
+    memory_scores: list[float] = []
+    for m in memories:
+        if m.get("retrieval_score") is not None:
+            memory_scores.append(_mi_as_float(m.get("retrieval_score"), 0.0))
+        elif m.get("similarity") is not None:
+            memory_scores.append(_mi_as_float(m.get("similarity"), 0.0))
+
+    summary_scores: list[float] = []
+    for s in summaries:
+        if s.get("similarity") is not None:
+            summary_scores.append(_mi_as_float(s.get("similarity"), 0.0))
+
+    avg_memory_score = (
+        f"{sum(memory_scores) / len(memory_scores):.3f}" if memory_scores else "-"
+    )
+    max_memory_score = f"{max(memory_scores):.3f}" if memory_scores else "-"
+    avg_summary_score = (
+        f"{sum(summary_scores) / len(summary_scores):.3f}" if summary_scores else "-"
+    )
+
+    return (
+        "memory_context:"
+        f" memories={len(memories)}"
+        f" summaries={len(summaries)}"
+        f" categories={_mi_safe_join(categories)}"
+        f" fields={_mi_safe_join(fields)}"
+        f" avg_memory_score={avg_memory_score}"
+        f" max_memory_score={max_memory_score}"
+        f" avg_summary_score={avg_summary_score}"
+    )
+
+
 # --- End Memory Retrieval Ranking 2.0 ---
 
