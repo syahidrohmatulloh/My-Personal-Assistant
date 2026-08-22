@@ -713,7 +713,7 @@ async def chat(
         _check_ownership(supabase, body.conversation_id, user_id),
         _save_user_message(supabase, body.conversation_id, body.message),
         _safe_life_model_context(user_id, mood_days=14),
-        memory.retrieve_relevant(user_id, body.message, limit=5),
+        memory.retrieve_relevant(user_id, body.message, limit=12),
         conversation_summary.retrieve_related_summaries(
             user_id=user_id,
             query_text=body.message,

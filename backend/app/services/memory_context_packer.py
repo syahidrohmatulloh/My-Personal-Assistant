@@ -1,7 +1,7 @@
 """Pack retrieved memory context before injecting it into the LLM prompt.
 
-The retrieval layer decides what is relevant. This packer decides how much context
-is safe and useful to place into the prompt for a single turn.
+Retrieval decides what is relevant. This packer decides what is safe, compact,
+and useful enough to place into the prompt for a single turn.
 """
 
 from __future__ import annotations
@@ -14,12 +14,25 @@ from typing import Any
 MAX_MEMORY_PROMPT_ITEMS = 5
 MAX_RELATED_SUMMARY_ITEMS = 2
 MAX_MEMORY_ITEMS_PER_CATEGORY = 4
+MAX_MEMORY_ITEM_CHARS = 280
+MAX_SUMMARY_ITEM_CHARS = 360
+MAX_PACKED_CONTEXT_CHARS = 2200
 
 _UNCAPPED_CATEGORIES = {
     "identity",
     "important_dates",
     "relationships",
     "constraints",
+}
+
+_CATEGORY_PACKING_BONUS = {
+    "identity": 0.60,
+    "important_dates": 0.50,
+    "relationships": 0.40,
+    "constraints": 0.35,
+    "preferences": 0.10,
+    "routines": 0.05,
+    "goals": 0.05,
 }
 
 
@@ -30,6 +43,7 @@ class PackedMemoryContext:
     summary_count: int
     dropped_memory_count: int
     dropped_summary_count: int
+    total_chars: int = 0
 
 
 def _as_float(value: Any, default: float = 0.0) -> float:
@@ -43,6 +57,17 @@ def _as_float(value: Any, default: float = 0.0) -> float:
 
 def _as_text(value: Any) -> str:
     return " ".join(str(value or "").split())
+
+
+def _truncate_text(text: str, max_chars: int) -> str:
+    text = _as_text(text)
+    if max_chars <= 0:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    if max_chars <= 1:
+        return text[:max_chars]
+    return text[: max_chars - 1].rstrip() + "…"
 
 
 def _is_active_memory(row: dict[str, Any]) -> bool:
@@ -64,6 +89,13 @@ def _memory_score(row: dict[str, Any]) -> float:
     if similarity is not None:
         return _as_float(similarity)
     return _as_float(row.get("confidence"))
+
+
+def _packing_score(row: dict[str, Any]) -> float:
+    category = _as_text(row.get("category")).casefold()
+    structured_field = _as_text(row.get("structured_field"))
+    structured_bonus = 0.12 if structured_field else 0.0
+    return _memory_score(row) + _CATEGORY_PACKING_BONUS.get(category, 0.0) + structured_bonus
 
 
 def _memory_tie_breaker(row: dict[str, Any]) -> float:
@@ -110,6 +142,7 @@ def _select_memory_rows(
 
     candidates.sort(
         key=lambda item: (
+            _packing_score(item[1]),
             _memory_score(item[1]),
             _memory_tie_breaker(item[1]),
             -item[0],
@@ -174,6 +207,65 @@ def _select_summary_rows(
     return selected
 
 
+def _render_memory_section(
+    rows: list[dict[str, Any]],
+    *,
+    max_chars: int,
+    max_item_chars: int,
+) -> tuple[str, int]:
+    if not rows or max_chars <= 0:
+        return "", 0
+
+    header = [
+        "## Relevant memory context",
+        "Use this silently for continuity. Do not recite it unless directly useful.",
+    ]
+    lines: list[str] = []
+
+    for row in rows:
+        line = f"- {_truncate_text(_as_text(row.get('content')), max_item_chars)}{_memory_label(row)}"
+        candidate = "\n".join(header + lines + [line])
+        if len(candidate) > max_chars:
+            break
+        lines.append(line)
+
+    if not lines:
+        return "", 0
+
+    return "\n".join(header + lines), len(lines)
+
+
+def _render_summary_section(
+    rows: list[dict[str, Any]],
+    *,
+    max_chars: int,
+    max_item_chars: int,
+) -> tuple[str, int]:
+    if not rows or max_chars <= 0:
+        return "", 0
+
+    header = [
+        "## Possibly related past conversations",
+        "Use for grounding only; do not recap unless the user asks.",
+    ]
+    lines: list[str] = []
+
+    for row in rows:
+        when = _as_text(row.get("updated_at"))[:10] if row.get("updated_at") else "?"
+        title = _truncate_text(_as_text(row.get("title")) or "Untitled", 120)
+        summary = _truncate_text(_as_text(row.get("summary")), max_item_chars)
+        line = f"- [{when}] {title}: {summary}"
+        candidate = "\n".join(header + lines + [line])
+        if len(candidate) > max_chars:
+            break
+        lines.append(line)
+
+    if not lines:
+        return "", 0
+
+    return "\n".join(header + lines), len(lines)
+
+
 def pack_memory_context_for_prompt(
     *,
     legacy_memories: list[dict[str, Any]] | None,
@@ -181,6 +273,9 @@ def pack_memory_context_for_prompt(
     max_memory_items: int = MAX_MEMORY_PROMPT_ITEMS,
     max_related_summary_items: int = MAX_RELATED_SUMMARY_ITEMS,
     max_memory_items_per_category: int = MAX_MEMORY_ITEMS_PER_CATEGORY,
+    max_memory_item_chars: int = MAX_MEMORY_ITEM_CHARS,
+    max_summary_item_chars: int = MAX_SUMMARY_ITEM_CHARS,
+    max_total_chars: int = MAX_PACKED_CONTEXT_CHARS,
 ) -> PackedMemoryContext:
     memories = list(legacy_memories or [])
     summaries = list(related_summaries or [])
@@ -196,32 +291,32 @@ def pack_memory_context_for_prompt(
     )
 
     sections: list[str] = []
+    remaining_chars = max_total_chars
 
-    if selected_memories:
-        memory_lines = [
-            "## Relevant memory context",
-            "Use this silently for continuity. Do not recite it unless directly useful.",
-        ]
-        for row in selected_memories:
-            memory_lines.append(f"- {_as_text(row.get('content'))}{_memory_label(row)}")
-        sections.append("\n".join(memory_lines))
+    memory_section, rendered_memory_count = _render_memory_section(
+        selected_memories,
+        max_chars=remaining_chars,
+        max_item_chars=max_memory_item_chars,
+    )
+    if memory_section:
+        sections.append(memory_section)
+        remaining_chars = max(0, remaining_chars - len(memory_section) - 2)
 
-    if selected_summaries:
-        summary_lines = [
-            "## Possibly related past conversations",
-            "Use for grounding only; do not recap unless the user asks.",
-        ]
-        for row in selected_summaries:
-            when = _as_text(row.get("updated_at"))[:10] if row.get("updated_at") else "?"
-            title = _as_text(row.get("title")) or "Untitled"
-            summary = _as_text(row.get("summary"))
-            summary_lines.append(f"- [{when}] {title}: {summary}")
-        sections.append("\n".join(summary_lines))
+    summary_section, rendered_summary_count = _render_summary_section(
+        selected_summaries,
+        max_chars=remaining_chars,
+        max_item_chars=max_summary_item_chars,
+    )
+    if summary_section:
+        sections.append(summary_section)
+
+    text = "\n\n".join(sections)
 
     return PackedMemoryContext(
-        text="\n\n".join(sections),
-        memory_count=len(selected_memories),
-        summary_count=len(selected_summaries),
-        dropped_memory_count=max(0, len(memories) - len(selected_memories)),
-        dropped_summary_count=max(0, len(summaries) - len(selected_summaries)),
+        text=text,
+        memory_count=rendered_memory_count,
+        summary_count=rendered_summary_count,
+        dropped_memory_count=max(0, len(memories) - rendered_memory_count),
+        dropped_summary_count=max(0, len(summaries) - rendered_summary_count),
+        total_chars=len(text),
     )

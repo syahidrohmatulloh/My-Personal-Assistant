@@ -50,6 +50,34 @@ def test_pack_memory_context_filters_dedupes_and_caps_memories() -> None:
     assert "Use this silently for continuity" in packed.text
 
 
+def test_pack_memory_context_prioritizes_critical_identity_memory() -> None:
+    memories = [
+        {
+            "id": "preference",
+            "content": "User likes casual phrasing",
+            "category": "preferences",
+            "similarity": 0.95,
+        },
+        {
+            "id": "identity",
+            "content": "User's daughter is Zahra",
+            "category": "identity",
+            "structured_field": "daughter_name",
+            "similarity": 0.55,
+            "confidence": 0.95,
+        },
+    ]
+
+    packed = pack_memory_context_for_prompt(
+        legacy_memories=memories,
+        related_summaries=[],
+        max_memory_items=1,
+    )
+
+    assert "User's daughter is Zahra" in packed.text
+    assert "User likes casual phrasing" not in packed.text
+
+
 def test_pack_memory_context_caps_noisy_category() -> None:
     memories = [
         {
@@ -73,11 +101,32 @@ def test_pack_memory_context_caps_noisy_category() -> None:
     assert "Preference memory 4" not in packed.text
 
 
-def test_pack_memory_context_caps_related_summaries() -> None:
+def test_pack_memory_context_truncates_long_memory_items_and_tracks_budget() -> None:
+    packed = pack_memory_context_for_prompt(
+        legacy_memories=[
+            {
+                "id": "long",
+                "content": "x" * 1000,
+                "category": "preferences",
+                "similarity": 0.99,
+            }
+        ],
+        related_summaries=[],
+        max_memory_item_chars=80,
+        max_total_chars=500,
+    )
+
+    assert packed.memory_count == 1
+    assert "x" * 120 not in packed.text
+    assert "…" in packed.text
+    assert packed.total_chars <= 500
+
+
+def test_pack_memory_context_caps_related_summaries_and_truncates_text() -> None:
     summaries = [
         {
             "title": f"Conversation {i}",
-            "summary": f"Summary {i}",
+            "summary": "s" * 1000,
             "updated_at": f"2026-08-2{i}T00:00:00",
         }
         for i in range(4)
@@ -87,6 +136,8 @@ def test_pack_memory_context_caps_related_summaries() -> None:
         legacy_memories=[],
         related_summaries=summaries,
         max_related_summary_items=2,
+        max_summary_item_chars=90,
+        max_total_chars=700,
     )
 
     assert packed.memory_count == 0
@@ -95,6 +146,9 @@ def test_pack_memory_context_caps_related_summaries() -> None:
     assert "Conversation 0" in packed.text
     assert "Conversation 1" in packed.text
     assert "Conversation 2" not in packed.text
+    assert "s" * 120 not in packed.text
+    assert "…" in packed.text
+    assert packed.total_chars <= 700
 
 
 def test_pack_memory_context_returns_empty_text_when_no_context() -> None:
@@ -106,3 +160,4 @@ def test_pack_memory_context_returns_empty_text_when_no_context() -> None:
     assert packed.text == ""
     assert packed.memory_count == 0
     assert packed.summary_count == 0
+    assert packed.total_chars == 0
