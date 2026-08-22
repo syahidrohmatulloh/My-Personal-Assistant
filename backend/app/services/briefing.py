@@ -66,16 +66,9 @@ honest — don't pad.
 Output ONLY the briefing text. No preamble, no markdown headers, no quotes."""
 
 
-async def get_or_generate_briefing(
-    *,
-    user_id: str,
-    local_date: str,  # 'YYYY-MM-DD' in user's local timezone
-) -> dict[str, Any]:
-    """Return today's briefing for the user, generating it if missing.
 
-    Returns: {id, content, generated_at, conversation_id, opened_at}
-    """
-    # Check if briefing exists for this user+date.
+def _select_existing_briefing(*, user_id: str, local_date: str) -> dict[str, Any] | None:
+    """Return an existing daily briefing row, if present."""
     existing = safe_execute(
         lambda sb: sb.table("daily_briefings")
         .select("id, content, generated_at, conversation_id, opened_at")
@@ -86,6 +79,32 @@ async def get_or_generate_briefing(
     )
     if existing and existing.data:
         return existing.data
+    return None
+
+
+def _is_daily_briefing_duplicate_error(exc: Exception) -> bool:
+    """Detect the user_id + briefing_date unique constraint race."""
+    text = str(exc).lower()
+    return (
+        "23505" in text
+        or "daily_briefings_user_id_briefing_date_key" in text
+        or "duplicate key value violates unique constraint" in text
+    )
+
+
+async def get_or_generate_briefing(
+    *,
+    user_id: str,
+    local_date: str,  # 'YYYY-MM-DD' in user's local timezone
+) -> dict[str, Any]:
+    """Return today's briefing for the user, generating it if missing.
+
+    Returns: {id, content, generated_at, conversation_id, opened_at}
+    """
+    # Check if briefing exists for this user+date.
+    existing = _select_existing_briefing(user_id=user_id, local_date=local_date)
+    if existing:
+        return existing
 
     # Generate fresh.
     content = await _generate_briefing_content(user_id)
@@ -93,17 +112,33 @@ async def get_or_generate_briefing(
         # Empty briefing — don't persist. Caller treats as "no briefing today".
         return {}
 
-    inserted = safe_execute(
-        lambda sb: sb.table("daily_briefings")
-        .insert(
-            {
-                "user_id": user_id,
-                "briefing_date": local_date,
-                "content": content,
-            }
+    try:
+        inserted = safe_execute(
+            lambda sb: sb.table("daily_briefings")
+            .insert(
+                {
+                    "user_id": user_id,
+                    "briefing_date": local_date,
+                    "content": content,
+                }
+            )
+            .execute()
         )
-        .execute()
-    )
+    except Exception as exc:  # noqa: BLE001
+        if _is_daily_briefing_duplicate_error(exc):
+            existing_after_race = _select_existing_briefing(
+                user_id=user_id,
+                local_date=local_date,
+            )
+            if existing_after_race:
+                log.info(
+                    "briefing: recovered duplicate insert race for user=%s date=%s",
+                    user_id[:8],
+                    local_date,
+                )
+                return existing_after_race
+        raise
+
     row = (inserted.data or [{}])[0]
     log.info(
         "briefing: generated for user=%s date=%s len=%d",
