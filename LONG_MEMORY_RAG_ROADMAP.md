@@ -144,6 +144,38 @@ MR1-MR4 left precision on the table. Cost/latency budgeted.
 
 ---
 
+
+## MR0.2 — Retrieval diagnostics + threshold sweep (REVIEW)
+
+**Why:** the first MR0.1 baseline showed recall@5/10 = 0.4000 on a small
+self-regulation eval set. The relevant memory existed and was active, and when
+retrieval hit, it ranked #1. The likely miss mechanism is below-threshold
+near-misses being hidden by production's `MIN_SIMILARITY = 0.5` gate.
+
+**Scope:** tooling-only diagnostics. `memory.py`, `retrieve_relevant`, and
+production `MIN_SIMILARITY` are not changed.
+
+**Adds**
+- per-query diagnostics in `tools/eval_retrieval.py --diagnostics`
+- unfiltered read-only candidate fetch through the existing `match_memories` RPC
+- dropped relevant IDs + similarity/retrieval_score
+- read-only threshold sweep across 0.30, 0.35, 0.40, 0.45, 0.50
+- pure tests in `tests/test_retrieval_eval.py`
+
+**Run**
+
+    cd backend
+    uv run python tools/eval_retrieval.py --eval-set eval/retrieval_eval.local.json
+    uv run python tools/eval_retrieval.py --eval-set eval/retrieval_eval.local.json --diagnostics
+
+**Decision rule**
+- if a slightly lower threshold recovers relevant IDs without many suspicious
+  false positives, consider a small threshold tune as a measured runtime patch.
+- if exact terms still miss after threshold visibility, evaluate MR2-lite hybrid
+  or query normalization.
+- do not start MR1 chunking unless MR0 shows misses caused by long/multi-fact
+  memories rather than threshold filtering.
+
 ## Guardrails (carried from project doctrine)
 
 1. Supabase/pgvector stays the source of truth (no Obsidian/flat-file core).
