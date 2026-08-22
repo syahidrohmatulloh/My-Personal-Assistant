@@ -606,7 +606,23 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
 
     rows = result.data or []
     ranked = rank_memory_rows(rows, min_similarity=min_similarity)
-    return ranked[:limit]
+    returned = ranked[:limit]
+
+    log.info(
+        "memory retrieval trace: user=%s gate=%s normalized=%s normalize_reason=%s "
+        "min_similarity=%.2f requested_limit=%d match_count=%d fetched=%d returned=%d",
+        str(user_id)[:8],
+        gate_decision.reason,
+        normalized_query.applied,
+        normalized_query.reason,
+        min_similarity,
+        limit,
+        match_count,
+        len(rows),
+        len(returned),
+    )
+
+    return returned
 
 
 def format_for_prompt(memories: list[dict]) -> str:
