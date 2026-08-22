@@ -32,6 +32,7 @@ from app.services.supabase_client import get_supabase, safe_execute
 from app.services.memory_retrieval_gate import should_retrieve_memory
 
 log = logging.getLogger(__name__)
+production_log = logging.getLogger("uvicorn.error")
 
 
 # Re-summarize a conversation every N new messages.
@@ -194,7 +195,7 @@ async def retrieve_related_summaries(
     """
     gate_decision = should_retrieve_memory(query_text)
     if not gate_decision.should_retrieve:
-        log.info(
+        production_log.info(
             "summary retrieval gate: user=%s gate=%s returned=0",
             user_id[:8],
             gate_decision.reason,
@@ -225,7 +226,7 @@ async def retrieve_related_summaries(
         return []
 
     rows = result.data or []
-    log.info(
+    production_log.info(
         "summary retrieval trace: user=%s gate=%s min_similarity=%.2f requested_limit=%d returned=%d",
         user_id[:8],
         gate_decision.reason,
