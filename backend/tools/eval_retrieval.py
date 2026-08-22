@@ -39,6 +39,7 @@ from app.services.retrieval_eval import (
     QueryResult,
     diagnose_query,
     evaluate,
+    rank_candidates_at_threshold,
     threshold_sweep,
 )
 
@@ -63,6 +64,10 @@ def load_eval_set(path: Path) -> dict[str, Any]:
             raise ValueError(f"query item #{index + 1} is missing query")
         if not isinstance(item.get("relevant_ids"), list):
             raise ValueError(f"query item #{index + 1} is missing relevant_ids list")
+        if item.get("expect_empty") and item.get("relevant_ids"):
+            raise ValueError(
+                f"query item #{index + 1} has expect_empty=true but also relevant_ids"
+            )
 
     return data
 
@@ -267,6 +272,7 @@ async def run_live(
     for item in queries:
         query = str(item["query"])
         relevant_ids = {str(value) for value in item.get("relevant_ids", [])}
+        expect_empty = bool(item.get("expect_empty"))
         rows = await retrieve_relevant(user_id, query, limit=top_k)
 
         rows_with_id = [row for row in rows if row.get("id")]
@@ -298,12 +304,14 @@ async def run_diagnostics(
 
     production_results: list[QueryResult] = []
     candidate_cases: list[CandidateCase] = []
+    negative_cases: list[tuple[str, list[dict[str, Any]]]] = []
 
     print("\nPer-query diagnostics\n")
 
     for index, item in enumerate(queries, 1):
         query = str(item["query"])
         relevant_ids = {str(value) for value in item.get("relevant_ids", [])}
+        expect_empty = bool(item.get("expect_empty"))
 
         production_rows = await retrieve_relevant(user_id, query, limit=top_k)
         production_ids = [str(row["id"]) for row in production_rows if row.get("id")]
@@ -319,21 +327,24 @@ async def run_diagnostics(
             limit=max(raw_limit, top_k),
         )
 
-        production_results.append(
-            QueryResult(
-                query=query,
-                retrieved_ids=production_ids,
-                relevant_ids=relevant_ids,
-                similarities=production_scores,
+        if expect_empty:
+            negative_cases.append((query, unfiltered))
+        else:
+            production_results.append(
+                QueryResult(
+                    query=query,
+                    retrieved_ids=production_ids,
+                    relevant_ids=relevant_ids,
+                    similarities=production_scores,
+                )
             )
-        )
-        candidate_cases.append(
-            CandidateCase(
-                query=query,
-                candidates=unfiltered,
-                relevant_ids=relevant_ids,
+            candidate_cases.append(
+                CandidateCase(
+                    query=query,
+                    candidates=unfiltered,
+                    relevant_ids=relevant_ids,
+                )
             )
-        )
 
         diagnostic = diagnose_query(
             query=query,
@@ -347,6 +358,9 @@ async def run_diagnostics(
         print(f"{index}. {query}")
         print(f"   relevant:        {', '.join(sorted(relevant_ids)) or '-'}")
         print(f"   production hit:  {'yes' if diagnostic.production_hit else 'no'}")
+        if expect_empty:
+            print("   expect empty:    yes")
+            print(f"   false positive:  {'yes' if production_ids else 'no'}")
         print(f"   first rank:      {diagnostic.first_hit_rank or '-'}")
         print(f"   top score:       {diagnostic.top_score:.4f}" if diagnostic.top_score is not None else "   top score:       -")
         print(f"   production ids:  {', '.join(production_ids) or '-'}")
@@ -365,11 +379,11 @@ async def run_diagnostics(
         print()
 
     report = evaluate(production_results)
-    print("Production-filter report\n")
+    print("Positive-query production-filter report\n")
     for line in report.as_lines():
         print("  " + line)
 
-    print("\nRead-only threshold sweep\n")
+    print("\nPositive-query read-only threshold sweep\n")
     print("  threshold  recall@5  recall@10  MRR     hit_rate  mean_rank")
     reports = threshold_sweep(candidate_cases, thresholds, limit=top_k)
     for threshold in sorted(reports):
@@ -383,6 +397,22 @@ async def run_diagnostics(
             f"{r.hit_rate:>8.4f}  "
             f"{mean_rank:>9}"
         )
+
+    if negative_cases:
+        print("\nNegative-probe threshold check\n")
+        print("  query | admitted candidates by threshold")
+        for query, candidates in negative_cases:
+            parts = []
+            for threshold in sorted(thresholds):
+                admitted = rank_candidates_at_threshold(
+                    candidates,
+                    threshold=threshold,
+                    limit=top_k,
+                )
+                count = len(admitted)
+                parts.append(f"{threshold:.2f}:{count}{'!' if count else ''}")
+            print(f"  {query} | " + ", ".join(parts))
+        print("  ! means this expected-empty query would admit at least one candidate.")
 
     print(
         "\nThis sweep is diagnostic only. It does not change production MIN_SIMILARITY."

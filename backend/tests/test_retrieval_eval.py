@@ -172,3 +172,74 @@ def test_eval_retrieval_rpc_payloads_include_current_supabase_signature() -> Non
         "p_query_embedding": [0.1, 0.2],
         "p_match_count": 10,
     } in payloads
+
+
+def test_load_eval_set_accepts_expect_empty_negative_probe(tmp_path) -> None:
+    import importlib.util
+    import json
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "eval_retrieval",
+        Path(__file__).resolve().parents[1] / "tools" / "eval_retrieval.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    path = tmp_path / "eval.json"
+    path.write_text(
+        json.dumps(
+            {
+                "user_id": "user-123",
+                "queries": [
+                    {
+                        "query": "berapa harga saham hari ini",
+                        "relevant_ids": [],
+                        "expect_empty": True,
+                        "notes": "negative-probe",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    data = module.load_eval_set(path)
+
+    assert data["queries"][0]["expect_empty"] is True
+
+
+def test_load_eval_set_rejects_expect_empty_with_relevant_ids(tmp_path) -> None:
+    import importlib.util
+    import json
+    from pathlib import Path
+
+    import pytest
+
+    spec = importlib.util.spec_from_file_location(
+        "eval_retrieval",
+        Path(__file__).resolve().parents[1] / "tools" / "eval_retrieval.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    path = tmp_path / "eval.json"
+    path.write_text(
+        json.dumps(
+            {
+                "user_id": "user-123",
+                "queries": [
+                    {
+                        "query": "bad negative",
+                        "relevant_ids": ["id1"],
+                        "expect_empty": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="expect_empty=true"):
+        module.load_eval_set(path)
+

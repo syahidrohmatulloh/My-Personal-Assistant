@@ -23,7 +23,7 @@ Typical loop:
     # 3) repeat for ~30-50 queries, then run the MR0 harness live:
     uv run python tools/eval_retrieval.py --eval-set eval/retrieval_eval.local.json
 
-Flags: --user-id, --query, --relevant-ids, --limit, --notes, --output, --dry-run.
+Flags: --user-id, --query, --relevant-ids, --expect-empty, --limit, --notes, --output, --dry-run.
 """
 
 from __future__ import annotations
@@ -92,6 +92,11 @@ def main() -> int:
         "If given, the query is recorded to the eval set. If omitted, the tool "
         "only previews candidates so you can choose them.",
     )
+    p.add_argument(
+        "--expect-empty",
+        action="store_true",
+        help="Record a negative probe: this query should not retrieve any memory.",
+    )
     p.add_argument("--limit", type=int, default=10, help="Preview depth (default 10).")
     p.add_argument("--notes", help="Optional note stored with the query (no content).")
     p.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Eval set path (gitignored).")
@@ -102,10 +107,14 @@ def main() -> int:
     )
     args = p.parse_args()
 
-    record_mode = bool(args.relevant_ids)
+    record_mode = args.relevant_ids is not None or bool(args.expect_empty)
+
+    if args.expect_empty and args.relevant_ids is not None:
+        print("[error] use either --expect-empty or --relevant-ids, not both.")
+        return 2
 
     if record_mode and not args.user_id:
-        print("[error] --relevant-ids requires --user-id (the eval set is per-user).")
+        print("[error] recording a query requires --user-id (the eval set is per-user).")
         return 2
 
     if not record_mode:
@@ -130,8 +139,17 @@ def main() -> int:
         )
         return 0
 
-    relevant_ids = [x.strip() for x in str(args.relevant_ids).split(",") if x.strip()]
+    if args.expect_empty:
+        relevant_ids = []
+    else:
+        relevant_ids = [x.strip() for x in str(args.relevant_ids).split(",") if x.strip()]
+        if not relevant_ids:
+            print("[error] --relevant-ids was empty. Use --expect-empty for negative probes.")
+            return 2
+
     entry = {"query": args.query, "relevant_ids": relevant_ids}
+    if args.expect_empty:
+        entry["expect_empty"] = True
     if args.notes:
         entry["notes"] = args.notes
 

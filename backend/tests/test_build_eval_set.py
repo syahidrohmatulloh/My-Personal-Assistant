@@ -55,3 +55,95 @@ def test_load_preserves_existing_and_fills_user_id(tmp_path):
     data = build_eval_set._load_output(path, "user-xyz")
     assert data["user_id"] == "user-xyz"
     assert len(data["queries"]) == 1
+
+
+def test_expect_empty_records_negative_probe(tmp_path, monkeypatch) -> None:
+    import json
+    import sys
+
+    output = tmp_path / "retrieval_eval.local.json"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "build_eval_set.py",
+            "--user-id",
+            "user-123",
+            "--query",
+            "berapa harga saham hari ini",
+            "--expect-empty",
+            "--notes",
+            "negative-probe",
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert build_eval_set.main() == 0
+
+    data = json.loads(output.read_text(encoding="utf-8"))
+    assert data["queries"][0] == {
+        "query": "berapa harga saham hari ini",
+        "relevant_ids": [],
+        "expect_empty": True,
+        "notes": "negative-probe",
+    }
+
+
+def test_empty_relevant_ids_no_longer_silently_enters_preview_mode(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import sys
+
+    output = tmp_path / "retrieval_eval.local.json"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "build_eval_set.py",
+            "--user-id",
+            "user-123",
+            "--query",
+            "negative probe",
+            "--relevant-ids",
+            "",
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert build_eval_set.main() == 2
+    assert not output.exists()
+
+
+def test_expect_empty_and_relevant_ids_are_mutually_exclusive(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import sys
+
+    output = tmp_path / "retrieval_eval.local.json"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "build_eval_set.py",
+            "--user-id",
+            "user-123",
+            "--query",
+            "bad probe",
+            "--expect-empty",
+            "--relevant-ids",
+            "id1",
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert build_eval_set.main() == 2
+    assert not output.exists()
+
