@@ -267,6 +267,13 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
     Returns a list of {id, content, kind, similarity} dicts, ordered by
     similarity (most relevant first), filtered above MIN_SIMILARITY.
     """
+
+    from app.services.memory_retrieval_gate import should_retrieve_memory
+
+    gate_decision = should_retrieve_memory(query_text)
+    if not gate_decision.should_retrieve:
+        return []
+
     try:
         query_embedding = await embed_query(query_text)
     except Exception as exc:  # noqa: BLE001
@@ -556,6 +563,13 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
     priority, source priority, recency, and optional salience. Superseded rows are
     excluded both by SQL RPC when available and again in Python for safety.
     """
+
+    from app.services.memory_retrieval_gate import should_retrieve_memory
+
+    gate_decision = should_retrieve_memory(query_text)
+    if not gate_decision.should_retrieve:
+        return []
+
     try:
         query_embedding = await embed_query(query_text)
     except Exception as exc:  # noqa: BLE001
@@ -660,4 +674,3 @@ def build_retrieval_diagnostics(
 
 
 # --- End Memory Retrieval Ranking 2.0 ---
-
