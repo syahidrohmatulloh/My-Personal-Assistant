@@ -1303,6 +1303,7 @@ async def chat(
     packed_memory_context = pack_memory_context_for_prompt(
         legacy_memories=legacy_memories,
         related_summaries=related_summaries,
+        query_text=body.message,
     )
     if packed_memory_context.text:
         volatile_context += "\n\n" + packed_memory_context.text
