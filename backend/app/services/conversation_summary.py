@@ -30,6 +30,7 @@ from app.services.llm_v2 import get_utility_llm
 from app.services.embeddings import embed_document, embed_query
 from app.services.supabase_client import get_supabase, safe_execute
 from app.services.memory_retrieval_gate import should_retrieve_memory
+from app.services.conversation_episode import classify_episode_text
 
 log = logging.getLogger(__name__)
 production_log = logging.getLogger("uvicorn.error")
@@ -41,6 +42,12 @@ SUMMARIZE_EVERY_N_MESSAGES = 10
 # Cap on summary length — keeps retrieved-prompt size sane when multiple
 # summaries are injected.
 SUMMARY_MAX_CHARS = 400
+
+# Conversation summaries are short and sparse. Keep generic retrieval strict,
+# but allow episode/personal queries to recover near-miss summaries after
+# public/current gating has already blocked unsafe queries.
+GENERIC_SUMMARY_MIN_SIMILARITY = 0.55
+EPISODIC_SUMMARY_MIN_SIMILARITY = 0.40
 
 
 SUMMARY_PROMPT = """Summarize this conversation between a user and their personal AI assistant.
@@ -202,6 +209,14 @@ async def retrieve_related_summaries(
         )
         return []
 
+    episode = classify_episode_text(query_text)
+    effective_min_similarity = min_similarity
+    if gate_decision.reason.startswith("personal_cue:") or episode.is_specific:
+        effective_min_similarity = min(
+            min_similarity,
+            EPISODIC_SUMMARY_MIN_SIMILARITY,
+        )
+
     try:
         query_embedding = await embed_query(query_text)
     except Exception as exc:  # noqa: BLE001
@@ -217,7 +232,7 @@ async def retrieve_related_summaries(
                     "p_query_embedding": query_embedding,
                     "p_exclude_id": exclude_conversation_id,
                     "p_match_count": limit,
-                    "p_min_similarity": min_similarity,
+                    "p_min_similarity": effective_min_similarity,
                 },
             ).execute()
         )
@@ -227,10 +242,11 @@ async def retrieve_related_summaries(
 
     rows = result.data or []
     production_log.info(
-        "summary retrieval trace: user=%s gate=%s min_similarity=%.2f requested_limit=%d returned=%d",
+        "summary retrieval trace: user=%s gate=%s episode=%s min_similarity=%.2f requested_limit=%d returned=%d",
         user_id[:8],
         gate_decision.reason,
-        min_similarity,
+        episode.kind,
+        effective_min_similarity,
         limit,
         len(rows),
     )

@@ -26,3 +26,13 @@ def test_summary_retrieval_uses_production_visible_logger() -> None:
     assert "production_log.info" in source
     assert "summary retrieval gate:" in source
     assert "summary retrieval trace:" in source
+
+
+
+def test_summary_retrieval_uses_dynamic_episode_threshold() -> None:
+    source = inspect.getsource(conversation_summary.retrieve_related_summaries)
+
+    assert "classify_episode_text(query_text)" in source
+    assert "effective_min_similarity" in source
+    assert "EPISODIC_SUMMARY_MIN_SIMILARITY" in source
+    assert '"p_min_similarity": effective_min_similarity' in source
