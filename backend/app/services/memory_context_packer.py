@@ -2,6 +2,11 @@
 
 Retrieval decides what is relevant. This packer decides what is safe, compact,
 and useful enough to place into the prompt for a single turn.
+
+MR3 adds route-aware packing:
+- self-regulation queries prioritize self-regulation/rest/overthinking memories;
+- identity queries prioritize identity/relationship/structured memories;
+- general queries keep balanced retrieval/category priority.
 """
 
 from __future__ import annotations
@@ -25,7 +30,7 @@ _UNCAPPED_CATEGORIES = {
     "constraints",
 }
 
-_CATEGORY_PACKING_BONUS = {
+_BASE_CATEGORY_PACKING_BONUS = {
     "identity": 0.60,
     "important_dates": 0.50,
     "relationships": 0.40,
@@ -34,6 +39,49 @@ _CATEGORY_PACKING_BONUS = {
     "routines": 0.05,
     "goals": 0.05,
 }
+
+_SELF_REGULATION_TERMS = (
+    "overthinking",
+    "kepikiran",
+    "rest",
+    "istirahat",
+    "marah",
+    "cemas",
+    "anxious",
+    "insecure",
+    "burnout",
+    "stress",
+    "stressed",
+    "galau",
+    "bad mood",
+    "overwhelmed",
+    "spiral",
+    "panik",
+    "panic",
+    "gentle reminder",
+    "soft nudge",
+    "without pressure",
+)
+
+_IDENTITY_TERMS = (
+    "nama",
+    "name",
+    "panggil",
+    "called",
+    "nickname",
+    "anak",
+    "daughter",
+    "istri",
+    "wife",
+    "spouse",
+    "ayah",
+    "father",
+    "birthday",
+    "ulang tahun",
+    "lokasi",
+    "location",
+    "timezone",
+)
 
 
 @dataclass(frozen=True)
@@ -59,6 +107,15 @@ def _as_text(value: Any) -> str:
     return " ".join(str(value or "").split())
 
 
+def _fold(value: Any) -> str:
+    return _as_text(value).casefold()
+
+
+def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
+    folded = text.casefold()
+    return any(term.casefold() in folded for term in terms)
+
+
 def _truncate_text(text: str, max_chars: int) -> str:
     text = _as_text(text)
     if max_chars <= 0:
@@ -68,6 +125,17 @@ def _truncate_text(text: str, max_chars: int) -> str:
     if max_chars <= 1:
         return text[:max_chars]
     return text[: max_chars - 1].rstrip() + "…"
+
+
+def _query_intent(query_text: str | None) -> str:
+    query = _fold(query_text)
+    if not query:
+        return "general"
+    if _contains_any(query, _SELF_REGULATION_TERMS):
+        return "self_regulation"
+    if _contains_any(query, _IDENTITY_TERMS):
+        return "identity"
+    return "general"
 
 
 def _is_active_memory(row: dict[str, Any]) -> bool:
@@ -91,11 +159,70 @@ def _memory_score(row: dict[str, Any]) -> float:
     return _as_float(row.get("confidence"))
 
 
-def _packing_score(row: dict[str, Any]) -> float:
-    category = _as_text(row.get("category")).casefold()
+def _category_bonus(row: dict[str, Any], *, intent: str) -> float:
+    category = _fold(row.get("category"))
+
+    if intent == "self_regulation":
+        # In self-regulation turns, do not let identity/nickname/style memories
+        # crowd out the emotional-regulation memories that triggered retrieval.
+        if category in {"identity", "relationships", "important_dates"}:
+            return 0.03
+        if category in {"preferences", "routines", "goals", "constraints"}:
+            return 0.12
+
+    if intent == "identity":
+        if category in {"identity", "relationships", "important_dates", "constraints"}:
+            return _BASE_CATEGORY_PACKING_BONUS.get(category, 0.0) + 0.25
+
+    return _BASE_CATEGORY_PACKING_BONUS.get(category, 0.0)
+
+
+def _intent_bonus(row: dict[str, Any], *, query_text: str | None, intent: str) -> float:
+    content = _fold(row.get("content"))
+    category = _fold(row.get("category"))
+    field = _fold(row.get("structured_field"))
+
+    if intent == "self_regulation":
+        bonus = 0.0
+        if _contains_any(content, _SELF_REGULATION_TERMS):
+            bonus += 0.85
+        if category in {"preferences", "routines", "goals", "constraints"}:
+            bonus += 0.10
+        if field in {"nickname", "preferred_name", "preferred_address", "assistant_name"}:
+            bonus -= 0.15
+        return bonus
+
+    if intent == "identity":
+        bonus = 0.0
+        if category in {"identity", "relationships", "important_dates"}:
+            bonus += 0.70
+        if field:
+            bonus += 0.20
+        if _contains_any(content, _IDENTITY_TERMS):
+            bonus += 0.25
+        return bonus
+
+    query = _fold(query_text)
+    if query and content:
+        # Lightweight lexical signal for general turns. This is deliberately tiny;
+        # retrieval_score remains the dominant signal.
+        query_terms = {t for t in query.replace("|", " ").split() if len(t) >= 4}
+        content_terms = {t for t in content.split() if len(t) >= 4}
+        overlap = len(query_terms & content_terms)
+        return min(0.08, 0.02 * overlap)
+
+    return 0.0
+
+
+def _packing_score(row: dict[str, Any], *, query_text: str | None, intent: str) -> float:
     structured_field = _as_text(row.get("structured_field"))
     structured_bonus = 0.12 if structured_field else 0.0
-    return _memory_score(row) + _CATEGORY_PACKING_BONUS.get(category, 0.0) + structured_bonus
+    return (
+        _memory_score(row)
+        + _category_bonus(row, intent=intent)
+        + _intent_bonus(row, query_text=query_text, intent=intent)
+        + structured_bonus
+    )
 
 
 def _memory_tie_breaker(row: dict[str, Any]) -> float:
@@ -125,9 +252,11 @@ def _memory_label(row: dict[str, Any]) -> str:
 def _select_memory_rows(
     memories: list[dict[str, Any]],
     *,
+    query_text: str | None,
     max_items: int,
     max_per_category: int,
 ) -> list[dict[str, Any]]:
+    intent = _query_intent(query_text)
     candidates: list[tuple[int, dict[str, Any]]] = []
 
     for index, row in enumerate(memories):
@@ -142,7 +271,7 @@ def _select_memory_rows(
 
     candidates.sort(
         key=lambda item: (
-            _packing_score(item[1]),
+            _packing_score(item[1], query_text=query_text, intent=intent),
             _memory_score(item[1]),
             _memory_tie_breaker(item[1]),
             -item[0],
@@ -270,6 +399,7 @@ def pack_memory_context_for_prompt(
     *,
     legacy_memories: list[dict[str, Any]] | None,
     related_summaries: list[dict[str, Any]] | None,
+    query_text: str | None = None,
     max_memory_items: int = MAX_MEMORY_PROMPT_ITEMS,
     max_related_summary_items: int = MAX_RELATED_SUMMARY_ITEMS,
     max_memory_items_per_category: int = MAX_MEMORY_ITEMS_PER_CATEGORY,
@@ -282,6 +412,7 @@ def pack_memory_context_for_prompt(
 
     selected_memories = _select_memory_rows(
         memories,
+        query_text=query_text,
         max_items=max_memory_items,
         max_per_category=max_memory_items_per_category,
     )

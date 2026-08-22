@@ -50,7 +50,37 @@ def test_pack_memory_context_filters_dedupes_and_caps_memories() -> None:
     assert "Use this silently for continuity" in packed.text
 
 
-def test_pack_memory_context_prioritizes_critical_identity_memory() -> None:
+def test_route_aware_packer_prioritizes_self_regulation_over_nickname_noise() -> None:
+    memories = [
+        {
+            "id": "nickname",
+            "content": "User wants to be called beb",
+            "category": "identity",
+            "structured_field": "nickname",
+            "similarity": 0.99,
+            "confidence": 0.99,
+        },
+        {
+            "id": "self-reg",
+            "content": "User wants gentle reminders when overthinking without pressure",
+            "category": "preferences",
+            "similarity": 0.65,
+            "confidence": 0.90,
+        },
+    ]
+
+    packed = pack_memory_context_for_prompt(
+        legacy_memories=memories,
+        related_summaries=[],
+        query_text="jangan overthinking",
+        max_memory_items=1,
+    )
+
+    assert "gentle reminders when overthinking" in packed.text
+    assert "called beb" not in packed.text
+
+
+def test_route_aware_packer_prioritizes_identity_when_query_is_identity_related() -> None:
     memories = [
         {
             "id": "preference",
@@ -71,6 +101,7 @@ def test_pack_memory_context_prioritizes_critical_identity_memory() -> None:
     packed = pack_memory_context_for_prompt(
         legacy_memories=memories,
         related_summaries=[],
+        query_text="siapa nama anakku?",
         max_memory_items=1,
     )
 
