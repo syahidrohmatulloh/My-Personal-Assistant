@@ -1298,18 +1298,27 @@ async def chat(
     if response_texture_block:
         volatile_context += "\n\n" + response_texture_block
 
-    if legacy_memories:
-        extra = "\n".join(f"- {m['content']}" for m in legacy_memories[:5])
-        volatile_context += f"\n\n## Additional notes (unstructured)\n{extra}"
+    from app.services.memory_context_packer import pack_memory_context_for_prompt
 
-    # Inject related conversation summaries — cross-chat continuity.
-    if related_summaries:
-        lines = ["## Possibly related past conversations (for grounding, not for recital)"]
-        for s in related_summaries:
-            when = s["updated_at"][:10] if s.get("updated_at") else "?"
-            title = s.get("title") or "Untitled"
-            lines.append(f"- [{when}] {title}: {s['summary']}")
-        volatile_context += "\n\n" + "\n".join(lines)
+    packed_memory_context = pack_memory_context_for_prompt(
+        legacy_memories=legacy_memories,
+        related_summaries=related_summaries,
+    )
+    if packed_memory_context.text:
+        volatile_context += "\n\n" + packed_memory_context.text
+
+    if legacy_memories or related_summaries:
+        timing_log.info(
+            "chat: user=%s memory_context_packer: memories_in=%d memories_out=%d "
+            "summaries_in=%d summaries_out=%d dropped_memories=%d dropped_summaries=%d",
+            user_id[:8],
+            len(legacy_memories),
+            packed_memory_context.memory_count,
+            len(related_summaries),
+            packed_memory_context.summary_count,
+            packed_memory_context.dropped_memory_count,
+            packed_memory_context.dropped_summary_count,
+        )
 
     if assistant_mode == "chief_of_staff":
         volatile_context += (
