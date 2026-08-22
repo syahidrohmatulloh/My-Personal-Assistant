@@ -570,6 +570,7 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
     excluded both by SQL RPC when available and again in Python for safety.
     """
 
+    from app.services.memory_query_normalizer import normalize_memory_query
     from app.services.memory_retrieval_gate import should_retrieve_memory
 
     gate_decision = should_retrieve_memory(query_text)
@@ -582,8 +583,11 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
         else MIN_SIMILARITY
     )
 
+    normalized_query = normalize_memory_query(query_text, gate_decision=gate_decision)
+    retrieval_query = normalized_query.query
+
     try:
-        query_embedding = await embed_query(query_text)
+        query_embedding = await embed_query(retrieval_query)
     except Exception as exc:  # noqa: BLE001
         log.warning("memory retrieval: embed failed: %s", exc)
         return []

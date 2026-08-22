@@ -18,8 +18,8 @@ def test_memory_public_runtime_functions_are_not_shadowed() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             definitions.setdefault(node.name, []).append(node.lineno)
 
-    assert definitions.get("retrieve_relevant") == [565]
-    assert definitions.get("format_for_prompt") == [608]
+    assert len(definitions.get("retrieve_relevant", [])) == 1
+    assert len(definitions.get("format_for_prompt", [])) == 1
 
     assert "_legacy_retrieve_relevant_simple" in definitions
     assert "_legacy_format_for_prompt_simple" in definitions
@@ -31,6 +31,8 @@ def test_active_retrieve_relevant_uses_ranked_runtime_path() -> None:
     assert "rank_memory_rows(rows, min_similarity=min_similarity)" in source
     assert "match_count = min(max(limit * 4, limit), 32)" in source
     assert "gate_decision = should_retrieve_memory(query_text)" in source
+    assert "normalize_memory_query(query_text, gate_decision=gate_decision)" in source
+    assert "embed_query(retrieval_query)" in source
 
 
 def test_active_format_for_prompt_uses_ranked_memory_prompt() -> None:

@@ -164,3 +164,54 @@ def test_retrieve_relevant_still_blocks_public_current_queries(monkeypatch) -> N
 
     assert rows == []
 
+
+
+def test_retrieve_relevant_embeds_normalized_personal_query(monkeypatch) -> None:
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.services import memory
+
+    captured = {}
+
+    async def fake_embed_query(query: str):
+        captured["query"] = query
+        return [0.1, 0.2, 0.3]
+
+    class FakeRpc:
+        def execute(self):
+            return SimpleNamespace(
+                data=[
+                    {
+                        "id": "mem-low",
+                        "content": "User wants to be reminded to rest when overthinking",
+                        "kind": "preference",
+                        "category": "preferences",
+                        "similarity": 0.4277,
+                        "confidence": 0.9,
+                        "status": "active",
+                        "archived": False,
+                        "superseded": False,
+                    }
+                ]
+            )
+
+    class FakeSupabase:
+        def rpc(self, *_args, **_kwargs):
+            return FakeRpc()
+
+    monkeypatch.setattr(memory, "embed_query", fake_embed_query)
+    monkeypatch.setattr(memory, "get_supabase", lambda: FakeSupabase())
+
+    rows = asyncio.run(
+        memory.retrieve_relevant(
+            "user-123",
+            "jangan overthinking",
+            limit=10,
+        )
+    )
+
+    assert "jangan overthinking" in captured["query"]
+    assert "rest reminder" in captured["query"]
+    assert "without pressure" in captured["query"]
+    assert [row["id"] for row in rows] == ["mem-low"]
