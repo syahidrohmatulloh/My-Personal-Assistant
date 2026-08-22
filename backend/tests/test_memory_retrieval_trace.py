@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import logging
 from types import SimpleNamespace
 
@@ -34,7 +35,7 @@ def test_retrieve_relevant_logs_safe_trace_without_query_or_content(monkeypatch,
     monkeypatch.setattr(memory, "embed_query", fake_embed_query)
     monkeypatch.setattr(memory, "get_supabase", lambda: FakeSupabase())
 
-    with caplog.at_level(logging.INFO):
+    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
         rows = asyncio.run(
             memory.retrieve_relevant(
                 "user-123456789",
@@ -71,7 +72,7 @@ def test_retrieve_relevant_does_not_log_trace_when_gate_blocks(monkeypatch, capl
 
     monkeypatch.setattr(memory, "embed_query", fail_embed_query)
 
-    with caplog.at_level(logging.INFO):
+    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
         rows = asyncio.run(
             memory.retrieve_relevant(
                 "user-123456789",
@@ -82,3 +83,9 @@ def test_retrieve_relevant_does_not_log_trace_when_gate_blocks(monkeypatch, capl
 
     assert rows == []
     assert "memory retrieval trace:" not in caplog.text
+
+
+
+def test_trace_uses_production_visible_logger() -> None:
+    source = inspect.getsource(memory.retrieve_relevant)
+    assert 'logging.getLogger("uvicorn.error").info' in source

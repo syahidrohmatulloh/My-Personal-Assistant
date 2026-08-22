@@ -608,7 +608,7 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
     ranked = rank_memory_rows(rows, min_similarity=min_similarity)
     returned = ranked[:limit]
 
-    log.info(
+    logging.getLogger("uvicorn.error").info(
         "memory retrieval trace: user=%s gate=%s normalized=%s normalize_reason=%s "
         "min_similarity=%.2f requested_limit=%d match_count=%d fetched=%d returned=%d",
         str(user_id)[:8],
