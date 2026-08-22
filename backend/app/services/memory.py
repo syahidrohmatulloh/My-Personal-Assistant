@@ -262,7 +262,7 @@ MIN_SIMILARITY = 0.5
 PERSONAL_CUE_MIN_SIMILARITY = 0.40
 
 
-async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> list[dict]:
+async def _legacy_retrieve_relevant_simple(user_id: str, query_text: str, limit: int = 8) -> list[dict]:
     """Find memories most relevant to the user's current message.
 
     Returns a list of {id, content, kind, similarity} dicts, ordered by
@@ -321,7 +321,7 @@ def _mi_prompt_label(row: dict) -> str:
     return " | ".join(parts)
 
 
-def format_for_prompt(memories: list[dict]) -> str:
+def _legacy_format_for_prompt_simple(memories: list[dict]) -> str:
     """Render retrieved memories into a system-prompt-ready string."""
     if not memories:
         return ""
@@ -331,8 +331,8 @@ def format_for_prompt(memories: list[dict]) -> str:
     return "\n".join(lines)
 
 # --- Memory Retrieval Ranking 2.0 (managed block) ---
-# This block intentionally overrides retrieve_relevant() and format_for_prompt()
-# defined above. It is additive/rollback-safe and avoids touching extraction.
+# This block contains the active retrieval/prompt renderers.
+# Earlier simple helpers are kept as _legacy_* for rollback/reference only.
 # Goal: retrieve the right memories, ignore superseded memories, and prioritize
 # structured/high-confidence memories without changing the database schema.
 
