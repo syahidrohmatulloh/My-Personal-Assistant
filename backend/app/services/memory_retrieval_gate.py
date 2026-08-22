@@ -25,7 +25,18 @@ class MemoryRetrievalGateDecision:
     matched: str = ""
 
 
-_PERSONAL_CUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+_PERSONAL_CUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...    (
+        "self_regulation",
+        re.compile(
+            r"("
+            r"overthinking|kepikiran|marah|cemas|anxious|insecure|"
+            r"burnout|stress|stressed|galau|bad mood|overwhelmed|"
+            r"spiral|panik|panic"
+            r")",
+            re.IGNORECASE,
+        ),
+    ),
+] = (
     (
         "explicit_memory",
         re.compile(
@@ -144,6 +155,13 @@ def _first_match(
     return None
 
 
+
+
+_SELF_REGULATION_RE = re.compile(
+    r"(overthinking|kepikiran|marah|cemas|anxious|insecure|burnout|stress|stressed|galau|bad mood|overwhelmed|spiral|panik|panic)",
+    re.IGNORECASE,
+)
+
 def should_retrieve_memory(query: str | None) -> MemoryRetrievalGateDecision:
     """Return whether personal memory retrieval should run for this query."""
     normalized = _normalize_query(query)
@@ -162,5 +180,13 @@ def should_retrieve_memory(query: str | None) -> MemoryRetrievalGateDecision:
     if public_current:
         reason, matched = public_current
         return MemoryRetrievalGateDecision(False, f"public_current:{reason}", matched)
+
+    self_regulation_match = _SELF_REGULATION_RE.search(query or "")
+    if self_regulation_match:
+        return MemoryRetrievalGateDecision(
+            should_retrieve=True,
+            reason="personal_cue:self_regulation",
+            matched=self_regulation_match.group(0),
+        )
 
     return MemoryRetrievalGateDecision(True, "default_allow", "")

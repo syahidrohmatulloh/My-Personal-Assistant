@@ -259,6 +259,7 @@ async def extract_and_save(
 # transform in the SQL function). 0.5 is a sensible floor for voyage-3.5-lite
 # but you may want to tune this after using it.
 MIN_SIMILARITY = 0.5
+PERSONAL_CUE_MIN_SIMILARITY = 0.40
 
 
 async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> list[dict]:
@@ -273,6 +274,12 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
     gate_decision = should_retrieve_memory(query_text)
     if not gate_decision.should_retrieve:
         return []
+
+    min_similarity = (
+        PERSONAL_CUE_MIN_SIMILARITY
+        if gate_decision.reason.startswith("personal_cue:")
+        else MIN_SIMILARITY
+    )
 
     try:
         query_embedding = await embed_query(query_text)
@@ -291,7 +298,7 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
     ).execute()
 
     rows = result.data or []
-    return [r for r in rows if r.get("similarity", 0) >= MIN_SIMILARITY]
+    return [r for r in rows if r.get("similarity", 0) >= min_similarity]
 
 
 def _mi_prompt_label(row: dict) -> str:
@@ -514,13 +521,13 @@ def memory_retrieval_score(row: dict) -> float:
     return round(score, 6)
 
 
-def rank_memory_rows(rows: list[dict]) -> list[dict]:
+def rank_memory_rows(rows: list[dict], *, min_similarity: float = MIN_SIMILARITY) -> list[dict]:
     scored: list[dict] = []
 
     for row in rows:
         if not _mi_is_active_memory(row):
             continue
-        if _mi_similarity_score(row) < MIN_SIMILARITY:
+        if _mi_similarity_score(row) < min_similarity:
             continue
 
         enriched = dict(row)
@@ -555,7 +562,6 @@ def rank_memory_rows(rows: list[dict]) -> list[dict]:
         ranked.append(row)
 
     return ranked
-
 async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> list[dict]:
     """Find and rank memories relevant to the current user message.
 
@@ -569,6 +575,12 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
     gate_decision = should_retrieve_memory(query_text)
     if not gate_decision.should_retrieve:
         return []
+
+    min_similarity = (
+        PERSONAL_CUE_MIN_SIMILARITY
+        if gate_decision.reason.startswith("personal_cue:")
+        else MIN_SIMILARITY
+    )
 
     try:
         query_embedding = await embed_query(query_text)
@@ -589,7 +601,7 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
     ).execute()
 
     rows = result.data or []
-    ranked = rank_memory_rows(rows)
+    ranked = rank_memory_rows(rows, min_similarity=min_similarity)
     return ranked[:limit]
 
 
