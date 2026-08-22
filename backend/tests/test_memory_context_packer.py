@@ -220,3 +220,32 @@ def test_pack_memory_context_returns_rendered_ids_and_intent() -> None:
     assert packed.summary_ids == ("sum-1",)
     assert packed.intent == "self_regulation"
     assert packed.total_chars == len(packed.text)
+
+
+
+def test_summary_packing_prioritizes_matching_episode() -> None:
+    packed = pack_memory_context_for_prompt(
+        legacy_memories=[],
+        related_summaries=[
+            {
+                "id": "summary-dev",
+                "title": "Aliyya backend",
+                "summary": "The user discussed FastAPI, Supabase, and Fly.io deploys.",
+                "similarity": 0.92,
+                "updated_at": "2026-08-22T00:00:00",
+            },
+            {
+                "id": "summary-family",
+                "title": "Family school planning",
+                "summary": "The user discussed Zahra and family school planning.",
+                "similarity": 0.60,
+                "updated_at": "2026-08-22T00:00:00",
+            },
+        ],
+        query_text="siapa nama anakku?",
+        max_related_summary_items=1,
+    )
+
+    assert packed.summary_ids == ("summary-family",)
+    assert "Zahra" in packed.text
+    assert "FastAPI" not in packed.text

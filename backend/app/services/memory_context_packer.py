@@ -15,6 +15,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
+from app.services.conversation_episode import episode_match_bonus
+
 
 MAX_MEMORY_PROMPT_ITEMS = 5
 MAX_RELATED_SUMMARY_ITEMS = 2
@@ -317,15 +319,23 @@ def _select_memory_rows(
     return selected
 
 
+def _summary_score(row: dict[str, Any], *, query_text: str | None) -> float:
+    similarity = _as_float(row.get("similarity"))
+    episode_bonus = episode_match_bonus(query_text=query_text, summary_row=row)
+    # Prefer more recently updated rows when semantic + episode scores tie.
+    recency_hint = 0.01 if _as_text(row.get("updated_at")) else 0.0
+    return similarity + episode_bonus + recency_hint
+
+
 def _select_summary_rows(
     summaries: list[dict[str, Any]],
     *,
+    query_text: str | None,
     max_items: int,
 ) -> list[dict[str, Any]]:
-    selected: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    candidates: list[tuple[int, dict[str, Any]]] = []
 
-    for row in summaries:
+    for index, row in enumerate(summaries):
         if not isinstance(row, dict):
             continue
 
@@ -333,6 +343,21 @@ def _select_summary_rows(
         if not summary:
             continue
 
+        candidates.append((index, row))
+
+    candidates.sort(
+        key=lambda item: (
+            _summary_score(item[1], query_text=query_text),
+            -item[0],
+        ),
+        reverse=True,
+    )
+
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for _index, row in candidates:
+        summary = _as_text(row.get("summary"))
         title = _as_text(row.get("title")) or "Untitled"
         key = f"{title}\n{summary}".casefold()
         if key in seen:
@@ -430,6 +455,7 @@ def pack_memory_context_for_prompt(
     )
     selected_summaries = _select_summary_rows(
         summaries,
+        query_text=query_text,
         max_items=max_related_summary_items,
     )
 

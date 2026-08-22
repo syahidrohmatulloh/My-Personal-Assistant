@@ -29,6 +29,7 @@ from typing import Any
 from app.services.llm_v2 import get_utility_llm
 from app.services.embeddings import embed_document, embed_query
 from app.services.supabase_client import get_supabase, safe_execute
+from app.services.memory_retrieval_gate import should_retrieve_memory
 
 log = logging.getLogger(__name__)
 
@@ -164,10 +165,11 @@ async def summarize_conversation(conversation_id: str) -> None:
     )
 
     log.info(
-        "summarize: user=%s convo=%s summary='%s'",
+        "summarize: user=%s convo=%s summary_chars=%d messages=%d",
         user_id[:8],
         conversation_id[:8],
-        summary[:80],
+        len(summary),
+        len(messages),
     )
 
 
@@ -190,6 +192,15 @@ async def retrieve_related_summaries(
     Returns a list of dicts: {id, title, summary, updated_at, similarity}.
     Empty list on any failure — retrieval is best-effort context, not critical.
     """
+    gate_decision = should_retrieve_memory(query_text)
+    if not gate_decision.should_retrieve:
+        log.info(
+            "summary retrieval gate: user=%s gate=%s returned=0",
+            user_id[:8],
+            gate_decision.reason,
+        )
+        return []
+
     try:
         query_embedding = await embed_query(query_text)
     except Exception as exc:  # noqa: BLE001
@@ -213,4 +224,13 @@ async def retrieve_related_summaries(
         log.warning("summary retrieval: RPC failed: %s", exc)
         return []
 
-    return result.data or []
+    rows = result.data or []
+    log.info(
+        "summary retrieval trace: user=%s gate=%s min_similarity=%.2f requested_limit=%d returned=%d",
+        user_id[:8],
+        gate_decision.reason,
+        min_similarity,
+        limit,
+        len(rows),
+    )
+    return rows

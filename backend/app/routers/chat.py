@@ -718,7 +718,7 @@ async def chat(
             user_id=user_id,
             query_text=body.message,
             exclude_conversation_id=body.conversation_id,
-            limit=3,
+            limit=6,
         ),
         asyncio.to_thread(
             lambda: attachments.fetch_for_user(

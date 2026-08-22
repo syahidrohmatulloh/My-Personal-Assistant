@@ -17,3 +17,12 @@ def test_chat_retrieves_more_candidates_than_prompt_memory_cap() -> None:
 
     assert "memory.retrieve_relevant(user_id, body.message, limit=12)" in source
     assert "pack_memory_context_for_prompt(" in source
+
+
+
+def test_chat_retrieves_more_summary_candidates_than_prompt_summary_cap() -> None:
+    source = Path("app/routers/chat.py").read_text(encoding="utf-8")
+
+    assert "retrieve_related_summaries(" in source
+    assert "limit=6" in source
+    assert "pack_memory_context_for_prompt(" in source
