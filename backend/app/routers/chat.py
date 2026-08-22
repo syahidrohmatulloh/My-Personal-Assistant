@@ -1310,7 +1310,8 @@ async def chat(
     if legacy_memories or related_summaries:
         timing_log.info(
             "chat: user=%s memory_context_packer: memories_in=%d memories_out=%d "
-            "summaries_in=%d summaries_out=%d dropped_memories=%d dropped_summaries=%d",
+            "summaries_in=%d summaries_out=%d dropped_memories=%d dropped_summaries=%d "
+            "packed_chars=%d intent=%s",
             user_id[:8],
             len(legacy_memories),
             packed_memory_context.memory_count,
@@ -1318,6 +1319,8 @@ async def chat(
             packed_memory_context.summary_count,
             packed_memory_context.dropped_memory_count,
             packed_memory_context.dropped_summary_count,
+            packed_memory_context.total_chars,
+            packed_memory_context.intent,
         )
 
     if assistant_mode == "chief_of_staff":

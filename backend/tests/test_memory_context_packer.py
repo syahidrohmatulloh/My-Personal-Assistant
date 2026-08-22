@@ -192,3 +192,31 @@ def test_pack_memory_context_returns_empty_text_when_no_context() -> None:
     assert packed.memory_count == 0
     assert packed.summary_count == 0
     assert packed.total_chars == 0
+
+
+
+def test_pack_memory_context_returns_rendered_ids_and_intent() -> None:
+    packed = pack_memory_context_for_prompt(
+        legacy_memories=[
+            {
+                "id": "mem-self-reg",
+                "content": "User wants gentle reminders when overthinking without pressure",
+                "category": "preferences",
+                "similarity": 0.90,
+            }
+        ],
+        related_summaries=[
+            {
+                "id": "sum-1",
+                "title": "Past chat",
+                "summary": "A useful summary",
+                "updated_at": "2026-08-22T00:00:00",
+            }
+        ],
+        query_text="jangan overthinking",
+    )
+
+    assert packed.memory_ids == ("mem-self-reg",)
+    assert packed.summary_ids == ("sum-1",)
+    assert packed.intent == "self_regulation"
+    assert packed.total_chars == len(packed.text)

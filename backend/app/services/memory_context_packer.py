@@ -92,6 +92,9 @@ class PackedMemoryContext:
     dropped_memory_count: int
     dropped_summary_count: int
     total_chars: int = 0
+    memory_ids: tuple[str, ...] = ()
+    summary_ids: tuple[str, ...] = ()
+    intent: str = "general"
 
 
 def _as_float(value: Any, default: float = 0.0) -> float:
@@ -109,6 +112,14 @@ def _as_text(value: Any) -> str:
 
 def _fold(value: Any) -> str:
     return _as_text(value).casefold()
+
+
+def _row_id(row: dict[str, Any]) -> str:
+    for key in ("id", "memory_id", "conversation_id", "summary_id"):
+        value = _as_text(row.get(key))
+        if value:
+            return value
+    return ""
 
 
 def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
@@ -409,6 +420,7 @@ def pack_memory_context_for_prompt(
 ) -> PackedMemoryContext:
     memories = list(legacy_memories or [])
     summaries = list(related_summaries or [])
+    intent = _query_intent(query_text)
 
     selected_memories = _select_memory_rows(
         memories,
@@ -443,6 +455,17 @@ def pack_memory_context_for_prompt(
 
     text = "\n\n".join(sections)
 
+    rendered_memory_ids = tuple(
+        _row_id(row)
+        for row in selected_memories[:rendered_memory_count]
+        if _row_id(row)
+    )
+    rendered_summary_ids = tuple(
+        _row_id(row)
+        for row in selected_summaries[:rendered_summary_count]
+        if _row_id(row)
+    )
+
     return PackedMemoryContext(
         text=text,
         memory_count=rendered_memory_count,
@@ -450,4 +473,7 @@ def pack_memory_context_for_prompt(
         dropped_memory_count=max(0, len(memories) - rendered_memory_count),
         dropped_summary_count=max(0, len(summaries) - rendered_summary_count),
         total_chars=len(text),
+        memory_ids=rendered_memory_ids,
+        summary_ids=rendered_summary_ids,
+        intent=intent,
     )
