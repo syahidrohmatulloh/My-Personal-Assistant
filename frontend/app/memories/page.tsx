@@ -134,6 +134,7 @@ type MemoryNarrativeSummary = {
 
 
 type MemoryGraphSectionKey = "notes" | "types" | "tags" | "entities" | "timeline" | "candidate_backlinks"
+type MemoryGraphSectionFilter = MemoryGraphSectionKey | "all"
 
 type MemoryGraphViewPayload = {
   read_only?: boolean
@@ -152,6 +153,17 @@ const GRAPH_SECTION_LABELS: Record<MemoryGraphSectionKey, string> = {
   candidate_backlinks: "Candidate backlinks",
 }
 
+
+const GRAPH_SECTION_FILTERS: Array<{ key: MemoryGraphSectionFilter; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "notes", label: "Notes" },
+  { key: "types", label: "Types" },
+  { key: "tags", label: "Tags" },
+  { key: "entities", label: "Entities" },
+  { key: "timeline", label: "Timeline" },
+  { key: "candidate_backlinks", label: "Backlinks" },
+]
+
 function memoryGraphItems(payload: MemoryGraphViewPayload | null, key: MemoryGraphSectionKey) {
   const items = payload?.sections?.[key]
   return Array.isArray(items) ? items : []
@@ -163,6 +175,35 @@ function memoryGraphItemTitle(item: Record<string, unknown>, index: number) {
     if (typeof candidate === "string" && candidate.trim()) return candidate.trim()
   }
   return `Item ${index + 1}`
+}
+
+
+
+function memoryGraphItemSearchText(item: Record<string, unknown>) {
+  const parts: string[] = []
+  for (const value of Object.values(item)) {
+    if (value == null) continue
+    if (Array.isArray(value)) {
+      parts.push(value.map((entry) => String(entry ?? "")).join(" "))
+      continue
+    }
+    if (typeof value === "object") {
+      continue
+    }
+    parts.push(String(value))
+  }
+  return parts.join(" ").toLowerCase()
+}
+
+function memoryGraphFilteredItems(
+  payload: MemoryGraphViewPayload | null,
+  key: MemoryGraphSectionKey,
+  query: string,
+) {
+  const items = memoryGraphItems(payload, key)
+  const q = query.trim().toLowerCase()
+  if (!q) return items
+  return items.filter((item) => memoryGraphItemSearchText(item).includes(q))
 }
 
 function memoryGraphItemDetail(item: Record<string, unknown>) {
@@ -512,6 +553,7 @@ export default function MemoriesPage() {
   const [narrativeRegenerating, setNarrativeRegenerating] = useState(false)
   const [graphView, setGraphView] = useState<MemoryGraphViewPayload | null>(null)
   const [graphLoading, setGraphLoading] = useState(false)
+  const [graphSectionFilter, setGraphSectionFilter] = useState<MemoryGraphSectionFilter>("all")
 
   async function loadMemoryNarrativeSummary() {
     setNarrativeLoading(true)
@@ -1211,8 +1253,7 @@ export default function MemoriesPage() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={tab === "graph" ? "Graph search coming later..." : "Search memories..."}
-              disabled={tab === "graph"}
+              placeholder={tab === "graph" ? "Search graph notes, tags, entities, timeline..." : "Search memories..."}
               className="w-full rounded-full border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-black/25 py-2 pl-10 pr-4 text-sm text-slate-950 dark:text-white outline-none placeholder:text-slate-500 dark:text-zinc-500 focus:border-cyan-300/70"
             />
           </div>
@@ -1256,6 +1297,9 @@ export default function MemoriesPage() {
             payload={graphView}
             loading={graphLoading}
             hasVerifiedPin={Boolean(verifiedMemoryPin)}
+            query={query}
+            sectionFilter={graphSectionFilter}
+            onSectionFilterChange={setGraphSectionFilter}
             onUnlock={() => void loadMemoryGraphView()}
           />
         ) : tab === "review" ? (
@@ -1440,18 +1484,25 @@ function MemoryGraphViewPanel({
   payload,
   loading,
   hasVerifiedPin,
+  query,
+  sectionFilter,
+  onSectionFilterChange,
   onUnlock,
 }: {
   payload: MemoryGraphViewPayload | null
   loading: boolean
   hasVerifiedPin: boolean
+  query: string
+  sectionFilter: MemoryGraphSectionFilter
+  onSectionFilterChange: (value: MemoryGraphSectionFilter) => void
   onUnlock: () => void
 }) {
   const sections: MemoryGraphSectionKey[] = ["notes", "types", "tags", "entities", "timeline", "candidate_backlinks"]
-  const notes = memoryGraphItems(payload, "notes")
-  const tags = memoryGraphItems(payload, "tags")
-  const entities = memoryGraphItems(payload, "entities")
-  const backlinks = memoryGraphItems(payload, "candidate_backlinks")
+  const visibleSections = sectionFilter === "all" ? sections : sections.filter((section) => section === sectionFilter)
+  const notes = memoryGraphFilteredItems(payload, "notes", query)
+  const tags = memoryGraphFilteredItems(payload, "tags", query)
+  const entities = memoryGraphFilteredItems(payload, "entities", query)
+  const backlinks = memoryGraphFilteredItems(payload, "candidate_backlinks", query)
 
   return (
     <section className="rounded-[1.75rem] border border-slate-200/70 bg-white/80 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.045]">
@@ -1485,6 +1536,36 @@ function MemoryGraphViewPanel({
         <StatCard label="Backlinks" value={backlinks.length} />
       </div>
 
+
+
+      {payload ? (
+        <div className="mt-5 flex flex-wrap gap-2">
+          {GRAPH_SECTION_FILTERS.map((filter) => {
+            const active = sectionFilter === filter.key
+            const count =
+              filter.key === "all"
+                ? sections.reduce((sum, section) => sum + memoryGraphFilteredItems(payload, section, query).length, 0)
+                : memoryGraphFilteredItems(payload, filter.key, query).length
+            return (
+              <button
+                key={filter.key}
+                type="button"
+                onClick={() => onSectionFilterChange(filter.key)}
+                className={[
+                  "rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                  active
+                    ? "border-slate-950 bg-slate-950 text-white dark:border-white dark:bg-white dark:text-zinc-950"
+                    : "border-slate-200/70 bg-white/70 text-slate-600 hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:bg-white/10",
+                ].join(" ")}
+              >
+                {filter.label} <span className="opacity-70">{count}</span>
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+
+
       {!payload && !loading ? (
         <div className="mt-5 rounded-2xl border border-cyan-200/70 bg-cyan-50/80 p-5 text-sm leading-6 text-cyan-900 dark:border-cyan-300/15 dark:bg-cyan-300/10 dark:text-cyan-100">
           Unlock this read-only graph with your Memory PIN to inspect the structure behind your long-term memory.
@@ -1501,8 +1582,8 @@ function MemoryGraphViewPanel({
 
       {payload ? (
         <div className="mt-5 grid gap-4 lg:grid-cols-2">
-          {sections.map((sectionKey) => {
-            const items = memoryGraphItems(payload, sectionKey)
+          {visibleSections.map((sectionKey) => {
+            const items = memoryGraphFilteredItems(payload, sectionKey, query)
             return (
               <div key={sectionKey} className="rounded-2xl border border-slate-200/70 bg-slate-50/75 p-4 dark:border-white/10 dark:bg-black/20">
                 <div className="flex items-center justify-between gap-3">
@@ -1533,7 +1614,7 @@ function MemoryGraphViewPanel({
 
                   {items.length === 0 ? (
                     <p className="rounded-xl border border-dashed border-slate-200/80 p-3 text-xs leading-5 text-slate-400 dark:border-white/10 dark:text-zinc-500">
-                      No projected items in this section yet.
+                      {query.trim() ? "No graph items match this search." : "No projected items in this section yet."}
                     </p>
                   ) : null}
                 </div>
