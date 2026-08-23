@@ -43,12 +43,12 @@ from app.services import (
     calendar_candidate_extractor,
     calendar_confirmation_actions,
     calendar_draft_actions,
+    chat_memory_assembly,
     conversation_chronology,
     capability_registry,
     attachments,
     companion,
     companion_mode,
-    conversation_summary,
     life_model,
     memory,
     memory_intelligence,
@@ -701,8 +701,7 @@ async def chat(
         convo_result,
         user_message_id,
         context,
-        legacy_memories,
-        related_summaries,
+        memory_assembly,
         attachment_rows,
         detected_mode,
         companion_settings_row,
@@ -713,12 +712,10 @@ async def chat(
         _check_ownership(supabase, body.conversation_id, user_id),
         _save_user_message(supabase, body.conversation_id, body.message),
         _safe_life_model_context(user_id, mood_days=14),
-        memory.retrieve_relevant(user_id, body.message, limit=12),
-        conversation_summary.retrieve_related_summaries(
+        chat_memory_assembly.retrieve_chat_memory_assembly(
             user_id=user_id,
             query_text=body.message,
-            exclude_conversation_id=body.conversation_id,
-            limit=6,
+            conversation_id=body.conversation_id,
         ),
         asyncio.to_thread(
             lambda: attachments.fetch_for_user(
@@ -743,6 +740,9 @@ async def chat(
 
     if not convo_result or not convo_result.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+
+    legacy_memories = memory_assembly.legacy_memories
+    related_summaries = memory_assembly.related_summaries
 
     # Link attachments to the saved user message (still pending until now).
     if attachment_rows:
@@ -1298,31 +1298,16 @@ async def chat(
     if response_texture_block:
         volatile_context += "\n\n" + response_texture_block
 
-    from app.services.memory_context_packer import pack_memory_context_for_prompt
-
-    packed_memory_context = pack_memory_context_for_prompt(
+    packed_memory_context = chat_memory_assembly.pack_chat_memory_context(
         legacy_memories=legacy_memories,
         related_summaries=related_summaries,
         query_text=body.message,
+        user_id=user_id,
+        logger=timing_log,
     )
     if packed_memory_context.text:
         volatile_context += "\n\n" + packed_memory_context.text
 
-    if legacy_memories or related_summaries:
-        timing_log.info(
-            "chat: user=%s memory_context_packer: memories_in=%d memories_out=%d "
-            "summaries_in=%d summaries_out=%d dropped_memories=%d dropped_summaries=%d "
-            "packed_chars=%d intent=%s",
-            user_id[:8],
-            len(legacy_memories),
-            packed_memory_context.memory_count,
-            len(related_summaries),
-            packed_memory_context.summary_count,
-            packed_memory_context.dropped_memory_count,
-            packed_memory_context.dropped_summary_count,
-            packed_memory_context.total_chars,
-            packed_memory_context.intent,
-        )
 
     if assistant_mode == "chief_of_staff":
         volatile_context += (
