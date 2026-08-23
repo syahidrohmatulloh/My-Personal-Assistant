@@ -27,12 +27,22 @@ from app.services.embeddings import embed_document
 from app.services.supabase_client import get_supabase, safe_execute
 from app.routers.calendar_oauth import get_active_google_calendar_access_token
 from app.services import memory_consolidation, memory_pin, memory_narrative_summary
+from app.services.memory_graph_view_model import build_memory_graph_view_model
+from app.services.memory_note_projection import project_memory_rows
 from app.services.memory_quality import assess_memory_quality
 from app.services.memory_quality_resolve import build_quality_resolve_plan
 from app.services.memory_health_scheduler import get_memory_health_scheduler_status
 
 
 router = APIRouter(prefix="/memory-review", tags=["memory_review"])
+
+MEMORY_GRAPH_VIEW_SELECT = (
+    "id,content,kind,category,status,source,source_conversation_id,evidence,"
+    "structured_field,structured_value,superseded,superseded_by,archived,deleted_at,"
+    "lifecycle_type,due_date,expires_at,calendar_candidate,calendar_event_status,"
+    "calendar_event_title,calendar_event_date,calendar_event_start_at,calendar_event_end_at,"
+    "calendar_event_location,created_at,updated_at,last_confirmed_at"
+)
 
 
 Category = Literal[
@@ -1138,6 +1148,39 @@ async def archive_calendar_candidate(
 
     return {"ok": True, "action": "calendar_candidate_archived", "memory_id": memory_id}
 
+
+
+@router.post("/graph-view")
+async def memory_graph_view(
+    body: MemoryPinIn,
+    user_id: str = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
+
+    try:
+        supabase = get_supabase()
+        response = (
+            supabase.table("memories")
+            .select(MEMORY_GRAPH_VIEW_SELECT)
+            .eq("user_id", user_id)
+            .order("created_at", desc=False)
+            .range(0, 1999)
+            .execute()
+        )
+        rows = response.data or []
+    except Exception as exc:
+        log.exception("memory review: graph view load failed user=%s", user_id[:8])
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load memory graph view.",
+        ) from exc
+
+    notes = project_memory_rows(rows)
+    return build_memory_graph_view_model(
+        notes,
+        retrievable_only=True,
+        max_links_per_note=5,
+    )
 
 
 @router.get("/summary")
