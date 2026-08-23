@@ -17,6 +17,7 @@ import re
 import httpx
 
 from datetime import date, datetime, timedelta, timezone
+import logging
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -33,6 +34,8 @@ from app.services.memory_quality import assess_memory_quality
 from app.services.memory_quality_resolve import build_quality_resolve_plan
 from app.services.memory_health_scheduler import get_memory_health_scheduler_status
 
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/memory-review", tags=["memory_review"])
 
