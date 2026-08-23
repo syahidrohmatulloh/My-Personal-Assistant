@@ -27,7 +27,7 @@ This document is now the source of truth for shipped memory work.
 ## Accepted evidence baseline
 
 Retrieval quality:
-- recall@5 >= 0.90
+- measured recall@5 = 1.0000 on the local live eval set
 - recall@10 >= 0.90
 - MRR = 1.0000
 - hit rate = 1.0000
@@ -58,3 +58,27 @@ P2 — Gate regression hardening: the gate intentionally defaults to allow ambig
 P2 — Chat router size: backend/app/routers/chat.py is large and should be refactored through pure moves before the next major chat feature.
 
 P3 — Telemetry readback: telemetry is currently log-based. Persist it only when trend review or dashboard readback is needed.
+
+## B1 Retrieval Recall Evidence Closeout
+
+Status: closed with measured local live-eval evidence.
+
+Measured on local live eval set `backend/eval/retrieval_eval.local.json` using `tools/eval_retrieval.py --top-k 5 --diagnostics`.
+
+Results:
+- positive queries: 5
+- recall@5: 1.0000
+- recall@10: 1.0000
+- MRR: 1.0000
+- hit rate: 1.0000
+- mean first-hit rank: 1.0000
+- mean hit similarity: 0.9697
+
+Threshold evidence:
+- threshold 0.40: recall@5 1.0000, recall@10 1.0000, MRR 1.0000, hit rate 1.0000
+- threshold 0.50: recall@5 0.4000, recall@10 0.4000, MRR 0.4000, hit rate 0.4000
+
+Decision:
+- Keep the personal-cue retrieval threshold behavior that enabled the measured recall recovery.
+- Keep public/current negative probes gated out of production retrieval.
+- Do not commit `backend/eval/retrieval_eval.local.json`; it remains local and gitignored.
