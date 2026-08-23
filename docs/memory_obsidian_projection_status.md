@@ -92,3 +92,29 @@ Expected behavior:
 ## Deployment note
 
 M2 through M8 do not require deployment unless a future endpoint or runtime consumer imports the graph view model.
+
+## Live rollout closeout
+
+Status: live in production.
+
+Completed rollout:
+- Backend endpoint: `POST /memory-review/graph-view`.
+- Frontend UI: read-only `Graph View` tab inside `/memories`.
+- Access control: Memory Safety PIN required before loading graph data.
+- Auth path: browser session -> Next.js `/api/memory-review/...` proxy -> backend Bearer token.
+- Runtime behavior: read-only projection only.
+- Retrieval behavior: unchanged.
+- Database schema: unchanged.
+- Memory writes: none from graph view.
+- Frontend runtime: Node engine updated to `24.x`.
+
+Production smoke coverage:
+- Positive graph-view load with correct Memory PIN.
+- Negative graph-view load with wrong PIN rejected.
+- Local UI smoke passed.
+- Production frontend deploy completed and aliased to the live app.
+
+Known boundary:
+- This is not yet a full editable Obsidian graph.
+- Tags, entities, timeline anchors, and candidate backlinks are projected from existing memories.
+- Future phases may add search, filtering, manual note linking, or graph visualization after separate audit and tests.
