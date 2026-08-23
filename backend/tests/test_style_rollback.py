@@ -46,12 +46,12 @@ def _maybe_single(data):
 
 def test_default_no_profile_no_directive():
     """Conversation with style_profile_id=None must NOT inject any directive."""
-    from app.routers.chat import _fetch_style_directive
+    from app.services.chat_style_directive import fetch_style_directive as _fetch_style_directive
 
     # Even if the code is called with style_profile_id=None somehow, function
     # is guarded by the caller's `if style_profile_id:`. But verify the
     # function itself is robust if called with an empty string.
-    with patch("app.routers.chat.get_supabase") as fake_get:
+    with patch("app.services.chat_style_directive.get_supabase") as fake_get:
         fake_sb = MagicMock()
         fake_get.return_value = fake_sb
         # Simulate: profile not found
@@ -70,9 +70,9 @@ def test_default_no_profile_no_directive():
 def test_invalid_profile_id_falls_back_silently():
     """If the profile row doesn't exist (deleted, cross-user, bad id), the
     directive is None — chat continues with Default style."""
-    from app.routers.chat import _fetch_style_directive
+    from app.services.chat_style_directive import fetch_style_directive as _fetch_style_directive
 
-    with patch("app.routers.chat.get_supabase") as fake_get:
+    with patch("app.services.chat_style_directive.get_supabase") as fake_get:
         fake_sb = MagicMock()
         fake_get.return_value = fake_sb
         # Simulate: row not found
@@ -91,9 +91,9 @@ def test_invalid_profile_id_falls_back_silently():
 def test_empty_directive_falls_back():
     """A profile row that exists but has no compact_directive should return
     None, not a malformed prompt block."""
-    from app.routers.chat import _fetch_style_directive
+    from app.services.chat_style_directive import fetch_style_directive as _fetch_style_directive
 
-    with patch("app.routers.chat.get_supabase") as fake_get:
+    with patch("app.services.chat_style_directive.get_supabase") as fake_get:
         fake_sb = MagicMock()
         fake_get.return_value = fake_sb
         fake_sb.table.return_value.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value = _resp(
@@ -114,9 +114,9 @@ def test_empty_directive_falls_back():
 def test_valid_profile_renders_with_safety_preamble():
     """A valid profile produces a block containing the directive AND the
     impersonation safety lines."""
-    from app.routers.chat import _fetch_style_directive
+    from app.services.chat_style_directive import fetch_style_directive as _fetch_style_directive
 
-    with patch("app.routers.chat.get_supabase") as fake_get:
+    with patch("app.services.chat_style_directive.get_supabase") as fake_get:
         fake_sb = MagicMock()
         fake_get.return_value = fake_sb
         fake_sb.table.return_value.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value = _resp(
@@ -147,9 +147,9 @@ def test_valid_profile_renders_with_safety_preamble():
 def test_supabase_exception_returns_none():
     """If supabase raises (timeout, dead connection, etc), fetch returns None
     and the caller continues with Default style. No exception bubbles up."""
-    from app.routers.chat import _fetch_style_directive
+    from app.services.chat_style_directive import fetch_style_directive as _fetch_style_directive
 
-    with patch("app.routers.chat.get_supabase") as fake_get:
+    with patch("app.services.chat_style_directive.get_supabase") as fake_get:
         fake_get.side_effect = RuntimeError("connection terminated")
         result = _fetch_style_directive("user-1", "profile-1")
     assert result is None
@@ -164,9 +164,9 @@ def test_supabase_exception_returns_none():
 def test_directive_does_not_assert_identity():
     """The rendered block must never tell Claude 'You are Anna'. Even if
     a malicious extracted_style contained that, we wrap with safety."""
-    from app.routers.chat import _fetch_style_directive
+    from app.services.chat_style_directive import fetch_style_directive as _fetch_style_directive
 
-    with patch("app.routers.chat.get_supabase") as fake_get:
+    with patch("app.services.chat_style_directive.get_supabase") as fake_get:
         fake_sb = MagicMock()
         fake_get.return_value = fake_sb
         # Suppose extractor produced something hostile.
