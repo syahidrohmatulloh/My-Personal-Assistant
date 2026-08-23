@@ -43,3 +43,18 @@ No production evidence of memory retrieval rpc failed, summary retrieval rpc fai
 2. Refactor chat.py through pure moves before adding new chat features.
 3. Add telemetry persistence only when dashboard/trend review is needed.
 4. Revisit hybrid/RRF/HNSW/reranker only when eval evidence shows current stack is insufficient.
+
+## Chat Runtime Hardening Closeout
+
+Status: closed for current cycle.
+
+- C1 public/current gate regression hardening is shipped and production-verified.
+- D1 chat runtime refactor hardening is closed for this cycle:
+  - memory assembly extracted into `app/services/chat_memory_assembly.py`;
+  - calendar helper utilities extracted into `app/services/chat_calendar_helpers.py`;
+  - runtime service wiring and stream/background wiring are protected by regression tests.
+- E1 telemetry readback is audited and intentionally deferred:
+  - retrieval, summary, lifecycle, packer, and chat memory-context telemetry remain log-based;
+  - persistence/readback/dashboard should be added only when trend review or an operator dashboard is needed.
+
+Guardrail: do not remove runtime service imports from `app/routers/chat.py` unless the corresponding stream/background callsites have been moved and covered by tests.
