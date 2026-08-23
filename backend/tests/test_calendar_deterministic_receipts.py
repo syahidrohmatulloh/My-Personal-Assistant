@@ -7,6 +7,7 @@ CHAT = Path("app/routers/chat.py").read_text(encoding="utf-8")
 SERVICE = Path("app/services/calendar_draft_actions.py").read_text(
     encoding="utf-8"
 )
+HELPERS = Path("app/services/chat_calendar_helpers.py").read_text(encoding="utf-8")
 
 
 def test_calendar_update_receipt_is_deterministic_and_local_time():
@@ -292,16 +293,19 @@ def test_candidate_preview_is_deterministic_multiline_and_dynamic_address():
 
 
 def test_chat_has_dynamic_calendar_address_and_candidate_preview_path():
-    assert "_load_calendar_address_term" in CHAT
+    assert "chat_calendar_helpers.load_calendar_address_term" in CHAT
+    assert "async def load_calendar_address_term" in HELPERS
     assert "calendar_address_term" in CHAT
     assert "render_calendar_candidate_preview" in CHAT
     assert "address_term=calendar_address_term" in CHAT
 
 
 def test_chat_calendar_hard_gate_prevents_claude_preview_fallback():
-    assert "_should_hard_gate_calendar_candidate" in CHAT
+    assert "chat_calendar_helpers.should_hard_gate_calendar_candidate" in CHAT
+    assert "def should_hard_gate_calendar_candidate" in HELPERS
     assert "calendar_candidate_hard_gate" in CHAT
-    assert "_render_calendar_hard_gate_clarification" in CHAT
+    assert "chat_calendar_helpers.render_calendar_hard_gate_clarification" in CHAT
+    assert "def render_calendar_hard_gate_clarification" in HELPERS
     assert "deterministic_candidate_preview" in CHAT
     assert "deterministic_calendar_clarification" in CHAT
 
@@ -312,13 +316,13 @@ def test_static_stream_marks_calendar_receipt_source():
 
 
 def test_calendar_hard_gate_catches_natural_schedule_messages():
-    assert "nonton" in CHAT
-    assert "bioskop" in CHAT
-    assert "fisioterapi" in CHAT
-    assert "has_activity and (has_date or has_time)" in CHAT
+    assert "nonton" in HELPERS
+    assert "bioskop" in HELPERS
+    assert "fisioterapi" in HELPERS
+    assert "has_activity and (has_date or has_time)" in HELPERS
 
 
 def test_calendar_hard_gate_clarification_has_no_markdown_or_hardcoded_beb():
-    assert "Bisa sebutkan acara, tanggal, waktu, dan lokasi?" in CHAT
+    assert "Bisa sebutkan acara, tanggal, waktu, dan lokasi?" in HELPERS
     assert "**Acara:**" not in CHAT
     assert "Beb, ini kayaknya" not in CHAT

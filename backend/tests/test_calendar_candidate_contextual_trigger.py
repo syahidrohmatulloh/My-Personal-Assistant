@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 CHAT = Path("app/routers/chat.py").read_text(encoding="utf-8")
+HELPERS = Path("app/services/chat_calendar_helpers.py").read_text(encoding="utf-8")
 
 
 def test_contextual_calendar_candidate_followup_triggers_attempt():
@@ -22,7 +23,7 @@ def test_explicit_calendar_without_date_can_attempt_haiku_fallback():
 
 
 def test_chat_uses_broader_calendar_attempt_trigger():
-    assert "_should_hard_gate_calendar_candidate(body.message)" in CHAT
+    assert "chat_calendar_helpers.should_hard_gate_calendar_candidate(body.message)" in CHAT
     assert "calendar_candidate_hard_gate" in CHAT
-    assert "calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(raw)" in CHAT
+    assert "calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(raw)" in HELPERS
     assert "calendar_candidate_extractor.extract_and_persist" in CHAT

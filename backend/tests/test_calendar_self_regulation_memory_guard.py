@@ -7,6 +7,7 @@ from app.services import calendar_candidate_extractor
 
 
 CHAT_SOURCE = Path("app/routers/chat.py").read_text(encoding="utf-8")
+CALENDAR_HELPERS_SOURCE = Path("app/services/chat_calendar_helpers.py").read_text(encoding="utf-8")
 
 
 def test_self_regulation_preference_is_not_calendar_candidate() -> None:
@@ -31,7 +32,7 @@ def test_self_regulation_preference_routes_to_memory_not_calendar_background() -
 
 
 def test_chat_hard_gate_has_self_regulation_guard() -> None:
-    assert "looks_like_self_regulation_memory_preference(user_message)" in CHAT_SOURCE
+    assert "looks_like_self_regulation_memory_preference(user_message)" in CALENDAR_HELPERS_SOURCE
 
 
 @pytest.mark.parametrize(
