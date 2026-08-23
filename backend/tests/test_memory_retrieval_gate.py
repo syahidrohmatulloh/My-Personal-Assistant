@@ -215,3 +215,24 @@ def test_retrieve_relevant_embeds_normalized_personal_query(monkeypatch) -> None
     assert "rest reminder" in captured["query"]
     assert "without pressure" in captured["query"]
     assert [row["id"] for row in rows] == ["mem-low"]
+
+
+def test_public_macro_economy_query_is_blocked() -> None:
+    decision = should_retrieve_memory("gimana ekonomi global")
+
+    assert decision.should_retrieve is False
+    assert decision.reason == "public_current:macro_economy"
+
+
+def test_public_sports_schedule_not_misclassified_as_personal_schedule() -> None:
+    decision = should_retrieve_memory("jadwal piala dunia terbaru")
+
+    assert decision.should_retrieve is False
+    assert decision.reason == "public_current:sports_schedule_or_current_event"
+
+
+def test_personal_reminder_about_fx_still_retrieves_memory() -> None:
+    decision = should_retrieve_memory("ingatkan aku soal kurs USD untuk kerja")
+
+    assert decision.should_retrieve is True
+    assert decision.reason.startswith("personal_cue:")

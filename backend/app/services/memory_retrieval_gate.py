@@ -157,6 +157,54 @@ def _first_match(
 
 
 
+
+def _strong_public_current_match(query: str) -> tuple[str, str] | None:
+    folded = query.casefold()
+
+    macro_terms = (
+        "ekonomi global",
+        "global economy",
+        "makro global",
+        "macro economy",
+        "kondisi ekonomi",
+        "economic outlook",
+        "outlook ekonomi",
+    )
+    for term in macro_terms:
+        if term in folded:
+            return "macro_economy", term
+
+    sports_terms = (
+        "piala dunia",
+        "world cup",
+        "liga champions",
+        "champions league",
+        "premier league",
+        "epl",
+        "nba",
+        "f1",
+        "formula 1",
+        "motogp",
+        "olimpiade",
+    )
+    sports_signals = (
+        "jadwal",
+        "schedule",
+        "terbaru",
+        "latest",
+        "hari ini",
+        "sekarang",
+        "current",
+        "hasil",
+        "score",
+        "skor",
+    )
+    matched_sport = next((term for term in sports_terms if term in folded), None)
+    if matched_sport and any(signal in folded for signal in sports_signals):
+        return "sports_schedule_or_current_event", matched_sport
+
+    return None
+
 _SELF_REGULATION_RE = re.compile(
     r"(overthinking|kepikiran|marah|cemas|anxious|insecure|burnout|stress|stressed|galau|bad mood|overwhelmed|spiral|panik|panic)",
     re.IGNORECASE,
@@ -170,6 +218,11 @@ def should_retrieve_memory(query: str | None) -> MemoryRetrievalGateDecision:
     if low_signal:
         reason, matched = low_signal
         return MemoryRetrievalGateDecision(False, reason, matched)
+
+    strong_public_current = _strong_public_current_match(normalized)
+    if strong_public_current:
+        reason, matched = strong_public_current
+        return MemoryRetrievalGateDecision(False, f"public_current:{reason}", matched)
 
     personal = _first_match(normalized, _PERSONAL_CUE_PATTERNS)
     if personal:
