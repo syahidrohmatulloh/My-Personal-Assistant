@@ -36,3 +36,13 @@ def test_summary_retrieval_uses_dynamic_episode_threshold() -> None:
     assert "effective_min_similarity" in source
     assert "EPISODIC_SUMMARY_MIN_SIMILARITY" in source
     assert '"p_min_similarity": effective_min_similarity' in source
+
+
+
+def test_summary_retrieval_trace_includes_elapsed_ms_and_safe_rpc_error() -> None:
+    source = inspect.getsource(conversation_summary.retrieve_related_summaries)
+
+    assert "elapsed_ms=%.1f" in source
+    assert "time.perf_counter()" in source
+    assert "summary retrieval rpc failed:" in source
+    assert "type(exc).__name__" in source

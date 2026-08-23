@@ -22,6 +22,7 @@ Design notes:
 
 import json
 import logging
+import time
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -577,6 +578,8 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
     if not gate_decision.should_retrieve:
         return []
 
+    started = time.perf_counter()
+
     min_similarity = (
         PERSONAL_CUE_MIN_SIMILARITY
         if gate_decision.reason.startswith("personal_cue:")
@@ -595,22 +598,34 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
     supabase = get_supabase()
     # Ask for more candidates than final limit so reranking has room to work.
     match_count = min(max(limit * 4, limit), 32)
-    result = supabase.rpc(
-        "match_memories",
-        {
-            "p_user_id": user_id,
-            "p_query_embedding": query_embedding,
-            "p_match_count": match_count,
-        },
-    ).execute()
+    try:
+        result = supabase.rpc(
+            "match_memories",
+            {
+                "p_user_id": user_id,
+                "p_query_embedding": query_embedding,
+                "p_match_count": match_count,
+            },
+        ).execute()
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("uvicorn.error").warning(
+            "memory retrieval rpc failed: user=%s gate=%s requested_limit=%d match_count=%d error_type=%s",
+            str(user_id)[:8],
+            gate_decision.reason,
+            limit,
+            match_count,
+            type(exc).__name__,
+        )
+        return []
 
     rows = result.data or []
     ranked = rank_memory_rows(rows, min_similarity=min_similarity)
     returned = ranked[:limit]
+    elapsed_ms = (time.perf_counter() - started) * 1000
 
     logging.getLogger("uvicorn.error").info(
         "memory retrieval trace: user=%s gate=%s normalized=%s normalize_reason=%s "
-        "min_similarity=%.2f requested_limit=%d match_count=%d fetched=%d returned=%d",
+        "min_similarity=%.2f requested_limit=%d match_count=%d fetched=%d returned=%d elapsed_ms=%.1f",
         str(user_id)[:8],
         gate_decision.reason,
         normalized_query.applied,
@@ -620,6 +635,7 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
         match_count,
         len(rows),
         len(returned),
+        elapsed_ms,
     )
 
     return returned

@@ -24,6 +24,7 @@ Design notes:
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from app.services.llm_v2 import get_utility_llm
@@ -209,6 +210,8 @@ async def retrieve_related_summaries(
         )
         return []
 
+    started = time.perf_counter()
+
     episode = classify_episode_text(query_text)
     effective_min_similarity = min_similarity
     if gate_decision.reason.startswith("personal_cue:") or episode.is_specific:
@@ -237,17 +240,26 @@ async def retrieve_related_summaries(
             ).execute()
         )
     except Exception as exc:  # noqa: BLE001
-        log.warning("summary retrieval: RPC failed: %s", exc)
+        production_log.warning(
+            "summary retrieval rpc failed: user=%s gate=%s episode=%s requested_limit=%d error_type=%s",
+            user_id[:8],
+            gate_decision.reason,
+            episode.kind,
+            limit,
+            type(exc).__name__,
+        )
         return []
 
     rows = result.data or []
+    elapsed_ms = (time.perf_counter() - started) * 1000
     production_log.info(
-        "summary retrieval trace: user=%s gate=%s episode=%s min_similarity=%.2f requested_limit=%d returned=%d",
+        "summary retrieval trace: user=%s gate=%s episode=%s min_similarity=%.2f requested_limit=%d returned=%d elapsed_ms=%.1f",
         user_id[:8],
         gate_decision.reason,
         episode.kind,
         effective_min_similarity,
         limit,
         len(rows),
+        elapsed_ms,
     )
     return rows

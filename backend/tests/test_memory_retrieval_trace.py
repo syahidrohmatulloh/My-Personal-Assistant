@@ -89,3 +89,14 @@ def test_retrieve_relevant_does_not_log_trace_when_gate_blocks(monkeypatch, capl
 def test_trace_uses_production_visible_logger() -> None:
     source = inspect.getsource(memory.retrieve_relevant)
     assert 'logging.getLogger("uvicorn.error").info' in source
+
+
+
+def test_retrieve_relevant_trace_includes_elapsed_ms() -> None:
+    import inspect
+
+    source = inspect.getsource(memory.retrieve_relevant)
+
+    assert "elapsed_ms=%.1f" in source
+    assert "time.perf_counter()" in source
+    assert "memory retrieval rpc failed:" in source
