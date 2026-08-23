@@ -118,3 +118,31 @@ Known boundary:
 - This is not yet a full editable Obsidian graph.
 - Tags, entities, timeline anchors, and candidate backlinks are projected from existing memories.
 - Future phases may add search, filtering, manual note linking, or graph visualization after separate audit and tests.
+
+## M17 graph search and filtering closeout
+
+Status: live in production.
+
+Completed rollout:
+- Frontend-only graph search enabled inside `/memories` Graph View.
+- Section filter chips added: All, Notes, Types, Tags, Entities, Timeline, Backlinks.
+- Search works across projected graph item fields.
+- Empty search result state added for graph sections.
+- Backend graph endpoint unchanged.
+- Database schema unchanged.
+- Runtime retrieval behavior unchanged.
+- Memory writes unchanged; graph view remains read-only.
+- Memory Safety PIN gate remains required before graph data loads.
+
+Production smoke coverage:
+- Graph View unlock with Memory PIN.
+- Filter chips visible and clickable.
+- Search with matching keyword returns filtered graph items.
+- Search with non-matching keyword returns empty result message.
+- Refresh graph still works.
+- Lock still clears the verified PIN session.
+
+Known boundary:
+- This is still a projected list-based graph view, not a canvas/node visualization.
+- Search/filtering is client-side over the loaded read-only projection.
+- Future phases may add richer graph visualization, backlink drill-down, or manual linking after separate audit and tests.
