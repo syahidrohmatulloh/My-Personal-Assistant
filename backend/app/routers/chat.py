@@ -45,6 +45,7 @@ from app.services import (
     calendar_draft_actions,
     chat_memory_assembly,
     conversation_chronology,
+    conversation_summary,
     capability_registry,
     attachments,
     companion,
