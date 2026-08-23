@@ -276,7 +276,130 @@ def _has_strong_calendar_draft_action_signal(text: str | None) -> bool:
     return False
 
 
+
+def _final_qa_calendar_action_compat(message: str | None) -> bool:
+    """Compatibility guard for calendar follow-up/action phrasing.
+
+    Keep this narrow enough to avoid the old memory/code false-positive bug:
+    code, patch, repo, memory, and backend/frontend wording are explicitly blocked.
+    """
+
+    import re
+
+    text = " ".join(str(message or "").casefold().split())
+    if not text:
+        return False
+
+    non_calendar_domains = (
+        "memory",
+        "memori",
+        "remember",
+        "ingat aku",
+        "patch",
+        "build",
+        "error",
+        "repo",
+        "github",
+        "backend",
+        "frontend",
+        "pytest",
+        "deploy",
+        "vercel",
+        "fly",
+        "supabase",
+        "kode",
+        "code",
+    )
+    if any(term in text for term in non_calendar_domains):
+        return False
+
+    self_regulation_terms = (
+        "kalau aku marah",
+        "kalau aku overthinking",
+        "jangan overthinking",
+        "supaya ga marah",
+        "supaya nggak marah",
+        "burnout",
+        "anxious",
+        "cemas",
+    )
+    if any(term in text for term in self_regulation_terms):
+        return False
+
+    scope_only = re.fullmatch(
+        r"(hari ini|besok|lusa|minggu ini|minggu depan|bulan ini|bulan depan|yang ini)\s*(aja|saja)?",
+        text,
+    )
+    if scope_only:
+        return True
+
+    if text in {"seluruh rangkaian", "semua rangkaian", "rangkaian ini"}:
+        return True
+
+    soft_detail_terms = (
+        "lebih detil",
+        "lebih detail",
+        "buat lebih detail",
+        "bikin lebih spesifik",
+        "perjelas event",
+        "detailin jadwal",
+        "detailin event",
+    )
+    if any(term in text for term in soft_detail_terms):
+        return True
+
+    action_verbs = (
+        "ubah",
+        "ganti",
+        "update",
+        "edit",
+        "pindah",
+        "reschedule",
+        "hapus",
+        "delete",
+        "cancel",
+        "batalkan",
+    )
+    calendar_anchors = (
+        "jadwal",
+        "agenda",
+        "calendar",
+        "kalender",
+        "event",
+        "meeting",
+        "rapat",
+        "jemput",
+        "appointment",
+        "lokasi",
+        "location",
+        "tempat",
+        "venue",
+        "padel",
+    )
+    time_anchors = (
+        "jam ",
+        "pagi",
+        "siang",
+        "sore",
+        "malam",
+        "hari ini",
+        "besok",
+        "lusa",
+    )
+
+    if any(verb in text for verb in action_verbs) and (
+        any(anchor in text for anchor in calendar_anchors)
+        or any(anchor in text for anchor in time_anchors)
+    ):
+        return True
+
+    return False
+
+
 def is_calendar_draft_action_request(text: str | None) -> bool:
+    if _final_qa_calendar_action_compat(text):
+        return True
+
     if not _has_strong_calendar_draft_action_signal(text):
         return False
 

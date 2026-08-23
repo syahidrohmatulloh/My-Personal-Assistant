@@ -10,6 +10,18 @@ It never creates Google Calendar events directly.
 
 from __future__ import annotations
 
+try:
+    from app.services.claude import get_claude
+except Exception:  # pragma: no cover - compatibility import for older deployments
+    get_claude = None
+
+def _calendar_intent_client():
+    if get_claude is None:
+        return None
+    return get_claude()
+
+
+
 from datetime import date, datetime, timedelta, timezone
 import importlib
 import json
