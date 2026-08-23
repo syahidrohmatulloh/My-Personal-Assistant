@@ -462,15 +462,9 @@ def _mi_metadata_priority(row: dict) -> float:
 
 
 def _mi_is_active_memory(row: dict) -> bool:
-    status = str(row.get("status") or "").strip().lower()
-    if status in {"archived", "superseded", "deleted"}:
-        return False
-    if row.get("deleted_at"):
-        return False
-    if _mi_as_bool(row.get("archived")):
-        return False
-    return not _mi_as_bool(row.get("superseded"))
+    from app.services.memory_lifecycle_governance import is_retrievable_memory
 
+    return is_retrievable_memory(row)
 
 def _mi_memory_governance_trust_bonus(row: dict) -> float:
     """Small invisible ranking lift for memories the system can trust more.
@@ -573,6 +567,7 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
 
     from app.services.memory_query_normalizer import normalize_memory_query
     from app.services.memory_retrieval_gate import should_retrieve_memory
+    from app.services.memory_lifecycle_governance import safe_lifecycle_diagnostics
 
     gate_decision = should_retrieve_memory(query_text)
     if not gate_decision.should_retrieve:
@@ -636,6 +631,12 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
         len(rows),
         len(returned),
         elapsed_ms,
+    )
+    logging.getLogger("uvicorn.error").info(
+        "memory lifecycle trace: user=%s %s returned=%d",
+        str(user_id)[:8],
+        safe_lifecycle_diagnostics(rows),
+        len(returned),
     )
 
     return returned
