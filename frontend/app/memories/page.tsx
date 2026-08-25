@@ -1126,7 +1126,7 @@ export default function MemoriesPage() {
   return (
     <main className="min-h-screen px-4 py-6 text-slate-950 dark:text-slate-900 dark:text-zinc-100 sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
-        <header className="rounded-[2rem] border border-slate-200/70 bg-white/75 p-6 shadow-2xl shadow-slate-900/10 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04] dark:shadow-black/30">
+        <header className="rounded-[2rem] border border-slate-300/55 bg-slate-100/74 p-6 shadow-2xl shadow-slate-900/10 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.04] dark:shadow-black/30">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.28em] text-cyan-700 dark:text-cyan-300/80">
@@ -1136,8 +1136,7 @@ export default function MemoriesPage() {
                 Memories
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-700 dark:text-zinc-300">
-                Review what {assistantName} remembers, manage active memories, and
-                inspect archived or archived memories in one place.
+                Everything {assistantName} remembers about you — and how it all connects.
               </p>
               {loading && data ? (
                 <p className="mt-2 text-xs text-slate-500 dark:text-zinc-400">
@@ -1162,7 +1161,7 @@ export default function MemoriesPage() {
                     },
                   )
                 }
-                className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/65 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm shadow-slate-900/5 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
+                className="inline-flex items-center gap-2 rounded-full border border-slate-300/55 bg-slate-100/68 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm shadow-slate-900/5 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
               >
                 <PlusCircle className="h-4 w-4" />
                 Add memory
@@ -1173,7 +1172,7 @@ export default function MemoriesPage() {
                   onClick={() => void consolidateMemories()}
                   disabled={consolidating || loading}
                   aria-describedby="consolidate-tooltip"
-                  className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/65 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm shadow-slate-900/5 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-300/55 bg-slate-100/68 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm shadow-slate-900/5 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
                 >
                   {consolidating ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -1186,7 +1185,7 @@ export default function MemoriesPage() {
                 <div
                   id="consolidate-tooltip"
                   role="tooltip"
-                  className="pointer-events-none absolute right-0 top-full z-30 mt-2 w-64 rounded-2xl border border-slate-200/70 bg-white/95 px-3 py-2 text-xs leading-5 text-slate-600 opacity-0 shadow-xl shadow-slate-900/10 backdrop-blur-xl transition group-hover:opacity-100 dark:border-white/10 dark:bg-zinc-950/95 dark:text-zinc-300"
+                  className="pointer-events-none absolute right-0 top-full z-30 mt-2 w-64 rounded-2xl border border-slate-300/55 bg-white/95 px-3 py-2 text-xs leading-5 text-slate-600 opacity-0 shadow-xl shadow-slate-900/10 backdrop-blur-xl transition group-hover:opacity-100 dark:border-white/10 dark:bg-zinc-950/95 dark:text-zinc-300"
                 >
                   Creates a clearer summary from repeated memory patterns.
                 </div>
@@ -1220,15 +1219,15 @@ export default function MemoriesPage() {
 
           {reviewCount > 0 ? (
             <div className="mt-4 rounded-2xl border border-amber-200/70 bg-amber-50/80 p-4 text-sm leading-6 text-amber-900 shadow-sm shadow-amber-900/5 dark:border-amber-300/15 dark:bg-amber-300/10 dark:text-amber-100">
-              Memory review found {reviewCount} memor
+              Aliyya found {reviewCount} memor
               {reviewCount === 1 ? "y" : "ies"} that may need review.
               Open Review & improve to look them over safely.
             </div>
           ) : null}
         </header>
 
-        <section className="flex flex-col gap-3 rounded-[1.5rem] border border-slate-200/70 bg-white/70 p-4 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035] md:flex-row md:items-center md:justify-between">
-          <div className="flex rounded-full border border-slate-200/70 dark:border-white/10 bg-slate-100/70 dark:bg-black/20 p-1">
+        <section className="flex flex-col gap-3 rounded-[1.5rem] border border-slate-300/55 bg-slate-100/70 p-4 shadow-xl shadow-cyan-950/10 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035] md:flex-row md:items-center md:justify-between">
+          <div className="flex rounded-full border border-slate-300/55 dark:border-white/10 bg-slate-100/70 dark:bg-black/20 p-1">
             <TabButton
               active={tab === "active"}
               onClick={() => {
@@ -1270,7 +1269,7 @@ export default function MemoriesPage() {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={tab === "graph" ? "Search memory map..." : "Search memories..."}
-              className="w-full rounded-full border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-black/25 py-2 pl-10 pr-4 text-sm text-slate-950 dark:text-white outline-none placeholder:text-slate-500 dark:text-zinc-500 focus:border-cyan-300/70"
+              className="w-full rounded-full border border-slate-300/55 dark:border-white/10 bg-slate-100/80 dark:bg-black/25 py-2 pl-10 pr-4 text-sm text-slate-950 dark:text-white outline-none placeholder:text-slate-500 dark:text-zinc-500 focus:border-cyan-300/70"
             />
           </div>
         </section>
@@ -1303,7 +1302,7 @@ export default function MemoriesPage() {
             <button
               type="button"
               onClick={clearVerifiedMemoryPinSession}
-              className="rounded-full border border-cyan-200 bg-white/70 px-3 py-1 text-xs font-medium text-cyan-700 transition hover:bg-white dark:border-cyan-300/20 dark:bg-white/10 dark:text-cyan-100 dark:hover:bg-white/15"
+              className="rounded-full border border-cyan-200 bg-slate-100/70 px-3 py-1 text-xs font-medium text-cyan-700 transition hover:bg-white dark:border-cyan-300/20 dark:bg-white/10 dark:text-cyan-100 dark:hover:bg-white/15"
             >
               Lock
             </button>
@@ -1349,7 +1348,7 @@ export default function MemoriesPage() {
               (group) => (
                 <div
                   key={group}
-                  className="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white/70 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035]"
+                  className="overflow-hidden rounded-[1.5rem] border border-slate-300/55 bg-slate-100/70 shadow-xl shadow-cyan-950/10 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035]"
                 >
                   <button
                     onClick={() =>
@@ -1358,7 +1357,7 @@ export default function MemoriesPage() {
                         [group]: !prev[group],
                       }))
                     }
-                    className="flex w-full items-center justify-between px-5 py-4 text-left transition hover:bg-slate-50/80 dark:hover:bg-white/[0.04]"
+                    className="flex w-full items-center justify-between px-5 py-4 text-left transition hover:bg-slate-100/72 dark:hover:bg-white/[0.04]"
                   >
                     <div>
                       <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
@@ -1377,7 +1376,7 @@ export default function MemoriesPage() {
                   </button>
 
                   {openGroups[group] ? (
-                    <div className="grid gap-3 border-t border-slate-200/70 dark:border-white/10 p-4 lg:grid-cols-2">
+                    <div className="grid gap-3 border-t border-slate-300/55 dark:border-white/10 p-4 lg:grid-cols-2">
                       {filteredGroups[group].map((memory) => (
                         <MemoryCard
                           key={memory.id}
@@ -1529,7 +1528,7 @@ function MemoryGraphViewPanel({
   const backlinks = memoryGraphFilteredItems(payload, "candidate_backlinks", query)
 
   return (
-    <section className="rounded-[1.75rem] border border-slate-200/70 bg-white/80 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.045]">
+    <section className="rounded-[1.75rem] border border-slate-300/55 bg-slate-100/80 p-5 shadow-xl shadow-cyan-950/10 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.045]">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-zinc-500">
@@ -1581,7 +1580,7 @@ function MemoryGraphViewPanel({
                   "rounded-full border px-3 py-1.5 text-xs font-medium transition",
                   active
                     ? "border-slate-950 bg-slate-950 text-white dark:border-white dark:bg-white dark:text-zinc-950"
-                    : "border-slate-200/70 bg-white/70 text-slate-600 hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:bg-white/10",
+                    : "border-slate-300/55 bg-slate-100/70 text-slate-600 hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:bg-white/10",
                 ].join(" ")}
               >
                 {filter.label} <span className="opacity-70">{count}</span>
@@ -1599,7 +1598,7 @@ function MemoryGraphViewPanel({
       ) : null}
 
       {loading ? (
-        <div className="mt-5 space-y-3 rounded-2xl border border-slate-200/70 bg-slate-50/70 p-5 dark:border-white/10 dark:bg-black/15">
+        <div className="mt-5 space-y-3 rounded-2xl border border-slate-300/55 bg-slate-100/70 p-5 dark:border-white/10 dark:bg-black/15">
           <div className="h-4 w-5/6 animate-pulse rounded-full bg-slate-200 dark:bg-white/10" />
           <div className="h-4 w-4/6 animate-pulse rounded-full bg-slate-200 dark:bg-white/10" />
           <div className="h-4 w-3/4 animate-pulse rounded-full bg-slate-200 dark:bg-white/10" />
@@ -1611,7 +1610,7 @@ function MemoryGraphViewPanel({
           <button
             type="button"
             onClick={onToggleDetails}
-            className="rounded-full border border-slate-200/70 bg-white/75 px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-white dark:border-white/10 dark:bg-white/[0.06] dark:text-zinc-300 dark:hover:bg-white/10"
+            className="rounded-full border border-slate-300/55 bg-slate-100/74 px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-white dark:border-white/10 dark:bg-white/[0.06] dark:text-zinc-300 dark:hover:bg-white/10"
           >
             {showDetails ? "Hide details" : "Show relationship details"}
           </button>
@@ -1623,7 +1622,7 @@ function MemoryGraphViewPanel({
           {visibleSections.map((sectionKey) => {
             const items = memoryGraphFilteredItems(payload, sectionKey, query)
             return (
-              <div key={sectionKey} className="rounded-2xl border border-slate-200/70 bg-slate-50/75 p-4 dark:border-white/10 dark:bg-black/20">
+              <div key={sectionKey} className="rounded-2xl border border-slate-300/55 bg-slate-100/72 p-4 dark:border-white/10 dark:bg-black/20">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-sm font-semibold text-slate-950 dark:text-white">
                     {GRAPH_SECTION_LABELS[sectionKey]}
@@ -1637,7 +1636,7 @@ function MemoryGraphViewPanel({
                   {items.slice(0, 8).map((item, index) => {
                     const detail = memoryGraphItemDetail(item)
                     return (
-                      <div key={`${sectionKey}-${index}`} className="rounded-xl border border-slate-200/70 bg-white/80 p-3 dark:border-white/10 dark:bg-white/[0.04]">
+                      <div key={`${sectionKey}-${index}`} className="rounded-xl border border-slate-300/55 bg-slate-100/80 p-3 dark:border-white/10 dark:bg-white/[0.04]">
                         <p className="line-clamp-1 text-sm font-medium text-slate-900 dark:text-zinc-100">
                           {memoryGraphItemTitle(item, index)}
                         </p>
@@ -1651,7 +1650,7 @@ function MemoryGraphViewPanel({
                   })}
 
                   {items.length === 0 ? (
-                    <p className="rounded-xl border border-dashed border-slate-200/80 p-3 text-xs leading-5 text-slate-400 dark:border-white/10 dark:text-zinc-500">
+                    <p className="rounded-xl border border-dashed border-slate-300/60 p-3 text-xs leading-5 text-slate-400 dark:border-white/10 dark:text-zinc-500">
                       {query.trim() ? "No memory map items match this search." : "No items in this section yet."}
                     </p>
                   ) : null}
@@ -1667,7 +1666,7 @@ function MemoryGraphViewPanel({
 
 function MiniMetric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-2xl border border-slate-200/70 bg-white/65 px-4 py-3 shadow-sm shadow-slate-900/5 backdrop-blur dark:border-white/10 dark:bg-white/[0.05]">
+    <div className="rounded-2xl border border-slate-300/55 bg-slate-100/68 px-4 py-3 shadow-sm shadow-slate-900/5 backdrop-blur dark:border-white/10 dark:bg-white/[0.05]">
       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-zinc-500">
         {label}
       </p>
@@ -1678,7 +1677,7 @@ function MiniMetric({ label, value }: { label: string; value: number }) {
 
 function StatCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-2xl border border-slate-200/70 bg-white/75 p-4 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-black/20">
+    <div className="rounded-2xl border border-slate-300/55 bg-slate-100/74 p-4 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-black/20">
       <p className="text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-zinc-500">
         {label}
       </p>
@@ -1782,7 +1781,7 @@ function MemoryInsightSummary({
   onFocus: (card: MemoryInsightCard) => void
 }) {
   return (
-    <section className="rounded-[1.75rem] border border-slate-200/70 bg-white/75 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.045]">
+    <section className="rounded-[1.75rem] border border-slate-300/55 bg-slate-100/74 p-5 shadow-xl shadow-cyan-950/10 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.045]">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-zinc-500">
@@ -1803,7 +1802,7 @@ function MemoryInsightSummary({
             key={card.key}
             type="button"
             onClick={() => onFocus(card)}
-            className="group rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-lg hover:shadow-slate-900/5 dark:border-white/10 dark:bg-white/[0.035] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
+            className="group rounded-2xl border border-slate-300/55 bg-slate-100/72 p-4 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-lg hover:shadow-slate-900/5 dark:border-white/10 dark:bg-white/[0.035] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
           >
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -1869,7 +1868,7 @@ function MemoryNarrativeSummaryPanel({
     : []
 
   return (
-    <section className="rounded-[1.75rem] border border-slate-200/70 bg-white/80 p-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.045]">
+    <section className="rounded-[1.75rem] border border-slate-300/55 bg-slate-100/80 p-5 shadow-xl shadow-cyan-950/10 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.045]">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-zinc-500">
@@ -1896,7 +1895,7 @@ function MemoryNarrativeSummaryPanel({
         </button>
       </div>
 
-      <div className="mt-5 rounded-2xl border border-slate-200/70 bg-slate-50/70 p-5 dark:border-white/10 dark:bg-black/15">
+      <div className="mt-5 rounded-2xl border border-slate-300/55 bg-slate-100/70 p-5 dark:border-white/10 dark:bg-black/15">
         {loading ? (
           <div className="space-y-3">
             <div className="h-4 w-5/6 animate-pulse rounded-full bg-slate-200 dark:bg-white/10" />
@@ -1929,7 +1928,7 @@ function MemoryNarrativeSummaryPanel({
               {summary.themes.slice(0, 8).map((theme) => (
                 <span
                   key={theme}
-                  className="rounded-full border border-slate-200 bg-white/75 px-3 py-1 text-xs font-medium text-slate-600 dark:border-white/10 dark:bg-white/[0.06] dark:text-zinc-300"
+                  className="rounded-full border border-slate-200 bg-slate-100/74 px-3 py-1 text-xs font-medium text-slate-600 dark:border-white/10 dark:bg-white/[0.06] dark:text-zinc-300"
                 >
                   {theme}
                 </span>
@@ -1962,7 +1961,7 @@ function NarrativeMetaList({
   empty: string
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200/70 bg-white/65 p-3 dark:border-white/10 dark:bg-white/[0.035]">
+    <div className="rounded-2xl border border-slate-300/55 bg-slate-100/68 p-3 dark:border-white/10 dark:bg-white/[0.035]">
       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-zinc-500">
         {title}
       </p>
@@ -2017,7 +2016,7 @@ function MemoryQualityPanel({
 
   if (!quality || items.length === 0) {
     return (
-      <div className="rounded-[1.5rem] border border-emerald-200/70 bg-emerald-50/70 p-8 text-center shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-emerald-300/15 dark:bg-emerald-300/10">
+      <div className="rounded-[1.5rem] border border-emerald-200/70 bg-emerald-50/70 p-8 text-center shadow-xl shadow-cyan-950/10 backdrop-blur-xl dark:border-emerald-300/15 dark:bg-emerald-300/10">
         <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-600 dark:text-emerald-300" />
         <h2 className="mt-3 text-lg font-semibold text-slate-950 dark:text-white">
           {unresolvedItems.length === 0 ? "No memory issues found" : "No issues in this filter"}
@@ -2040,8 +2039,8 @@ function MemoryQualityPanel({
         <StatCard label="Needs Confirmation" value={quality.summary.stale_memories || 0} />
       </div>
 
-      <div className="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white/70 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035]">
-        <div className="border-b border-slate-200/70 p-5 dark:border-white/10">
+      <div className="overflow-hidden rounded-[1.5rem] border border-slate-300/55 bg-slate-100/70 shadow-xl shadow-cyan-950/10 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035]">
+        <div className="border-b border-slate-300/55 p-5 dark:border-white/10">
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-amber-400/15 p-2 text-amber-700 dark:text-amber-300">
               <AlertTriangle className="h-5 w-5" />
@@ -2073,7 +2072,7 @@ function MemoryQualityPanel({
                       "rounded-full border px-3 py-1.5 text-xs font-medium transition",
                       active
                         ? "border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-950"
-                        : "border-slate-200 bg-white/70 text-slate-600 hover:border-slate-300 hover:text-slate-950 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:border-white/20 dark:hover:text-white",
+                        : "border-slate-200 bg-slate-100/70 text-slate-600 hover:border-slate-300 hover:text-slate-950 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:border-white/20 dark:hover:text-white",
                     ].join(" ")}
                   >
                     {filter.label}
@@ -2231,7 +2230,7 @@ function MemoryQualityIssueCard({
   const primaryAction = memoryIssuePrimaryAction(item)
 
   return (
-    <article className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-black/20">
+    <article className="rounded-2xl border border-slate-300/55 bg-slate-100/80 p-4 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-black/20">
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -2239,7 +2238,7 @@ function MemoryQualityIssueCard({
               <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${severityClass}`}>
                 {humanizeLabel(item.severity)}
               </span>
-              <span className="rounded-full border border-slate-200/70 px-2.5 py-1 text-xs text-slate-500 dark:border-white/10 dark:text-zinc-400">
+              <span className="rounded-full border border-slate-300/55 px-2.5 py-1 text-xs text-slate-500 dark:border-white/10 dark:text-zinc-400">
                 {humanizeLabel(item.issue_type)}
               </span>
             </div>
@@ -2275,7 +2274,7 @@ function MemoryQualityIssueCard({
             return (
               <div
                 key={memory.id}
-                className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 dark:border-white/10 dark:bg-white/[0.04]"
+                className="rounded-2xl border border-slate-300/55 bg-slate-100/72 p-3 dark:border-white/10 dark:bg-white/[0.04]"
               >
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
@@ -2303,7 +2302,7 @@ function MemoryQualityIssueCard({
                         })
                       }
                       disabled={saving}
-                      className="shrink-0 rounded-full border border-slate-200/70 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
+                      className="shrink-0 rounded-full border border-slate-300/55 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:bg-white/10"
                     >
                       Keep this as source of truth
                     </button>
@@ -2393,7 +2392,7 @@ function MemoryCard({
       : "—"
 
   return (
-    <article className="flex min-h-64 flex-col justify-between rounded-2xl border border-slate-200/70 bg-white/75 p-4 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-black/20">
+    <article className="flex min-h-64 flex-col justify-between rounded-2xl border border-slate-300/55 bg-slate-100/74 p-4 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-black/20">
       <div>
         <div className="mb-3 flex flex-wrap gap-2">
           <Badge>{memory.category || "other"}</Badge>
@@ -2441,7 +2440,7 @@ function MemoryCard({
         <MemoryTransparencyPanel memory={memory} />
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/70 dark:border-white/10 pt-4">
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-300/55 dark:border-white/10 pt-4">
         <div className="text-xs text-slate-500 dark:text-zinc-500">
           {memory.last_confirmed_at
             ? `Confirmed ${formatDate(memory.last_confirmed_at)}`
@@ -2524,7 +2523,7 @@ function ActionButton({
         "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition disabled:cursor-not-allowed disabled:opacity-50",
         danger
           ? "border-red-400/40 text-red-700 hover:bg-red-50 dark:border-red-400/30 dark:text-red-200 dark:hover:bg-red-500/10"
-          : "border-slate-200/70 dark:border-white/10 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:bg-white/10",
+          : "border-slate-300/55 dark:border-white/10 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:bg-white/10",
       ].join(" ")}
     >
       {icon}
@@ -2537,7 +2536,7 @@ function MemoryTransparencyPanel({ memory }: { memory: MemoryItem }) {
   const trust = memoryTrustSummary(memory)
 
   return (
-    <div className="mt-4 rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 text-xs leading-5 text-slate-600 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-300">
+    <div className="mt-4 rounded-xl border border-slate-300/55 bg-slate-100/72 p-3 text-xs leading-5 text-slate-600 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-300">
       <p className="font-medium text-slate-800 dark:text-zinc-100">
         Why this matters
       </p>
@@ -2546,7 +2545,7 @@ function MemoryTransparencyPanel({ memory }: { memory: MemoryItem }) {
       </p>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-3">
-        <div className="rounded-lg bg-white/70 px-2.5 py-2 dark:bg-black/20">
+        <div className="rounded-lg bg-slate-100/70 px-2.5 py-2 dark:bg-black/20">
           <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400 dark:text-zinc-500">
             Strength
           </p>
@@ -2554,7 +2553,7 @@ function MemoryTransparencyPanel({ memory }: { memory: MemoryItem }) {
             {trust.strength}
           </p>
         </div>
-        <div className="rounded-lg bg-white/70 px-2.5 py-2 dark:bg-black/20">
+        <div className="rounded-lg bg-slate-100/70 px-2.5 py-2 dark:bg-black/20">
           <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400 dark:text-zinc-500">
             Source
           </p>
@@ -2562,7 +2561,7 @@ function MemoryTransparencyPanel({ memory }: { memory: MemoryItem }) {
             {trust.source}
           </p>
         </div>
-        <div className="rounded-lg bg-white/70 px-2.5 py-2 dark:bg-black/20">
+        <div className="rounded-lg bg-slate-100/70 px-2.5 py-2 dark:bg-black/20">
           <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400 dark:text-zinc-500">
             Freshness
           </p>
@@ -2588,7 +2587,7 @@ function Badge({
         "rounded-full border px-2.5 py-1 text-[11px]",
         tone === "archived"
           ? "border-amber-400/30 bg-amber-50 text-amber-800 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-100"
-          : "border-slate-200/70 dark:border-white/10 bg-slate-100/80 dark:bg-white/[0.06] text-slate-700 dark:text-zinc-300",
+          : "border-slate-300/55 dark:border-white/10 bg-slate-100/80 dark:bg-white/[0.06] text-slate-700 dark:text-zinc-300",
       ].join(" ")}
     >
       {children}
@@ -2599,7 +2598,7 @@ function Badge({
 
 function LoadingState() {
   return (
-    <div className="rounded-[1.5rem] border border-slate-200/70 bg-white/70 p-6 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035]">
+    <div className="rounded-[1.5rem] border border-slate-300/55 bg-slate-100/70 p-6 shadow-xl shadow-cyan-950/10 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035]">
       <div className="space-y-4">
         <div className="h-5 w-40 animate-pulse rounded-full bg-slate-200 dark:bg-white/10" />
         <div className="grid gap-4 md:grid-cols-2">
@@ -2621,7 +2620,7 @@ function EmptyState({
   const hasSearch = query.trim().length > 0
 
   return (
-    <div className="rounded-[1.5rem] border border-slate-200/70 bg-white/70 p-8 text-center shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035]">
+    <div className="rounded-[1.5rem] border border-slate-300/55 bg-slate-100/70 p-8 text-center shadow-xl shadow-cyan-950/10 backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.035]">
       <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
         {hasSearch ? "No matching memories" : "No memories found"}
       </h2>
@@ -2657,7 +2656,7 @@ function MemoryPinDialog({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm dark:bg-black/70">
-      <div className="w-full max-w-md rounded-[1.5rem] border border-slate-200/70 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-[#10101c]">
+      <div className="w-full max-w-md rounded-[1.5rem] border border-slate-300/55 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-[#10101c]">
         <div className="flex items-start gap-3">
           <div className="rounded-2xl bg-cyan-400/15 p-3 text-cyan-700 dark:text-cyan-300">
             <ShieldCheck className="h-5 w-5" />
@@ -2691,7 +2690,7 @@ function MemoryPinDialog({
             maxLength={6}
             placeholder="••••••"
             type={MASKED_INPUT_TYPE}
-            className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-center text-lg tracking-[0.4em] text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
+            className="mt-2 w-full rounded-2xl border border-slate-300/55 bg-slate-100/80 p-3 text-center text-lg tracking-[0.4em] text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
           />
         </label>
 
@@ -2699,7 +2698,7 @@ function MemoryPinDialog({
           <button
             onClick={onCancel}
             disabled={saving}
-            className="rounded-full border border-slate-200/70 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
+            className="rounded-full border border-slate-300/55 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
           >
             Cancel
           </button>
@@ -2732,7 +2731,7 @@ function ManualAddDialog({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm dark:bg-black/70">
-      <div className="w-full max-w-2xl rounded-[1.5rem] border border-slate-200/70 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-[#10101c]">
+      <div className="w-full max-w-2xl rounded-[1.5rem] border border-slate-300/55 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-[#10101c]">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold text-slate-950 dark:text-white">
@@ -2761,7 +2760,7 @@ function ManualAddDialog({
               onChange={(event) => onContentChange(event.target.value)}
               rows={6}
               placeholder="Example: I prefer careful, complete code fixes instead of quick incremental patches."
-              className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
+              className="mt-2 w-full rounded-2xl border border-slate-300/55 bg-slate-100/80 p-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
             />
           </label>
 
@@ -2774,7 +2773,7 @@ function ManualAddDialog({
           <button
             onClick={onCancel}
             disabled={saving}
-            className="rounded-full border border-slate-200/70 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
+            className="rounded-full border border-slate-300/55 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
           >
             Cancel
           </button>
@@ -2807,7 +2806,7 @@ function EditDialog({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm dark:bg-black/70">
-      <div className="w-full max-w-2xl rounded-[1.5rem] border border-slate-200/70 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-[#10101c]">
+      <div className="w-full max-w-2xl rounded-[1.5rem] border border-slate-300/55 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-[#10101c]">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold text-slate-950 dark:text-white">
@@ -2836,7 +2835,7 @@ function EditDialog({
               onChange={(event) => onChange({ ...edit, content: event.target.value })}
               rows={6}
               placeholder="Example: I prefer careful, complete code fixes instead of quick incremental patches."
-              className="mt-2 w-full rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
+              className="mt-2 w-full rounded-2xl border border-slate-300/55 bg-slate-100/80 p-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 dark:border-white/10 dark:bg-black/25 dark:text-white dark:placeholder:text-zinc-500"
             />
           </label>
 
@@ -2849,7 +2848,7 @@ function EditDialog({
           <button
             onClick={onCancel}
             disabled={saving}
-            className="rounded-full border border-slate-200/70 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
+            className="rounded-full border border-slate-300/55 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
           >
             Cancel
           </button>
