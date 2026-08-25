@@ -39,6 +39,8 @@ type GraphLink = {
   target: string | GraphNode
   kind: "index" | "backlink"
   label: string
+  reasons?: string[]
+  score?: number | null
 }
 
 type BuiltGraph = {
@@ -99,6 +101,7 @@ export function MemoryGraphCanvas({
   }, [graph])
 
   const relatedIds = useMemo(() => relatedNodeIds(graph.links, selectedId), [graph.links, selectedId])
+  const selectedRelationshipLinks = useMemo(() => relationshipLinksForSelection(graph.links, selectedId), [graph.links, selectedId])
   const visibleGraph = useMemo(
     () => (focusMode && selectedId ? focusGraph(graph, selectedId, relatedIds) : graph),
     [focusMode, graph, relatedIds, selectedId],
@@ -235,6 +238,31 @@ export function MemoryGraphCanvas({
                 </p>
               ) : null}
 
+              {selectedRelationshipLinks.length ? (
+                <div className="mt-4 rounded-2xl border border-cyan-200/70 bg-cyan-50/70 p-3 text-sm leading-6 text-cyan-950 dark:border-cyan-300/15 dark:bg-cyan-300/10 dark:text-cyan-100">
+                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-cyan-700/80 dark:text-cyan-200/70">
+                    Why connected
+                  </p>
+                  <div className="mt-2 grid gap-2">
+                    {selectedRelationshipLinks.slice(0, 4).map((link: GraphLink, index: number) => (
+                      <div
+                        key={`${endpointId(link.source)}-${endpointId(link.target)}-${index}`}
+                        className="rounded-xl border border-cyan-200/70 bg-white/70 p-2.5 dark:border-cyan-200/10 dark:bg-white/10"
+                      >
+                        <p className="font-medium text-slate-900 dark:text-white">
+                          {relatedNodeLabel(link, selectedNode.id, graph.nodeById)}
+                        </p>
+                        <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-slate-600 dark:text-zinc-300">
+                          {linkReasonLines(link).map((reason: string, reasonIndex: number) => (
+                            <li key={`${reason}-${reasonIndex}`}>{reason}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               <div className="mt-4 grid gap-2">
                 <button
                   type="button"
@@ -264,13 +292,13 @@ export function MemoryGraphCanvas({
                 Click any item
               </h4>
               <p className="mt-3 text-sm leading-6 text-slate-500 dark:text-zinc-400">
-                Select a memory, tag, person/topic, category, or date to inspect details and focus related items.
+                Select a memory, tag, person/topic, category, or date to understand its context and why it connects to nearby memories.
               </p>
 
               <div className="mt-5 space-y-2 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 text-xs leading-5 text-slate-500 dark:border-white/10 dark:bg-black/20 dark:text-zinc-400">
                 <p>• Large circles are memories.</p>
                 <p>• Surrounding items are topics, dates, tags, and categories.</p>
-                <p>• Lines show suggested relationships.</p>
+                <p>• Lines show suggested relationships, and selected memories explain why they are connected.</p>
               </div>
             </div>
           )}
@@ -347,7 +375,9 @@ function buildGraph(payload: MemoryGraphCanvasPayload, query: string, sectionFil
           source: `note:${sourceRawId}`,
           target: `note:${targetRawId}`,
           kind: "backlink",
-          label: "Suggested relationship",
+          label: relationshipLinkLabel(link),
+          reasons: ids(link, "reasons"),
+          score: numberValue(link, "score"),
         })
       })
   }
@@ -592,6 +622,66 @@ function kindLabel(kind: NodeKind) {
   if (kind === "entity") return "People & topics"
   if (kind === "timeline") return "Date"
   return "Item"
+}
+
+
+function relationshipLinksForSelection(links: GraphLink[], selectedId: string | null): GraphLink[] {
+  if (!selectedId) return []
+  return links
+    .filter((link) => endpointId(link.source) === selectedId || endpointId(link.target) === selectedId)
+    .slice(0, 8)
+}
+
+function relatedNodeLabel(link: GraphLink, selectedId: string, nodeById: Map<string, GraphNode>): string {
+  const sourceId = endpointId(link.source)
+  const targetId = endpointId(link.target)
+  const relatedId = sourceId === selectedId ? targetId : sourceId
+  return nodeById.get(relatedId)?.label || "Related memory"
+}
+
+function linkReasonLines(link: GraphLink): string[] {
+  const reasonList = (link.reasons || [])
+    .map((item: string) => humanizeReason(item))
+    .filter(Boolean)
+    .slice(0, 3)
+
+  if (reasonList.length) return reasonList
+
+  return [link.label || "Suggested relationship"]
+}
+
+function relationshipLinkLabel(item: GraphRecord): string {
+  const reasonList = ids(item, "reasons")
+    .map((reason: string) => humanizeReason(reason))
+    .filter(Boolean)
+
+  if (reasonList.length) return reasonList.slice(0, 2).join(" · ")
+
+  const score = numberValue(item, "score")
+  if (typeof score === "number") return `Suggested relationship · ${Math.round(score * 100)}%`
+
+  return "Suggested relationship"
+}
+
+function humanizeReason(value?: string | null): string {
+  if (!value) return ""
+  return value
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^shared /i, "Shared ")
+    .replace(/^same /i, "Same ")
+    .replace(/^related /i, "Related ")
+}
+
+function numberValue(item: GraphRecord, key: string): number | null {
+  const value = item[key]
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (typeof value === "string") {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
 }
 
 function GraphLegend() {
