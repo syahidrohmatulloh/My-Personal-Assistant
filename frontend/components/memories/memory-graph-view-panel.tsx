@@ -33,6 +33,9 @@ const GRAPH_SECTION_FILTERS: Array<{ key: MemoryGraphSectionFilter; label: strin
   { key: "candidate_backlinks", label: "Suggested links" },
 ]
 
+
+
+export const DEFAULT_GRAPH_SECTION_FILTER: MemoryGraphSectionFilter = "notes"
 function memoryGraphItems(payload: MemoryGraphViewPayload | null, key: MemoryGraphSectionKey) {
   const items = payload?.sections?.[key]
   return Array.isArray(items) ? items : []

@@ -32,7 +32,7 @@ import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 import { createClient } from "@/lib/supabase/client";
 import { readSnapshot, SNAPSHOT_MAX_AGE_MS, userScopedSnapshotKey, writeSnapshot } from "@/lib/snapshot-cache";
 import { MemoryNarrativeSummaryPanel, type MemoryNarrativeSummary } from "../../components/memories/memory-narrative-summary-panel";
-import { MemoryGraphViewPanel, type MemoryGraphSectionFilter, type MemoryGraphViewPayload } from "../../components/memories/memory-graph-view-panel";
+import { DEFAULT_GRAPH_SECTION_FILTER, MemoryGraphViewPanel, type MemoryGraphSectionFilter, type MemoryGraphViewPayload } from "../../components/memories/memory-graph-view-panel";
 import { StatCard, TabButton } from "../../components/memories/memory-page-primitives";
 import { MemoryQualityPanel, type MemoryQualityPayload } from "../../components/memories/memory-quality-panel";
 import { MemoryCard } from "../../components/memories/memory-card";
@@ -420,7 +420,7 @@ export default function MemoriesPage() {
   const [narrativeRegenerating, setNarrativeRegenerating] = useState(false)
   const [graphView, setGraphView] = useState<MemoryGraphViewPayload | null>(null)
   const [graphLoading, setGraphLoading] = useState(false)
-  const [graphSectionFilter, setGraphSectionFilter] = useState<MemoryGraphSectionFilter>("all")
+  const [graphSectionFilter, setGraphSectionFilter] = useState<MemoryGraphSectionFilter>(DEFAULT_GRAPH_SECTION_FILTER)
   const [showGraphDetails, setShowGraphDetails] = useState(false)
 
   async function loadMemoryNarrativeSummary() {
