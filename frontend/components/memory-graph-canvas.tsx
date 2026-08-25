@@ -157,6 +157,8 @@ export function MemoryGraphCanvas({
             </div>
           </div>
 
+          <GraphLegend />
+
           {graph.nodes.length === 0 ? (
             <div className="m-4 rounded-2xl border border-dashed border-slate-200/80 p-5 text-sm leading-6 text-slate-400 dark:border-white/10 dark:text-zinc-500">
               No memory map items match the current search/filter.
@@ -542,22 +544,22 @@ function drawNode(
 
 function nodeFill(kind: NodeKind, selected: boolean, hovered: boolean) {
   if (selected) return "rgba(34, 211, 238, 0.98)"
-  if (hovered) return "rgba(125, 211, 252, 0.98)"
-  if (kind === "note") return "rgba(255, 255, 255, 0.98)"
-  if (kind === "entity") return "rgba(245, 243, 255, 0.98)"
-  if (kind === "timeline") return "rgba(254, 243, 199, 0.98)"
-  if (kind === "tag") return "rgba(209, 250, 229, 0.98)"
-  return "rgba(241, 245, 249, 0.98)"
+  if (hovered) return "rgba(14, 165, 233, 0.96)"
+  if (kind === "note") return "rgba(59, 130, 246, 0.92)"
+  if (kind === "entity") return "rgba(139, 92, 246, 0.92)"
+  if (kind === "timeline") return "rgba(245, 158, 11, 0.92)"
+  if (kind === "tag") return "rgba(20, 184, 166, 0.92)"
+  return "rgba(100, 116, 139, 0.9)"
 }
 
 function nodeStroke(kind: NodeKind, selected: boolean, hovered: boolean, related: boolean) {
   if (selected) return "rgba(8, 145, 178, 1)"
   if (hovered || related) return "rgba(14, 165, 233, 0.95)"
-  if (kind === "note") return "rgba(34, 211, 238, 0.86)"
-  if (kind === "entity") return "rgba(167, 139, 250, 0.82)"
-  if (kind === "timeline") return "rgba(245, 158, 11, 0.78)"
-  if (kind === "tag") return "rgba(16, 185, 129, 0.78)"
-  return "rgba(148, 163, 184, 0.75)"
+  if (kind === "note") return "rgba(37, 99, 235, 0.95)"
+  if (kind === "entity") return "rgba(124, 58, 237, 0.95)"
+  if (kind === "timeline") return "rgba(217, 119, 6, 0.95)"
+  if (kind === "tag") return "rgba(13, 148, 136, 0.95)"
+  return "rgba(71, 85, 105, 0.9)"
 }
 
 function linkColor(link: GraphLink, selectedId: string | null, hoveredId: string | null, relatedIds: Set<string>) {
@@ -590,6 +592,27 @@ function kindLabel(kind: NodeKind) {
   if (kind === "entity") return "People & topics"
   if (kind === "timeline") return "Date"
   return "Item"
+}
+
+function GraphLegend() {
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/70 px-4 py-3 text-[11px] text-slate-500 dark:border-white/10 dark:text-zinc-400">
+      <LegendDot color="bg-blue-500" label="Memories" />
+      <LegendDot color="bg-violet-500" label="People & things" />
+      <LegendDot color="bg-amber-500" label="Moments" />
+      <LegendDot color="bg-teal-500" label="Themes" />
+      <LegendDot color="bg-slate-500" label="Kinds" />
+    </div>
+  )
+}
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/70 bg-white/65 px-2.5 py-1 shadow-sm shadow-slate-900/5 backdrop-blur dark:border-white/10 dark:bg-white/[0.06]">
+      <span className={["h-2 w-2 rounded-full", color].join(" ")} />
+      <span>{label}</span>
+    </span>
+  )
 }
 
 function GraphPill({ children }: { children: ReactNode }) {
