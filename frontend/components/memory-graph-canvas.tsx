@@ -126,26 +126,26 @@ export function MemoryGraphCanvas({
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-zinc-500">
-            Interactive visual map
+            Interactive memory map
           </p>
           <h3 className="mt-1 text-sm font-semibold text-slate-950 dark:text-white">
-            Obsidian-style force graph
+            Memory relationship map
           </h3>
           <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-500 dark:text-zinc-400">
-            Drag, zoom, pan, hover, click, and focus nodes. This remains a read-only projection from the loaded memory graph payload.
+            Drag, zoom, pan, hover, and click to explore how your saved memories connect. This view is read-only.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <GraphPill>{visibleGraph.nodes.length} nodes</GraphPill>
-          <GraphPill>{visibleGraph.links.length} links</GraphPill>
+          <GraphPill>{visibleGraph.nodes.length} items</GraphPill>
+          <GraphPill>{visibleGraph.links.length} connections</GraphPill>
           <button
             type="button"
             onClick={() => setFocusMode((value) => !value)}
             disabled={!selectedNode}
             className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-300 dark:hover:bg-white/10"
           >
-            {focusMode ? "Exit focus" : "Focus selected"}
+            {focusMode ? "Exit focus" : "Focus item"}
           </button>
           <button
             type="button"
@@ -159,7 +159,7 @@ export function MemoryGraphCanvas({
 
       {graph.nodes.length === 0 ? (
         <div className="mt-4 rounded-xl border border-dashed border-slate-200/80 p-4 text-xs leading-5 text-slate-400 dark:border-white/10 dark:text-zinc-500">
-          No visual graph items match the current search/filter.
+          No memory map items match the current search/filter.
         </div>
       ) : (
         <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
@@ -213,13 +213,13 @@ export function MemoryGraphCanvas({
             {selectedNode ? (
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-zinc-500">
-                  Selected node
+                  Selected item
                 </p>
                 <h4 className="mt-2 text-base font-semibold text-slate-950 dark:text-white">
                   {selectedNode.label}
                 </h4>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <GraphPill>{selectedNode.kind}</GraphPill>
+                  <GraphPill>{kindLabel(selectedNode.kind)}</GraphPill>
                   <GraphPill>{relatedIds.size} related</GraphPill>
                 </div>
                 {selectedNode.detail ? (
@@ -233,7 +233,7 @@ export function MemoryGraphCanvas({
                     onClick={focusSelected}
                     className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
                   >
-                    Focus this neighborhood
+                    Focus related items
                   </button>
                   <button
                     type="button"
@@ -253,10 +253,10 @@ export function MemoryGraphCanvas({
                   Inspector
                 </p>
                 <h4 className="mt-2 text-base font-semibold text-slate-950 dark:text-white">
-                  Click any node
+                  Click any item
                 </h4>
                 <p className="mt-3 text-sm leading-6 text-slate-500 dark:text-zinc-400">
-                  Select a note, tag, entity, type, or timeline node to inspect its detail and focus its neighborhood.
+                  Select a memory, tag, person/topic, category, or date to inspect details and focus related items.
                 </p>
               </div>
             )}
@@ -265,13 +265,31 @@ export function MemoryGraphCanvas({
       )}
 
       <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500 dark:text-zinc-500">
-        <span>Drag nodes.</span>
+        <span>Drag items.</span>
         <span>Scroll or pinch to zoom.</span>
-        <span>Click a node to inspect.</span>
-        <span>Focus selected shows its connected neighborhood.</span>
+        <span>Click an item to inspect.</span>
+        <span>Focus item shows connected memories and topics.</span>
       </div>
     </div>
   )
+}
+
+
+function indexRelationshipLabel(kind: NodeKind) {
+  if (kind === "type") return "Category relationship"
+  if (kind === "tag") return "Tag relationship"
+  if (kind === "entity") return "People/topic relationship"
+  if (kind === "timeline") return "Date relationship"
+  return "Memory relationship"
+}
+
+function kindLabel(kind: NodeKind) {
+  if (kind === "note") return "Memory"
+  if (kind === "type") return "Category"
+  if (kind === "tag") return "Tag"
+  if (kind === "entity") return "People & topics"
+  if (kind === "timeline") return "Date"
+  return "Item"
 }
 
 function emptyGraph(): BuiltGraph {
@@ -319,7 +337,7 @@ function buildGraph(payload: MemoryGraphCanvasPayload, query: string, sectionFil
               source: resource.id,
               target: `note:${rawNoteId}`,
               kind: "index",
-              label: `${resource.kind} relationship`,
+              label: indexRelationshipLabel(resource.kind),
             })
           })
       })
@@ -341,7 +359,7 @@ function buildGraph(payload: MemoryGraphCanvasPayload, query: string, sectionFil
           source: `note:${sourceRawId}`,
           target: `note:${targetRawId}`,
           kind: "backlink",
-          label: "Candidate backlink",
+          label: "Suggested relationship",
         })
       })
   }
@@ -401,13 +419,13 @@ function addNoteNode(nodes: Map<string, GraphNode>, rawId: string, note: GraphRe
 function resourceNode(section: GraphSectionKey, item: GraphRecord): GraphNode | null {
   if (section === "types") {
     const value = text(item, "type") || "unknown"
-    return makeResourceNode(`type:${value}`, value, "type", `${text(item, "count")} notes`, item)
+    return makeResourceNode(`type:${value}`, value, "type", `${text(item, "count")} memories`, item)
   }
 
   if (section === "tags") {
     const value = text(item, "tag")
     if (!value) return null
-    return makeResourceNode(`tag:${value}`, value, "tag", `${text(item, "count")} notes`, item)
+    return makeResourceNode(`tag:${value}`, value, "tag", `${text(item, "count")} memories`, item)
   }
 
   if (section === "entities") {
@@ -420,7 +438,7 @@ function resourceNode(section: GraphSectionKey, item: GraphRecord): GraphNode | 
   if (section === "timeline") {
     const value = text(item, "date")
     if (!value) return null
-    return makeResourceNode(`timeline:${value}`, value, "timeline", `${text(item, "count")} notes`, item)
+    return makeResourceNode(`timeline:${value}`, value, "timeline", `${text(item, "count")} memories`, item)
   }
 
   return null

@@ -146,23 +146,23 @@ type MemoryGraphViewPayload = {
 }
 
 const GRAPH_SECTION_LABELS: Record<MemoryGraphSectionKey, string> = {
-  notes: "Notes",
-  types: "Types",
+  notes: "Memories",
+  types: "Categories",
   tags: "Tags",
-  entities: "Entities",
-  timeline: "Timeline",
-  candidate_backlinks: "Candidate backlinks",
+  entities: "People & topics",
+  timeline: "Dates",
+  candidate_backlinks: "Suggested links",
 }
 
 
 const GRAPH_SECTION_FILTERS: Array<{ key: MemoryGraphSectionFilter; label: string }> = [
   { key: "all", label: "All" },
-  { key: "notes", label: "Notes" },
-  { key: "types", label: "Types" },
+  { key: "notes", label: "Memories" },
+  { key: "types", label: "Categories" },
   { key: "tags", label: "Tags" },
-  { key: "entities", label: "Entities" },
-  { key: "timeline", label: "Timeline" },
-  { key: "candidate_backlinks", label: "Backlinks" },
+  { key: "entities", label: "People & topics" },
+  { key: "timeline", label: "Dates" },
+  { key: "candidate_backlinks", label: "Suggested links" },
 ]
 
 function memoryGraphItems(payload: MemoryGraphViewPayload | null, key: MemoryGraphSectionKey) {
@@ -208,14 +208,24 @@ function memoryGraphFilteredItems(
 }
 
 function memoryGraphItemDetail(item: Record<string, unknown>) {
-  const fields = ["type", "note_type", "count", "score", "timeline", "date", "tag", "entity"]
+  const fields = [
+    ["type", "Category"],
+    ["note_type", "Memory type"],
+    ["count", "Memories"],
+    ["score", "Strength"],
+    ["date", "Date"],
+    ["tag", "Tag"],
+    ["entity_name", "Topic"],
+    ["entity_type", "Type"],
+  ] as const
+
   return fields
-    .map((field) => {
+    .map(([field, label]) => {
       const value = item[field]
       if (value == null || value === "") return null
-      if (Array.isArray(value)) return `${field}: ${value.slice(0, 4).join(", ")}`
+      if (Array.isArray(value)) return `${label}: ${value.slice(0, 4).join(", ")}`
       if (typeof value === "object") return null
-      return `${field}: ${String(value)}`
+      return `${label}: ${String(value)}`
     })
     .filter(Boolean)
     .join(" · ")
@@ -1245,7 +1255,7 @@ export default function MemoriesPage() {
                 setMemoryActionNotice(null)
                 if (!graphView && !graphLoading) void loadMemoryGraphView()
               }}
-              label="Graph View"
+              label="Memory Map"
             />
           </div>
 
@@ -1254,7 +1264,7 @@ export default function MemoriesPage() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={tab === "graph" ? "Search graph notes, tags, entities, timeline..." : "Search memories..."}
+              placeholder={tab === "graph" ? "Search memory map..." : "Search memories..."}
               className="w-full rounded-full border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-black/25 py-2 pl-10 pr-4 text-sm text-slate-950 dark:text-white outline-none placeholder:text-slate-500 dark:text-zinc-500 focus:border-cyan-300/70"
             />
           </div>
@@ -1512,13 +1522,13 @@ function MemoryGraphViewPanel({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-zinc-500">
-            Obsidian-style memory view
+            Memory relationship view
           </p>
           <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-950 dark:text-white">
-            Memory graph
+            Memory Map
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
-            Read-only projection of notes, tags, entities, timeline anchors, and candidate backlinks. This does not change retrieval behavior or write to the database.
+            Explore relationships across your saved memories, people, topics, dates, tags, and suggested links. This view is read-only.
           </p>
         </div>
 
@@ -1533,10 +1543,10 @@ function MemoryGraphViewPanel({
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-4">
-        <StatCard label="Projected notes" value={notes.length} />
+        <StatCard label="Memories shown" value={notes.length} />
         <StatCard label="Tags" value={tags.length} />
-        <StatCard label="Entities" value={entities.length} />
-        <StatCard label="Backlinks" value={backlinks.length} />
+        <StatCard label="People & topics" value={entities.length} />
+        <StatCard label="Suggested links" value={backlinks.length} />
       </div>
 
       <MemoryGraphCanvas payload={payload} query={query} sectionFilter={sectionFilter} />
@@ -1573,7 +1583,7 @@ function MemoryGraphViewPanel({
 
       {!payload && !loading ? (
         <div className="mt-5 rounded-2xl border border-cyan-200/70 bg-cyan-50/80 p-5 text-sm leading-6 text-cyan-900 dark:border-cyan-300/15 dark:bg-cyan-300/10 dark:text-cyan-100">
-          Unlock this read-only graph with your Memory PIN to inspect the structure behind your long-term memory.
+          Unlock your Memory Map with your Memory PIN to explore how your saved memories relate to each other.
         </div>
       ) : null}
 
@@ -1619,7 +1629,7 @@ function MemoryGraphViewPanel({
 
                   {items.length === 0 ? (
                     <p className="rounded-xl border border-dashed border-slate-200/80 p-3 text-xs leading-5 text-slate-400 dark:border-white/10 dark:text-zinc-500">
-                      {query.trim() ? "No graph items match this search." : "No projected items in this section yet."}
+                      {query.trim() ? "No memory map items match this search." : "No projected items in this section yet."}
                     </p>
                   ) : null}
                 </div>
