@@ -125,6 +125,18 @@ export function MemoryGraphViewPanel({
 }) {
   const sections: MemoryGraphSectionKey[] = ["notes", "types", "tags", "entities", "timeline", "candidate_backlinks"]
   const visibleSections = sectionFilter === "all" ? sections : sections.filter((section) => section === sectionFilter)
+
+  const focusedHelperTitle =
+    sectionFilter === "all"
+      ? "Full memory map"
+      : `${GRAPH_SECTION_LABELS[sectionFilter] || "Focused"} memories`
+
+  const focusedHelperCopy =
+    sectionFilter === "all"
+      ? "You are viewing every memory section at once. Use a chip to focus the map."
+      : "You are viewing one focused memory section. Switch to All when you want the complete graph."
+
+  const visibleSectionCount = visibleSections.length
   const notes = memoryGraphFilteredItems(payload, "notes", query)
   const tags = memoryGraphFilteredItems(payload, "tags", query)
   const entities = memoryGraphFilteredItems(payload, "entities", query)
@@ -162,7 +174,37 @@ export function MemoryGraphViewPanel({
         <MiniMetric label="Suggested links" value={backlinks.length} />
       </div>
 
-      <MemoryGraphCanvas payload={payload} query={query} sectionFilter={sectionFilter} />
+      <div className="rounded-2xl border border-cyan-200/70 bg-cyan-50/70 p-4 text-sm text-cyan-950 shadow-sm dark:border-cyan-300/15 dark:bg-cyan-300/10 dark:text-cyan-100">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-cyan-700/80 dark:text-cyan-200/70">
+                Focused view
+              </p>
+              <h3 className="mt-1 text-base font-semibold text-slate-950 dark:text-white">
+                {focusedHelperTitle}
+              </h3>
+              <p className="mt-1 leading-6 text-slate-600 dark:text-zinc-300">
+                {focusedHelperCopy}
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <span className="rounded-full border border-cyan-300/60 bg-white/70 px-3 py-1.5 text-xs font-medium text-cyan-900 dark:border-cyan-200/20 dark:bg-white/10 dark:text-cyan-100">
+                {visibleSectionCount} section{visibleSectionCount === 1 ? "" : "s"}
+              </span>
+              {sectionFilter !== "all" ? (
+                <button
+                  type="button"
+                  onClick={() => onSectionFilterChange("all")}
+                  className="rounded-full border border-slate-300/55 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:border-white/10 dark:bg-slate-950/[0.68] dark:text-zinc-200 dark:hover:bg-white/10"
+                >
+                  Show full map
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        <MemoryGraphCanvas payload={payload} query={query} sectionFilter={sectionFilter} />
 
 
 
