@@ -1648,7 +1648,7 @@ function MemoryGraphViewPanel({
 
                   {items.length === 0 ? (
                     <p className="rounded-xl border border-dashed border-slate-200/80 p-3 text-xs leading-5 text-slate-400 dark:border-white/10 dark:text-zinc-500">
-                      {query.trim() ? "No memory map items match this search." : "No projected items in this section yet."}
+                      {query.trim() ? "No memory map items match this search." : "No items in this section yet."}
                     </p>
                   ) : null}
                 </div>

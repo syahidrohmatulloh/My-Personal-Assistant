@@ -1,6 +1,7 @@
 'use client'
 
 import dynamic from "next/dynamic"
+import type { ReactNode } from "react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 const ForceGraph2D = dynamic(
@@ -47,10 +48,10 @@ type BuiltGraph = {
 }
 
 const RESOURCE_SECTIONS: GraphSectionKey[] = ["types", "tags", "entities", "timeline"]
-const MAX_NOTES = 80
-const MAX_RESOURCE_ITEMS = 48
-const MAX_LINKS = 220
-const GRAPH_HEIGHT = 520
+const MAX_NOTES = 90
+const MAX_RESOURCE_ITEMS = 54
+const MAX_LINKS = 240
+const GRAPH_HEIGHT = 590
 
 export function MemoryGraphCanvas({
   payload,
@@ -111,185 +112,170 @@ export function MemoryGraphCanvas({
     setSelectedId(null)
     setHoveredId(null)
     setFocusMode(false)
-    graphRef.current?.zoomToFit?.(600, 60)
+    graphRef.current?.zoomToFit?.(650, 72)
   }
 
   const focusSelected = () => {
     if (!selectedNode) return
     setFocusMode(true)
-    graphRef.current?.centerAt?.(selectedNode.x || 0, selectedNode.y || 0, 650)
-    graphRef.current?.zoom?.(2.4, 650)
+    graphRef.current?.centerAt?.(selectedNode.x || 0, selectedNode.y || 0, 700)
+    graphRef.current?.zoom?.(2.35, 700)
   }
 
   return (
-    <div className="mt-5 rounded-2xl border border-slate-200/70 bg-slate-950/[0.02] p-4 dark:border-white/10 dark:bg-white/[0.03]">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-zinc-500">
-            Interactive memory map
-          </p>
-          <h3 className="mt-1 text-sm font-semibold text-slate-950 dark:text-white">
-            Memory relationship map
-          </h3>
-          <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-500 dark:text-zinc-400">
-            Drag, zoom, pan, hover, and click to explore how your saved memories connect. This view is read-only.
-          </p>
-        </div>
+    <div className="rounded-[1.75rem] border border-slate-200/70 bg-white/80 p-3 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-white/10 dark:bg-black/20">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-[radial-gradient(circle_at_18%_0%,rgba(34,211,238,0.16),transparent_34%),radial-gradient(circle_at_90%_22%,rgba(168,85,247,0.14),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.92))] shadow-inner shadow-slate-900/5 dark:border-white/10 dark:bg-[radial-gradient(circle_at_18%_0%,rgba(34,211,238,0.14),transparent_35%),radial-gradient(circle_at_90%_22%,rgba(168,85,247,0.14),transparent_30%),linear-gradient(180deg,rgba(24,24,27,0.98),rgba(9,9,11,0.96))]">
+          <div className="flex flex-col gap-3 border-b border-slate-200/70 px-4 py-3 dark:border-white/10 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-zinc-500">
+                Interactive memory map
+              </p>
+              <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-zinc-400">
+                Drag, zoom, pan, hover, and click to explore your saved memories.
+              </p>
+            </div>
 
-        <div className="flex flex-wrap gap-2">
-          <GraphPill>{visibleGraph.nodes.length} items</GraphPill>
-          <GraphPill>{visibleGraph.links.length} connections</GraphPill>
-          <button
-            type="button"
-            onClick={() => setFocusMode((value) => !value)}
-            disabled={!selectedNode}
-            className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-300 dark:hover:bg-white/10"
-          >
-            {focusMode ? "Exit focus" : "Focus item"}
-          </button>
-          <button
-            type="button"
-            onClick={resetView}
-            className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-300 dark:hover:bg-white/10"
-          >
-            Reset view
-          </button>
-        </div>
-      </div>
-
-      {graph.nodes.length === 0 ? (
-        <div className="mt-4 rounded-xl border border-dashed border-slate-200/80 p-4 text-xs leading-5 text-slate-400 dark:border-white/10 dark:text-zinc-500">
-          No memory map items match the current search/filter.
-        </div>
-      ) : (
-        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div
-            ref={shellRef}
-            className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white/90 dark:border-white/10 dark:bg-zinc-950"
-          >
-            <ForceGraph2D
-              ref={graphRef}
-              backgroundColor="rgba(0,0,0,0)"
-              cooldownTicks={90}
-              d3AlphaDecay={0.025}
-              d3VelocityDecay={0.28}
-              enableNodeDrag
-              enablePanInteraction
-              enableZoomInteraction
-              graphData={visibleGraph}
-              height={GRAPH_HEIGHT}
-              linkColor={(link: GraphLink) => linkColor(link, selectedId, hoveredId, relatedIds)}
-              linkDirectionalParticles={(link: GraphLink) => (isHighlightedLink(link, selectedId, hoveredId, relatedIds) ? 3 : 0)}
-              linkDirectionalParticleSpeed={0.006}
-              linkDirectionalParticleWidth={2.2}
-              linkLabel={(link: GraphLink) => link.label}
-              linkWidth={(link: GraphLink) => (isHighlightedLink(link, selectedId, hoveredId, relatedIds) ? 2.2 : 0.8)}
-              nodeCanvasObject={(node: GraphNode, canvasContext: CanvasRenderingContext2D, globalScale: number) =>
-                drawNode(node, canvasContext, globalScale, selectedId, hoveredId, relatedIds)
-              }
-              nodeId="id"
-              nodeLabel={(node: GraphNode) => [node.label, node.detail].filter(Boolean).join(" · ")}
-              nodeRelSize={5}
-              onBackgroundClick={() => {
-                setSelectedId(null)
-                setHoveredId(null)
-              }}
-              onEngineStop={() => graphRef.current?.zoomToFit?.(350, 70)}
-              onNodeClick={(node: GraphNode) => {
-                setSelectedId(node.id)
-                graphRef.current?.centerAt?.(node.x || 0, node.y || 0, 650)
-                graphRef.current?.zoom?.(2.1, 650)
-              }}
-              onNodeDragEnd={(node: GraphNode) => {
-                node.fx = node.x
-                node.fy = node.y
-              }}
-              onNodeHover={(node: GraphNode | null) => setHoveredId(node?.id || null)}
-              width={width}
-            />
+            <div className="flex flex-wrap gap-2">
+              <GraphPill>{visibleGraph.nodes.length} items</GraphPill>
+              <GraphPill>{visibleGraph.links.length} connections</GraphPill>
+              <button
+                type="button"
+                onClick={() => setFocusMode((value) => !value)}
+                disabled={!selectedNode}
+                className="rounded-full border border-slate-200/70 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.07] dark:text-zinc-300 dark:hover:bg-white/10"
+              >
+                {focusMode ? "Exit focus" : "Focus item"}
+              </button>
+              <button
+                type="button"
+                onClick={resetView}
+                className="rounded-full border border-slate-200/70 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-white dark:border-white/10 dark:bg-white/[0.07] dark:text-zinc-300 dark:hover:bg-white/10"
+              >
+                Reset map
+              </button>
+            </div>
           </div>
 
-          <aside className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-white/10 dark:bg-black/20">
-            {selectedNode ? (
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-zinc-500">
-                  Selected item
-                </p>
-                <h4 className="mt-2 text-base font-semibold text-slate-950 dark:text-white">
-                  {selectedNode.label}
-                </h4>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <GraphPill>{kindLabel(selectedNode.kind)}</GraphPill>
-                  <GraphPill>{relatedIds.size} related</GraphPill>
-                </div>
-                {selectedNode.detail ? (
-                  <p className="mt-3 text-sm leading-6 text-slate-500 dark:text-zinc-400">
-                    {selectedNode.detail}
-                  </p>
-                ) : null}
-                <div className="mt-4 grid gap-2">
-                  <button
-                    type="button"
-                    onClick={focusSelected}
-                    className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
-                  >
-                    Focus related items
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedId(null)
-                      setFocusMode(false)
-                    }}
-                    className="rounded-xl border border-slate-200/70 bg-white/70 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-300 dark:hover:bg-white/10"
-                  >
-                    Clear selection
-                  </button>
-                </div>
+          {graph.nodes.length === 0 ? (
+            <div className="m-4 rounded-2xl border border-dashed border-slate-200/80 p-5 text-sm leading-6 text-slate-400 dark:border-white/10 dark:text-zinc-500">
+              No memory map items match the current search/filter.
+            </div>
+          ) : (
+            <div ref={shellRef} className="relative">
+              <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-2xl border border-white/70 bg-white/75 px-3 py-2 text-[11px] leading-5 text-slate-500 shadow-sm shadow-slate-900/5 backdrop-blur dark:border-white/10 dark:bg-zinc-950/55 dark:text-zinc-400">
+                Drag items · scroll to zoom · click to inspect
               </div>
-            ) : (
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-zinc-500">
-                  Inspector
-                </p>
-                <h4 className="mt-2 text-base font-semibold text-slate-950 dark:text-white">
-                  Click any item
-                </h4>
-                <p className="mt-3 text-sm leading-6 text-slate-500 dark:text-zinc-400">
-                  Select a memory, tag, person/topic, category, or date to inspect details and focus related items.
-                </p>
-              </div>
-            )}
-          </aside>
-        </div>
-      )}
 
-      <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500 dark:text-zinc-500">
-        <span>Drag items.</span>
-        <span>Scroll or pinch to zoom.</span>
-        <span>Click an item to inspect.</span>
-        <span>Focus item shows connected memories and topics.</span>
+              <ForceGraph2D
+                ref={graphRef}
+                backgroundColor="rgba(0,0,0,0)"
+                cooldownTicks={100}
+                d3AlphaDecay={0.023}
+                d3VelocityDecay={0.27}
+                enableNodeDrag
+                enablePanInteraction
+                enableZoomInteraction
+                graphData={visibleGraph}
+                height={GRAPH_HEIGHT}
+                linkColor={(link: GraphLink) => linkColor(link, selectedId, hoveredId, relatedIds)}
+                linkDirectionalParticles={(link: GraphLink) => (isHighlightedLink(link, selectedId, hoveredId, relatedIds) ? 4 : 0)}
+                linkDirectionalParticleSpeed={0.007}
+                linkDirectionalParticleWidth={2.25}
+                linkLabel={(link: GraphLink) => link.label}
+                linkWidth={(link: GraphLink) => (isHighlightedLink(link, selectedId, hoveredId, relatedIds) ? 2.35 : 0.82)}
+                nodeCanvasObject={(node: GraphNode, canvasContext: CanvasRenderingContext2D, globalScale: number) =>
+                  drawNode(node, canvasContext, globalScale, selectedId, hoveredId, relatedIds)
+                }
+                nodeId="id"
+                nodeLabel={(node: GraphNode) => [node.label, node.detail].filter(Boolean).join(" · ")}
+                nodeRelSize={5}
+                onBackgroundClick={() => {
+                  setSelectedId(null)
+                  setHoveredId(null)
+                }}
+                onEngineStop={() => graphRef.current?.zoomToFit?.(350, 72)}
+                onNodeClick={(node: GraphNode) => {
+                  setSelectedId(node.id)
+                  graphRef.current?.centerAt?.(node.x || 0, node.y || 0, 700)
+                  graphRef.current?.zoom?.(2.1, 700)
+                }}
+                onNodeDragEnd={(node: GraphNode) => {
+                  node.fx = node.x
+                  node.fy = node.y
+                }}
+                onNodeHover={(node: GraphNode | null) => setHoveredId(node?.id || null)}
+                width={width}
+              />
+            </div>
+          )}
+        </div>
+
+        <aside className="rounded-[1.5rem] border border-slate-200/70 bg-white/82 p-4 shadow-sm shadow-slate-900/5 backdrop-blur dark:border-white/10 dark:bg-white/[0.045]">
+          {selectedNode ? (
+            <div>
+              <div className="inline-flex rounded-full border border-slate-200/70 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:border-white/10 dark:bg-white/[0.06] dark:text-zinc-400">
+                Selected item
+              </div>
+
+              <h4 className="mt-3 text-lg font-semibold leading-tight text-slate-950 dark:text-white">
+                {selectedNode.label}
+              </h4>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <GraphPill>{kindLabel(selectedNode.kind)}</GraphPill>
+                <GraphPill>{relatedIds.size} related</GraphPill>
+              </div>
+
+              {selectedNode.detail ? (
+                <p className="mt-4 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 text-sm leading-6 text-slate-600 dark:border-white/10 dark:bg-black/20 dark:text-zinc-300">
+                  {selectedNode.detail}
+                </p>
+              ) : null}
+
+              <div className="mt-4 grid gap-2">
+                <button
+                  type="button"
+                  onClick={focusSelected}
+                  className="rounded-2xl bg-slate-950 px-4 py-3 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
+                >
+                  Focus related items
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedId(null)
+                    setFocusMode(false)
+                  }}
+                  className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-white dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-300 dark:hover:bg-white/10"
+                >
+                  Clear selection
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="inline-flex rounded-full border border-slate-200/70 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:border-white/10 dark:bg-white/[0.06] dark:text-zinc-400">
+                Inspector
+              </div>
+              <h4 className="mt-3 text-lg font-semibold text-slate-950 dark:text-white">
+                Click any item
+              </h4>
+              <p className="mt-3 text-sm leading-6 text-slate-500 dark:text-zinc-400">
+                Select a memory, tag, person/topic, category, or date to inspect details and focus related items.
+              </p>
+
+              <div className="mt-5 space-y-2 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 text-xs leading-5 text-slate-500 dark:border-white/10 dark:bg-black/20 dark:text-zinc-400">
+                <p>• Large circles are memories.</p>
+                <p>• Surrounding items are topics, dates, tags, and categories.</p>
+                <p>• Lines show suggested relationships.</p>
+              </div>
+            </div>
+          )}
+        </aside>
       </div>
     </div>
   )
-}
-
-
-function indexRelationshipLabel(kind: NodeKind) {
-  if (kind === "type") return "Category relationship"
-  if (kind === "tag") return "Tag relationship"
-  if (kind === "entity") return "People/topic relationship"
-  if (kind === "timeline") return "Date relationship"
-  return "Memory relationship"
-}
-
-function kindLabel(kind: NodeKind) {
-  if (kind === "note") return "Memory"
-  if (kind === "type") return "Category"
-  if (kind === "tag") return "Tag"
-  if (kind === "entity") return "People & topics"
-  if (kind === "timeline") return "Date"
-  return "Item"
 }
 
 function emptyGraph(): BuiltGraph {
@@ -399,7 +385,7 @@ function addNoteNode(nodes: Map<string, GraphNode>, rawId: string, note: GraphRe
   const id = `note:${rawId}`
   if (nodes.has(id)) return
 
-  const label = text(note, "title") || text(note, "body_preview") || "Untitled note"
+  const label = text(note, "title") || text(note, "body_preview") || "Untitled memory"
   const detail = [text(note, "note_type"), ids(note, "tags").slice(0, 3).join(", ")]
     .filter(Boolean)
     .join(" · ")
@@ -411,7 +397,7 @@ function addNoteNode(nodes: Map<string, GraphNode>, rawId: string, note: GraphRe
     label,
     detail,
     searchText: [rawId, label, detail, text(note, "body_preview")].join(" ").toLowerCase(),
-    val: 5,
+    val: 5.8,
     group: "note",
   })
 }
@@ -452,7 +438,7 @@ function makeResourceNode(id: string, label: string, kind: NodeKind, detail: str
     label,
     detail,
     searchText: [id, label, detail, ids(item, "note_ids").join(" ")].join(" ").toLowerCase(),
-    val: kind === "entity" ? 4 : 3,
+    val: kind === "entity" ? 4.2 : 3.3,
     group: kind,
   }
 }
@@ -518,14 +504,17 @@ function drawNode(
   const hovered = hoveredId === node.id
   const related = relatedIds.has(node.id)
   const dimmed = Boolean(selectedId) && !selected && !related
-  const radius = node.kind === "note" ? 6.5 + node.val : 5.5 + node.val
+  const radius = node.kind === "note" ? 6.5 + node.val : 5.6 + node.val
   const fontSize = selected || hovered ? 13 : 11
   const label = truncate(node.label, selected || hovered ? 34 : 20)
   const x = node.x || 0
   const y = node.y || 0
 
   canvasContext.save()
-  canvasContext.globalAlpha = dimmed ? 0.28 : 1
+  canvasContext.globalAlpha = dimmed ? 0.26 : 1
+
+  canvasContext.shadowColor = selected || hovered ? "rgba(14, 165, 233, 0.38)" : "rgba(15, 23, 42, 0.12)"
+  canvasContext.shadowBlur = selected || hovered ? 18 : 8
 
   canvasContext.beginPath()
   canvasContext.arc(x, y, selected || hovered ? radius + 3 : radius, 0, Math.PI * 2)
@@ -535,23 +524,25 @@ function drawNode(
   canvasContext.strokeStyle = nodeStroke(node.kind, selected, hovered, related)
   canvasContext.stroke()
 
+  canvasContext.shadowBlur = 0
+
   if (selected || hovered || globalScale > 0.72) {
     canvasContext.font = `${Math.max(fontSize / globalScale, 8)}px Inter, ui-sans-serif, system-ui`
     canvasContext.textAlign = "center"
     canvasContext.textBaseline = "top"
     canvasContext.lineWidth = 4 / globalScale
-    canvasContext.strokeStyle = "rgba(255,255,255,0.9)"
-    canvasContext.strokeText(label, x, y + radius + 5)
-    canvasContext.fillStyle = "rgba(15,23,42,0.94)"
-    canvasContext.fillText(label, x, y + radius + 5)
+    canvasContext.strokeStyle = "rgba(255,255,255,0.92)"
+    canvasContext.strokeText(label, x, y + radius + 6)
+    canvasContext.fillStyle = "rgba(15,23,42,0.96)"
+    canvasContext.fillText(label, x, y + radius + 6)
   }
 
   canvasContext.restore()
 }
 
 function nodeFill(kind: NodeKind, selected: boolean, hovered: boolean) {
-  if (selected) return "rgba(34, 211, 238, 0.95)"
-  if (hovered) return "rgba(125, 211, 252, 0.95)"
+  if (selected) return "rgba(34, 211, 238, 0.98)"
+  if (hovered) return "rgba(125, 211, 252, 0.98)"
   if (kind === "note") return "rgba(255, 255, 255, 0.98)"
   if (kind === "entity") return "rgba(245, 243, 255, 0.98)"
   if (kind === "timeline") return "rgba(254, 243, 199, 0.98)"
@@ -562,8 +553,8 @@ function nodeFill(kind: NodeKind, selected: boolean, hovered: boolean) {
 function nodeStroke(kind: NodeKind, selected: boolean, hovered: boolean, related: boolean) {
   if (selected) return "rgba(8, 145, 178, 1)"
   if (hovered || related) return "rgba(14, 165, 233, 0.95)"
-  if (kind === "note") return "rgba(34, 211, 238, 0.85)"
-  if (kind === "entity") return "rgba(167, 139, 250, 0.8)"
+  if (kind === "note") return "rgba(34, 211, 238, 0.86)"
+  if (kind === "entity") return "rgba(167, 139, 250, 0.82)"
   if (kind === "timeline") return "rgba(245, 158, 11, 0.78)"
   if (kind === "tag") return "rgba(16, 185, 129, 0.78)"
   return "rgba(148, 163, 184, 0.75)"
@@ -571,7 +562,7 @@ function nodeStroke(kind: NodeKind, selected: boolean, hovered: boolean, related
 
 function linkColor(link: GraphLink, selectedId: string | null, hoveredId: string | null, relatedIds: Set<string>) {
   if (isHighlightedLink(link, selectedId, hoveredId, relatedIds)) return "rgba(14, 165, 233, 0.92)"
-  return link.kind === "backlink" ? "rgba(100,116,139,0.33)" : "rgba(148,163,184,0.24)"
+  return link.kind === "backlink" ? "rgba(100,116,139,0.32)" : "rgba(148,163,184,0.23)"
 }
 
 function isHighlightedLink(link: GraphLink, selectedId: string | null, hoveredId: string | null, relatedIds: Set<string>) {
@@ -584,9 +575,26 @@ function isHighlightedLink(link: GraphLink, selectedId: string | null, hoveredId
   return relatedIds.has(sourceId) || relatedIds.has(targetId)
 }
 
-function GraphPill({ children }: { children: React.ReactNode }) {
+function indexRelationshipLabel(kind: NodeKind) {
+  if (kind === "type") return "Category relationship"
+  if (kind === "tag") return "Tag relationship"
+  if (kind === "entity") return "People/topic relationship"
+  if (kind === "timeline") return "Date relationship"
+  return "Memory relationship"
+}
+
+function kindLabel(kind: NodeKind) {
+  if (kind === "note") return "Memory"
+  if (kind === "type") return "Category"
+  if (kind === "tag") return "Tag"
+  if (kind === "entity") return "People & topics"
+  if (kind === "timeline") return "Date"
+  return "Item"
+}
+
+function GraphPill({ children }: { children: ReactNode }) {
   return (
-    <span className="rounded-full border border-slate-200/70 bg-white/70 px-2.5 py-1 text-xs text-slate-500 dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-400">
+    <span className="rounded-full border border-slate-200/70 bg-white/75 px-2.5 py-1 text-xs font-medium text-slate-500 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-white/[0.06] dark:text-zinc-400">
       {children}
     </span>
   )
