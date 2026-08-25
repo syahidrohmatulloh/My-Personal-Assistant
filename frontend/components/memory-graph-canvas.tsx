@@ -1,5 +1,13 @@
 'use client'
 
+import dynamic from "next/dynamic"
+import { useEffect, useMemo, useRef, useState } from "react"
+
+const ForceGraph2D = dynamic(
+  () => import("react-force-graph-2d").then((mod) => mod.default as any),
+  { ssr: false },
+) as any
+
 type GraphSectionKey = "notes" | "types" | "tags" | "entities" | "timeline" | "candidate_backlinks"
 type GraphSectionFilter = GraphSectionKey | "all"
 type GraphRecord = Record<string, unknown>
@@ -10,26 +18,39 @@ type MemoryGraphCanvasPayload = {
 
 type NodeKind = "note" | "type" | "tag" | "entity" | "timeline"
 
-type VisualNode = {
+type GraphNode = {
   id: string
+  rawId: string
   kind: NodeKind
   label: string
   detail: string
   searchText: string
-  x: number
-  y: number
+  val: number
+  group: string
+  x?: number
+  y?: number
+  fx?: number
+  fy?: number
 }
 
-type VisualEdge = {
-  id: string
-  sourceId: string
-  targetId: string
+type GraphLink = {
+  source: string | GraphNode
+  target: string | GraphNode
+  kind: "index" | "backlink"
+  label: string
+}
+
+type BuiltGraph = {
+  nodes: GraphNode[]
+  links: GraphLink[]
+  nodeById: Map<string, GraphNode>
 }
 
 const RESOURCE_SECTIONS: GraphSectionKey[] = ["types", "tags", "entities", "timeline"]
-const MAX_NOTES = 18
-const MAX_RESOURCE_ITEMS = 16
-const MAX_EDGES = 80
+const MAX_NOTES = 80
+const MAX_RESOURCE_ITEMS = 48
+const MAX_LINKS = 220
+const GRAPH_HEIGHT = 520
 
 export function MemoryGraphCanvas({
   payload,
@@ -40,31 +61,99 @@ export function MemoryGraphCanvas({
   query: string
   sectionFilter: GraphSectionFilter
 }) {
+  const graphRef = useRef<any>(null)
+  const shellRef = useRef<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState(900)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [focusMode, setFocusMode] = useState(false)
+
+  useEffect(() => {
+    const element = shellRef.current
+    if (!element) return
+
+    const update = () => {
+      const nextWidth = Math.floor(element.getBoundingClientRect().width)
+      setWidth(Math.max(320, nextWidth))
+    }
+
+    update()
+
+    const observer = new ResizeObserver(update)
+    observer.observe(element)
+
+    return () => observer.disconnect()
+  }, [])
+
+  const graph = useMemo(
+    () => (payload ? buildGraph(payload, query, sectionFilter) : emptyGraph()),
+    [payload, query, sectionFilter],
+  )
+
+  useEffect(() => {
+    setSelectedId((current) => {
+      if (!current) return current
+      return graph.nodeById.has(current) ? current : null
+    })
+  }, [graph])
+
+  const relatedIds = useMemo(() => relatedNodeIds(graph.links, selectedId), [graph.links, selectedId])
+  const visibleGraph = useMemo(
+    () => (focusMode && selectedId ? focusGraph(graph, selectedId, relatedIds) : graph),
+    [focusMode, graph, relatedIds, selectedId],
+  )
+
+  const selectedNode = selectedId ? graph.nodeById.get(selectedId) || null : null
+
   if (!payload) return null
 
-  const graph = buildGraph(payload, query, sectionFilter)
+  const resetView = () => {
+    setSelectedId(null)
+    setHoveredId(null)
+    setFocusMode(false)
+    graphRef.current?.zoomToFit?.(600, 60)
+  }
+
+  const focusSelected = () => {
+    if (!selectedNode) return
+    setFocusMode(true)
+    graphRef.current?.centerAt?.(selectedNode.x || 0, selectedNode.y || 0, 650)
+    graphRef.current?.zoom?.(2.4, 650)
+  }
 
   return (
     <div className="mt-5 rounded-2xl border border-slate-200/70 bg-slate-950/[0.02] p-4 dark:border-white/10 dark:bg-white/[0.03]">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-zinc-500">
-            Visual map
+            Interactive visual map
           </p>
           <h3 className="mt-1 text-sm font-semibold text-slate-950 dark:text-white">
-            Projected node-link view
+            Obsidian-style force graph
           </h3>
           <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-500 dark:text-zinc-400">
-            Read-only SVG layout from the loaded graph payload. Search and section filters are applied locally.
+            Drag, zoom, pan, hover, click, and focus nodes. This remains a read-only projection from the loaded memory graph payload.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-zinc-400">
-          <span className="rounded-full border border-slate-200/70 bg-white/70 px-2.5 py-1 dark:border-white/10 dark:bg-white/[0.05]">
-            {graph.nodes.length} nodes
-          </span>
-          <span className="rounded-full border border-slate-200/70 bg-white/70 px-2.5 py-1 dark:border-white/10 dark:bg-white/[0.05]">
-            {graph.edges.length} edges
-          </span>
+
+        <div className="flex flex-wrap gap-2">
+          <GraphPill>{visibleGraph.nodes.length} nodes</GraphPill>
+          <GraphPill>{visibleGraph.links.length} links</GraphPill>
+          <button
+            type="button"
+            onClick={() => setFocusMode((value) => !value)}
+            disabled={!selectedNode}
+            className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-300 dark:hover:bg-white/10"
+          >
+            {focusMode ? "Exit focus" : "Focus selected"}
+          </button>
+          <button
+            type="button"
+            onClick={resetView}
+            className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-300 dark:hover:bg-white/10"
+          >
+            Reset view
+          </button>
         </div>
       </div>
 
@@ -73,72 +162,125 @@ export function MemoryGraphCanvas({
           No visual graph items match the current search/filter.
         </div>
       ) : (
-        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200/70 bg-white/80 dark:border-white/10 dark:bg-black/20">
-          <svg
-            aria-label="Read-only memory graph visualization"
-            className="h-[360px] w-full"
-            role="img"
-            viewBox="0 0 900 420"
+        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div
+            ref={shellRef}
+            className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white/90 dark:border-white/10 dark:bg-zinc-950"
           >
-            <rect className="fill-white dark:fill-zinc-950" height="420" width="900" />
-            {graph.edges.map((edge) => {
-              const source = graph.nodeById.get(edge.sourceId)
-              const target = graph.nodeById.get(edge.targetId)
-              if (!source || !target) return null
-              return (
-                <line
-                  key={edge.id}
-                  className="stroke-slate-300 dark:stroke-white/20"
-                  strokeWidth="1.2"
-                  x1={source.x}
-                  x2={target.x}
-                  y1={source.y}
-                  y2={target.y}
-                />
-              )
-            })}
-            {graph.nodes.map((node) => (
-              <g key={node.id} transform={`translate(${node.x} ${node.y})`}>
-                <title>{[node.label, node.detail].filter(Boolean).join(" · ")}</title>
-                {node.kind === "note" ? (
-                  <circle className={nodeClassName(node.kind)} r="22" />
-                ) : (
-                  <rect className={nodeClassName(node.kind)} height="34" rx="17" width="118" x="-59" y="-17" />
-                )}
-                <text
-                  className="pointer-events-none fill-slate-900 text-[10px] font-semibold dark:fill-zinc-50"
-                  dominantBaseline="middle"
-                  textAnchor="middle"
-                  y={node.kind === "note" ? -2 : -3}
-                >
-                  {truncate(node.label, node.kind === "note" ? 12 : 18)}
-                </text>
-                <text
-                  className="pointer-events-none fill-slate-500 text-[8px] dark:fill-zinc-400"
-                  dominantBaseline="middle"
-                  textAnchor="middle"
-                  y={node.kind === "note" ? 11 : 9}
-                >
-                  {node.kind}
-                </text>
-              </g>
-            ))}
-          </svg>
+            <ForceGraph2D
+              ref={graphRef}
+              backgroundColor="rgba(0,0,0,0)"
+              cooldownTicks={90}
+              d3AlphaDecay={0.025}
+              d3VelocityDecay={0.28}
+              enableNodeDrag
+              enablePanInteraction
+              enableZoomInteraction
+              graphData={visibleGraph}
+              height={GRAPH_HEIGHT}
+              linkColor={(link: GraphLink) => linkColor(link, selectedId, hoveredId, relatedIds)}
+              linkDirectionalParticles={(link: GraphLink) => (isHighlightedLink(link, selectedId, hoveredId, relatedIds) ? 3 : 0)}
+              linkDirectionalParticleSpeed={0.006}
+              linkDirectionalParticleWidth={2.2}
+              linkLabel={(link: GraphLink) => link.label}
+              linkWidth={(link: GraphLink) => (isHighlightedLink(link, selectedId, hoveredId, relatedIds) ? 2.2 : 0.8)}
+              nodeCanvasObject={(node: GraphNode, canvasContext: CanvasRenderingContext2D, globalScale: number) =>
+                drawNode(node, canvasContext, globalScale, selectedId, hoveredId, relatedIds)
+              }
+              nodeId="id"
+              nodeLabel={(node: GraphNode) => [node.label, node.detail].filter(Boolean).join(" · ")}
+              nodeRelSize={5}
+              onBackgroundClick={() => {
+                setSelectedId(null)
+                setHoveredId(null)
+              }}
+              onEngineStop={() => graphRef.current?.zoomToFit?.(350, 70)}
+              onNodeClick={(node: GraphNode) => {
+                setSelectedId(node.id)
+                graphRef.current?.centerAt?.(node.x || 0, node.y || 0, 650)
+                graphRef.current?.zoom?.(2.1, 650)
+              }}
+              onNodeDragEnd={(node: GraphNode) => {
+                node.fx = node.x
+                node.fy = node.y
+              }}
+              onNodeHover={(node: GraphNode | null) => setHoveredId(node?.id || null)}
+              width={width}
+            />
+          </div>
+
+          <aside className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-white/10 dark:bg-black/20">
+            {selectedNode ? (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-zinc-500">
+                  Selected node
+                </p>
+                <h4 className="mt-2 text-base font-semibold text-slate-950 dark:text-white">
+                  {selectedNode.label}
+                </h4>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <GraphPill>{selectedNode.kind}</GraphPill>
+                  <GraphPill>{relatedIds.size} related</GraphPill>
+                </div>
+                {selectedNode.detail ? (
+                  <p className="mt-3 text-sm leading-6 text-slate-500 dark:text-zinc-400">
+                    {selectedNode.detail}
+                  </p>
+                ) : null}
+                <div className="mt-4 grid gap-2">
+                  <button
+                    type="button"
+                    onClick={focusSelected}
+                    className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
+                  >
+                    Focus this neighborhood
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedId(null)
+                      setFocusMode(false)
+                    }}
+                    className="rounded-xl border border-slate-200/70 bg-white/70 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-300 dark:hover:bg-white/10"
+                  >
+                    Clear selection
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-zinc-500">
+                  Inspector
+                </p>
+                <h4 className="mt-2 text-base font-semibold text-slate-950 dark:text-white">
+                  Click any node
+                </h4>
+                <p className="mt-3 text-sm leading-6 text-slate-500 dark:text-zinc-400">
+                  Select a note, tag, entity, type, or timeline node to inspect its detail and focus its neighborhood.
+                </p>
+              </div>
+            )}
+          </aside>
         </div>
       )}
 
       <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500 dark:text-zinc-500">
-        <span>Notes are centered.</span>
-        <span>Tags/types/timeline/entities surround them.</span>
-        <span>Candidate backlinks and index relationships are shown as edges.</span>
+        <span>Drag nodes.</span>
+        <span>Scroll or pinch to zoom.</span>
+        <span>Click a node to inspect.</span>
+        <span>Focus selected shows its connected neighborhood.</span>
       </div>
     </div>
   )
 }
 
-function buildGraph(payload: MemoryGraphCanvasPayload, query: string, sectionFilter: GraphSectionFilter) {
-  const allNodes = new Map<string, VisualNode>()
-  const allEdges: VisualEdge[] = []
+function emptyGraph(): BuiltGraph {
+  return { nodes: [], links: [], nodeById: new Map() }
+}
+
+function buildGraph(payload: MemoryGraphCanvasPayload, query: string, sectionFilter: GraphSectionFilter): BuiltGraph {
+  const allNodes = new Map<string, GraphNode>()
+  const allLinks: GraphLink[] = []
   const notesByRawId = new Map<string, GraphRecord>()
 
   items(payload, "notes").forEach((note, index) => {
@@ -163,6 +305,7 @@ function buildGraph(payload: MemoryGraphCanvasPayload, query: string, sectionFil
       .forEach((item) => {
         const resource = resourceNode(section, item)
         if (!resource) return
+
         allNodes.set(resource.id, resource)
 
         ids(item, "note_ids")
@@ -170,11 +313,13 @@ function buildGraph(payload: MemoryGraphCanvasPayload, query: string, sectionFil
           .forEach((rawNoteId) => {
             const note = notesByRawId.get(rawNoteId)
             if (!note) return
+
             addNoteNode(allNodes, rawNoteId, note)
-            allEdges.push({
-              id: `${resource.id}->note:${rawNoteId}`,
-              sourceId: resource.id,
-              targetId: `note:${rawNoteId}`,
+            allLinks.push({
+              source: resource.id,
+              target: `note:${rawNoteId}`,
+              kind: "index",
+              label: `${resource.kind} relationship`,
             })
           })
       })
@@ -182,7 +327,7 @@ function buildGraph(payload: MemoryGraphCanvasPayload, query: string, sectionFil
 
   if (showAll || sectionFilter === "candidate_backlinks") {
     items(payload, "candidate_backlinks")
-      .slice(0, MAX_EDGES)
+      .slice(0, MAX_LINKS)
       .forEach((link) => {
         const sourceRawId = text(link, "source_note_id")
         const targetRawId = text(link, "target_note_id")
@@ -192,10 +337,11 @@ function buildGraph(payload: MemoryGraphCanvasPayload, query: string, sectionFil
 
         addNoteNode(allNodes, sourceRawId, sourceNote)
         addNoteNode(allNodes, targetRawId, targetNote)
-        allEdges.push({
-          id: `backlink:${sourceRawId}->${targetRawId}`,
-          sourceId: `note:${sourceRawId}`,
-          targetId: `note:${targetRawId}`,
+        allLinks.push({
+          source: `note:${sourceRawId}`,
+          target: `note:${targetRawId}`,
+          kind: "backlink",
+          label: "Candidate backlink",
         })
       })
   }
@@ -208,27 +354,30 @@ function buildGraph(payload: MemoryGraphCanvasPayload, query: string, sectionFil
   }
 
   if (q) {
-    for (const edge of allEdges) {
-      if (visibleIds.has(edge.sourceId) || visibleIds.has(edge.targetId)) {
-        visibleIds.add(edge.sourceId)
-        visibleIds.add(edge.targetId)
+    for (const link of allLinks) {
+      const sourceId = endpointId(link.source)
+      const targetId = endpointId(link.target)
+      if (visibleIds.has(sourceId) || visibleIds.has(targetId)) {
+        visibleIds.add(sourceId)
+        visibleIds.add(targetId)
       }
     }
   }
 
-  const visibleNodes = Array.from(allNodes.values()).filter((node) => visibleIds.has(node.id))
-  const nodeIds = new Set(visibleNodes.map((node) => node.id))
-  const visibleEdges = allEdges
-    .filter((edge) => nodeIds.has(edge.sourceId) && nodeIds.has(edge.targetId))
-    .slice(0, MAX_EDGES)
+  const nodes = Array.from(allNodes.values()).filter((node) => visibleIds.has(node.id))
+  const nodeIds = new Set(nodes.map((node) => node.id))
+  const links = dedupeLinks(allLinks)
+    .filter((link) => nodeIds.has(endpointId(link.source)) && nodeIds.has(endpointId(link.target)))
+    .slice(0, MAX_LINKS)
 
-  const nodes = layout(visibleNodes)
-  const nodeById = new Map(nodes.map((node) => [node.id, node]))
-
-  return { nodes, edges: visibleEdges, nodeById }
+  return {
+    nodes,
+    links,
+    nodeById: new Map(nodes.map((node) => [node.id, node])),
+  }
 }
 
-function addNoteNode(nodes: Map<string, VisualNode>, rawId: string, note: GraphRecord) {
+function addNoteNode(nodes: Map<string, GraphNode>, rawId: string, note: GraphRecord) {
   const id = `note:${rawId}`
   if (nodes.has(id)) return
 
@@ -239,126 +388,190 @@ function addNoteNode(nodes: Map<string, VisualNode>, rawId: string, note: GraphR
 
   nodes.set(id, {
     id,
+    rawId,
     kind: "note",
     label,
     detail,
     searchText: [rawId, label, detail, text(note, "body_preview")].join(" ").toLowerCase(),
-    x: 450,
-    y: 210,
+    val: 5,
+    group: "note",
   })
 }
 
-function resourceNode(section: GraphSectionKey, item: GraphRecord): VisualNode | null {
+function resourceNode(section: GraphSectionKey, item: GraphRecord): GraphNode | null {
   if (section === "types") {
     const value = text(item, "type") || "unknown"
-    return makeResourceNode(`type:${value}`, "type", value, `${text(item, "count")} notes`, item)
+    return makeResourceNode(`type:${value}`, value, "type", `${text(item, "count")} notes`, item)
   }
 
   if (section === "tags") {
     const value = text(item, "tag")
     if (!value) return null
-    return makeResourceNode(`tag:${value}`, "tag", value, `${text(item, "count")} notes`, item)
+    return makeResourceNode(`tag:${value}`, value, "tag", `${text(item, "count")} notes`, item)
   }
 
   if (section === "entities") {
     const key = text(item, "entity_key") || text(item, "entity_name")
     const label = text(item, "entity_name") || key
     if (!key || !label) return null
-    return makeResourceNode(`entity:${key}`, "entity", label, text(item, "entity_type"), item)
+    return makeResourceNode(`entity:${key}`, label, "entity", text(item, "entity_type"), item)
   }
 
   if (section === "timeline") {
     const value = text(item, "date")
     if (!value) return null
-    return makeResourceNode(`timeline:${value}`, "timeline", value, `${text(item, "count")} notes`, item)
+    return makeResourceNode(`timeline:${value}`, value, "timeline", `${text(item, "count")} notes`, item)
   }
 
   return null
 }
 
-function makeResourceNode(id: string, kind: NodeKind, label: string, detail: string, item: GraphRecord): VisualNode {
+function makeResourceNode(id: string, label: string, kind: NodeKind, detail: string, item: GraphRecord): GraphNode {
   return {
     id,
+    rawId: id,
     kind,
     label,
     detail,
     searchText: [id, label, detail, ids(item, "note_ids").join(" ")].join(" ").toLowerCase(),
-    x: 450,
-    y: 210,
+    val: kind === "entity" ? 4 : 3,
+    group: kind,
   }
 }
 
-function layout(nodes: VisualNode[]) {
-  const notes = nodes.filter((node) => node.kind === "note")
-  const resources = nodes.filter((node) => node.kind !== "note")
-  const out: VisualNode[] = []
+function focusGraph(graph: BuiltGraph, selectedId: string, relatedIds: Set<string>): BuiltGraph {
+  const allowedIds = new Set([selectedId, ...relatedIds])
+  const nodes = graph.nodes.filter((node) => allowedIds.has(node.id))
+  const nodeIds = new Set(nodes.map((node) => node.id))
+  const links = graph.links.filter((link) => nodeIds.has(endpointId(link.source)) && nodeIds.has(endpointId(link.target)))
 
-  notes.forEach((node, index) => {
-    const angle = notes.length <= 1 ? 0 : (Math.PI * 2 * index) / notes.length
-    const radiusX = notes.length <= 4 ? 110 : 155
-    const radiusY = notes.length <= 4 ? 70 : 105
-    out.push({
-      ...node,
-      x: Math.round(450 + Math.cos(angle) * radiusX),
-      y: Math.round(210 + Math.sin(angle) * radiusY),
-    })
-  })
-
-  const groups: Record<Exclude<NodeKind, "note">, VisualNode[]> = {
-    type: [],
-    tag: [],
-    entity: [],
-    timeline: [],
+  return {
+    nodes,
+    links,
+    nodeById: new Map(nodes.map((node) => [node.id, node])),
   }
+}
 
-  resources.forEach((node) => {
-    if (node.kind === "note") return
-    groups[node.kind].push(node)
-  })
+function relatedNodeIds(links: GraphLink[], selectedId: string | null) {
+  const out = new Set<string>()
+  if (!selectedId) return out
 
-  layoutTop(groups.type).forEach((node) => out.push(node))
-  layoutLeft(groups.tag).forEach((node) => out.push(node))
-  layoutRight(groups.entity).forEach((node) => out.push(node))
-  layoutBottom(groups.timeline).forEach((node) => out.push(node))
+  for (const link of links) {
+    const sourceId = endpointId(link.source)
+    const targetId = endpointId(link.target)
+
+    if (sourceId === selectedId) out.add(targetId)
+    if (targetId === selectedId) out.add(sourceId)
+  }
 
   return out
 }
 
-function layoutTop(nodes: VisualNode[]) {
-  return nodes.map((node, index) => ({
-    ...node,
-    x: spread(index, nodes.length, 250, 650),
-    y: 58,
-  }))
+function dedupeLinks(links: GraphLink[]) {
+  const seen = new Set<string>()
+  const out: GraphLink[] = []
+
+  for (const link of links) {
+    const sourceId = endpointId(link.source)
+    const targetId = endpointId(link.target)
+    const key = `${sourceId}->${targetId}->${link.kind}`
+
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(link)
+  }
+
+  return out
 }
 
-function layoutLeft(nodes: VisualNode[]) {
-  return nodes.map((node, index) => ({
-    ...node,
-    x: 105,
-    y: spread(index, nodes.length, 125, 310),
-  }))
+function endpointId(value: string | GraphNode) {
+  return typeof value === "string" ? value : value.id
 }
 
-function layoutRight(nodes: VisualNode[]) {
-  return nodes.map((node, index) => ({
-    ...node,
-    x: 795,
-    y: spread(index, nodes.length, 125, 310),
-  }))
+function drawNode(
+  node: GraphNode,
+  canvasContext: CanvasRenderingContext2D,
+  globalScale: number,
+  selectedId: string | null,
+  hoveredId: string | null,
+  relatedIds: Set<string>,
+) {
+  const selected = selectedId === node.id
+  const hovered = hoveredId === node.id
+  const related = relatedIds.has(node.id)
+  const dimmed = Boolean(selectedId) && !selected && !related
+  const radius = node.kind === "note" ? 6.5 + node.val : 5.5 + node.val
+  const fontSize = selected || hovered ? 13 : 11
+  const label = truncate(node.label, selected || hovered ? 34 : 20)
+  const x = node.x || 0
+  const y = node.y || 0
+
+  canvasContext.save()
+  canvasContext.globalAlpha = dimmed ? 0.28 : 1
+
+  canvasContext.beginPath()
+  canvasContext.arc(x, y, selected || hovered ? radius + 3 : radius, 0, Math.PI * 2)
+  canvasContext.fillStyle = nodeFill(node.kind, selected, hovered)
+  canvasContext.fill()
+  canvasContext.lineWidth = selected ? 3 : hovered || related ? 2.2 : 1.4
+  canvasContext.strokeStyle = nodeStroke(node.kind, selected, hovered, related)
+  canvasContext.stroke()
+
+  if (selected || hovered || globalScale > 0.72) {
+    canvasContext.font = `${Math.max(fontSize / globalScale, 8)}px Inter, ui-sans-serif, system-ui`
+    canvasContext.textAlign = "center"
+    canvasContext.textBaseline = "top"
+    canvasContext.lineWidth = 4 / globalScale
+    canvasContext.strokeStyle = "rgba(255,255,255,0.9)"
+    canvasContext.strokeText(label, x, y + radius + 5)
+    canvasContext.fillStyle = "rgba(15,23,42,0.94)"
+    canvasContext.fillText(label, x, y + radius + 5)
+  }
+
+  canvasContext.restore()
 }
 
-function layoutBottom(nodes: VisualNode[]) {
-  return nodes.map((node, index) => ({
-    ...node,
-    x: spread(index, nodes.length, 250, 650),
-    y: 362,
-  }))
+function nodeFill(kind: NodeKind, selected: boolean, hovered: boolean) {
+  if (selected) return "rgba(34, 211, 238, 0.95)"
+  if (hovered) return "rgba(125, 211, 252, 0.95)"
+  if (kind === "note") return "rgba(255, 255, 255, 0.98)"
+  if (kind === "entity") return "rgba(245, 243, 255, 0.98)"
+  if (kind === "timeline") return "rgba(254, 243, 199, 0.98)"
+  if (kind === "tag") return "rgba(209, 250, 229, 0.98)"
+  return "rgba(241, 245, 249, 0.98)"
 }
 
-function spread(index: number, total: number, min: number, max: number) {
-  if (total <= 1) return Math.round((min + max) / 2)
-  return Math.round(min + ((max - min) * index) / (total - 1))
+function nodeStroke(kind: NodeKind, selected: boolean, hovered: boolean, related: boolean) {
+  if (selected) return "rgba(8, 145, 178, 1)"
+  if (hovered || related) return "rgba(14, 165, 233, 0.95)"
+  if (kind === "note") return "rgba(34, 211, 238, 0.85)"
+  if (kind === "entity") return "rgba(167, 139, 250, 0.8)"
+  if (kind === "timeline") return "rgba(245, 158, 11, 0.78)"
+  if (kind === "tag") return "rgba(16, 185, 129, 0.78)"
+  return "rgba(148, 163, 184, 0.75)"
+}
+
+function linkColor(link: GraphLink, selectedId: string | null, hoveredId: string | null, relatedIds: Set<string>) {
+  if (isHighlightedLink(link, selectedId, hoveredId, relatedIds)) return "rgba(14, 165, 233, 0.92)"
+  return link.kind === "backlink" ? "rgba(100,116,139,0.33)" : "rgba(148,163,184,0.24)"
+}
+
+function isHighlightedLink(link: GraphLink, selectedId: string | null, hoveredId: string | null, relatedIds: Set<string>) {
+  const sourceId = endpointId(link.source)
+  const targetId = endpointId(link.target)
+  const activeId = hoveredId || selectedId
+
+  if (!activeId) return false
+  if (sourceId === activeId || targetId === activeId) return true
+  return relatedIds.has(sourceId) || relatedIds.has(targetId)
+}
+
+function GraphPill({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="rounded-full border border-slate-200/70 bg-white/70 px-2.5 py-1 text-xs text-slate-500 dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-400">
+      {children}
+    </span>
+  )
 }
 
 function items(payload: MemoryGraphCanvasPayload, key: GraphSectionKey) {
@@ -386,12 +599,4 @@ function truncate(value: string, max: number) {
   const clean = value.trim()
   if (clean.length <= max) return clean
   return `${clean.slice(0, Math.max(0, max - 1)).trim()}…`
-}
-
-function nodeClassName(kind: NodeKind) {
-  if (kind === "note") return "fill-white stroke-cyan-400 stroke-2 dark:fill-zinc-900 dark:stroke-cyan-300"
-  if (kind === "entity") return "fill-white stroke-violet-300 stroke-1.5 dark:fill-zinc-900 dark:stroke-violet-300/80"
-  if (kind === "timeline") return "fill-white stroke-amber-300 stroke-1.5 dark:fill-zinc-900 dark:stroke-amber-300/80"
-  if (kind === "tag") return "fill-white stroke-emerald-300 stroke-1.5 dark:fill-zinc-900 dark:stroke-emerald-300/80"
-  return "fill-white stroke-slate-300 stroke-1.5 dark:fill-zinc-900 dark:stroke-white/30"
 }
