@@ -1218,10 +1218,10 @@ export default function MemoriesPage() {
           </p>
 
           {reviewCount > 0 ? (
-            <div className="mt-4 rounded-2xl border border-cyan-200/80/70 bg-cyan-50/[0.92]/80 p-4 text-sm leading-6 text-cyan-950 shadow-sm shadow-amber-900/5 dark:border-amber-300/15 dark:bg-amber-300/10 dark:text-amber-100">
+            <div className="mt-4 rounded-2xl border border-cyan-200/80 bg-cyan-50/[0.92] p-4 text-sm leading-6 text-cyan-950 shadow-sm shadow-cyan-900/5 dark:border-cyan-300/15 dark:bg-cyan-300/10 dark:text-cyan-100">
               Aliyya found {reviewCount} memor
-              {reviewCount === 1 ? "y" : "ies"} that may need review.
-              Open Review & improve to look them over safely.
+              {reviewCount === 1 ? "y" : "ies"} worth checking.
+              Open Review & improve when you want to clean them up safely.
             </div>
           ) : null}
         </header>
@@ -1237,12 +1237,13 @@ export default function MemoriesPage() {
               label={`Remembered (${activeCount})`}
             />
             <TabButton
-              active={tab === "archived"}
+              active={tab === "graph"}
               onClick={() => {
-                setTab("archived")
+                setTab("graph")
                 setMemoryActionNotice(null)
+                if (!graphView && !graphLoading) void loadMemoryGraphView()
               }}
-              label={`Archived (${archivedCount})`}
+              label="Memory Map"
             />
             <TabButton
               active={tab === "review"}
@@ -1253,13 +1254,12 @@ export default function MemoriesPage() {
               label={`Review & improve (${reviewCount})`}
             />
             <TabButton
-              active={tab === "graph"}
+              active={tab === "archived"}
               onClick={() => {
-                setTab("graph")
+                setTab("archived")
                 setMemoryActionNotice(null)
-                if (!graphView && !graphLoading) void loadMemoryGraphView()
               }}
-              label="Memory Map"
+              label={`Archived (${archivedCount})`}
             />
           </div>
 
@@ -1816,7 +1816,7 @@ function MemoryInsightSummary({
               <span className={[
                 "rounded-full px-2.5 py-1 text-xs font-semibold",
                 card.key === "needs-review" && card.count > 0
-                  ? "bg-amber-100 text-amber-800 dark:bg-amber-300/15 dark:text-amber-100"
+                  ? "bg-amber-100 text-amber-800 dark:bg-amber-300/15 dark:text-cyan-100"
                   : "bg-slate-200/80 text-slate-700 dark:bg-white/10 dark:text-zinc-200",
               ].join(" ")}>
                 {card.count}
@@ -1878,7 +1878,7 @@ function MemoryNarrativeSummaryPanel({
             {assistantName}’s current understanding of you
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
-            A plain-English narrative of {assistantName}’s current understanding. If it feels wrong, use To look over to clean the underlying memories.
+            A plain-English overview of {assistantName}’s current understanding. If something feels off, use Review & improve to clean the underlying memories.
           </p>
         </div>
 
@@ -1918,7 +1918,7 @@ function MemoryNarrativeSummaryPanel({
       {summary ? (
         <div className="mt-4 space-y-3">
           {summary.is_stale ? (
-            <div className="rounded-2xl border border-cyan-200/80/70 bg-cyan-50/[0.92]/80 p-3 text-xs leading-5 text-cyan-950 dark:border-amber-300/15 dark:bg-amber-300/10 dark:text-amber-100">
+            <div className="rounded-2xl border border-cyan-200/80 bg-cyan-50/[0.92] p-3 text-xs leading-5 text-cyan-950 dark:border-cyan-300/15 dark:bg-cyan-300/10 dark:text-cyan-100">
               This summary may be outdated because your memories changed after it was generated. Regenerate it when you want {assistantName} to refresh her understanding.
             </div>
           ) : null}
@@ -1937,7 +1937,7 @@ function MemoryNarrativeSummaryPanel({
           ) : null}
 
           {summary.needs_review_notes?.length ? (
-            <div className="rounded-2xl border border-cyan-200/80/70 bg-cyan-50/[0.92]/70 p-3 text-xs leading-5 text-cyan-950 dark:border-amber-300/15 dark:bg-amber-300/10 dark:text-amber-100">
+            <div className="rounded-2xl border border-cyan-200/80 bg-cyan-50/[0.92]/70 p-3 text-xs leading-5 text-cyan-950 dark:border-cyan-300/15 dark:bg-cyan-300/10 dark:text-cyan-100">
               {summary.needs_review_notes[0]}
             </div>
           ) : null}
@@ -2249,10 +2249,10 @@ function MemoryQualityIssueCard({
             <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-300">
               {item.explanation}
             </p>
-            <div className="mt-3 rounded-2xl border border-cyan-200/80/70 bg-cyan-50/[0.92]/70 p-3 text-sm leading-6 text-amber-950 dark:border-amber-300/15 dark:bg-amber-300/10 dark:text-amber-100">
+            <div className="mt-3 rounded-2xl border border-cyan-200/80 bg-cyan-50/[0.92]/70 p-3 text-sm leading-6 text-amber-950 dark:border-cyan-300/15 dark:bg-cyan-300/10 dark:text-cyan-100">
               <p className="font-medium">{primaryAction}</p>
               <p className="mt-1">{actionLabel}</p>
-              <p className="mt-2 text-xs text-cyan-950/75 dark:text-amber-100/75">
+              <p className="mt-2 text-xs text-cyan-950/75 dark:text-cyan-100/75">
                 <AssistantNameInline /> suggestion: {item.suggested_action}
               </p>
             </div>
@@ -2586,7 +2586,7 @@ function Badge({
       className={[
         "rounded-full border px-2.5 py-1 text-[11px]",
         tone === "archived"
-          ? "border-amber-400/30 bg-cyan-50/[0.92] text-amber-800 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-100"
+          ? "border-amber-400/30 bg-cyan-50/[0.92] text-amber-800 dark:border-amber-300/20 dark:bg-cyan-300/10 dark:text-cyan-100"
           : "border-slate-300/55 dark:border-white/10 bg-slate-50/[0.88] dark:bg-white/[0.06] text-slate-700 dark:text-zinc-300",
       ].join(" ")}
     >
