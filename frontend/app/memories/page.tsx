@@ -565,6 +565,7 @@ export default function MemoriesPage() {
   const [graphView, setGraphView] = useState<MemoryGraphViewPayload | null>(null)
   const [graphLoading, setGraphLoading] = useState(false)
   const [graphSectionFilter, setGraphSectionFilter] = useState<MemoryGraphSectionFilter>("all")
+  const [showGraphDetails, setShowGraphDetails] = useState(false)
 
   async function loadMemoryNarrativeSummary() {
     setNarrativeLoading(true)
@@ -1230,7 +1231,7 @@ export default function MemoriesPage() {
                 setTab("active")
                 setMemoryActionNotice(null)
               }}
-              label={`Active Memories (${activeCount})`}
+              label={`Remembered (${activeCount})`}
             />
             <TabButton
               active={tab === "archived"}
@@ -1246,7 +1247,7 @@ export default function MemoriesPage() {
                 setTab("review")
                 setMemoryActionNotice(null)
               }}
-              label={`Needs Review (${reviewCount})`}
+              label={`Review (${reviewCount})`}
             />
             <TabButton
               active={tab === "graph"}
@@ -1313,6 +1314,8 @@ export default function MemoriesPage() {
             query={query}
             sectionFilter={graphSectionFilter}
             onSectionFilterChange={setGraphSectionFilter}
+            showDetails={showGraphDetails}
+            onToggleDetails={() => setShowGraphDetails((value) => !value)}
             onUnlock={() => void loadMemoryGraphView()}
           />
         ) : tab === "review" ? (
@@ -1500,6 +1503,8 @@ function MemoryGraphViewPanel({
   query,
   sectionFilter,
   onSectionFilterChange,
+  showDetails,
+  onToggleDetails,
   onUnlock,
 }: {
   payload: MemoryGraphViewPayload | null
@@ -1508,6 +1513,8 @@ function MemoryGraphViewPanel({
   query: string
   sectionFilter: MemoryGraphSectionFilter
   onSectionFilterChange: (value: MemoryGraphSectionFilter) => void
+  showDetails: boolean
+  onToggleDetails: () => void
   onUnlock: () => void
 }) {
   const sections: MemoryGraphSectionKey[] = ["notes", "types", "tags", "entities", "timeline", "candidate_backlinks"]
@@ -1538,15 +1545,15 @@ function MemoryGraphViewPanel({
           disabled={loading}
           className="inline-flex h-10 shrink-0 items-center justify-center rounded-full bg-cyan-400 px-4 text-xs font-medium text-zinc-950 shadow-sm transition hover:bg-cyan-300 disabled:cursor-wait disabled:opacity-70"
         >
-          {loading ? "Loading graph..." : hasVerifiedPin ? "Refresh graph" : "Unlock graph"}
+          {loading ? "Loading map..." : hasVerifiedPin ? "Refresh map" : "Unlock map"}
         </button>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-4">
-        <StatCard label="Memories shown" value={notes.length} />
-        <StatCard label="Tags" value={tags.length} />
-        <StatCard label="People & topics" value={entities.length} />
-        <StatCard label="Suggested links" value={backlinks.length} />
+      <div className="mt-5 grid gap-2 sm:grid-cols-4">
+        <MiniMetric label="Memories" value={notes.length} />
+        <MiniMetric label="Tags" value={tags.length} />
+        <MiniMetric label="People & topics" value={entities.length} />
+        <MiniMetric label="Suggested links" value={backlinks.length} />
       </div>
 
       <MemoryGraphCanvas payload={payload} query={query} sectionFilter={sectionFilter} />
@@ -1596,7 +1603,19 @@ function MemoryGraphViewPanel({
       ) : null}
 
       {payload ? (
-        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <div className="mt-5 flex justify-end">
+          <button
+            type="button"
+            onClick={onToggleDetails}
+            className="rounded-full border border-slate-200/70 bg-white/75 px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-white dark:border-white/10 dark:bg-white/[0.06] dark:text-zinc-300 dark:hover:bg-white/10"
+          >
+            {showDetails ? "Hide details" : "Show relationship details"}
+          </button>
+        </div>
+      ) : null}
+
+      {payload && showDetails ? (
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
           {visibleSections.map((sectionKey) => {
             const items = memoryGraphFilteredItems(payload, sectionKey, query)
             return (
@@ -1639,6 +1658,17 @@ function MemoryGraphViewPanel({
         </div>
       ) : null}
     </section>
+  )
+}
+
+function MiniMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl border border-slate-200/70 bg-white/65 px-4 py-3 shadow-sm shadow-slate-900/5 backdrop-blur dark:border-white/10 dark:bg-white/[0.05]">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-zinc-500">
+        {label}
+      </p>
+      <p className="mt-1 text-lg font-semibold text-slate-950 dark:text-white">{value}</p>
+    </div>
   )
 }
 
