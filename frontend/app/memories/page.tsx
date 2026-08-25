@@ -1260,13 +1260,15 @@ export default function MemoriesPage() {
           </div>
         </section>
 
-        <MemoryNarrativeSummaryPanel
-          assistantName={assistantName}
-          summary={narrativeSummary}
-          loading={narrativeLoading}
-          regenerating={narrativeRegenerating}
-          onRegenerate={() => void regenerateMemoryNarrativeSummary()}
-        />
+        {tab !== "graph" ? (
+          <MemoryNarrativeSummaryPanel
+            assistantName={assistantName}
+            summary={narrativeSummary}
+            loading={narrativeLoading}
+            regenerating={narrativeRegenerating}
+            onRegenerate={() => void regenerateMemoryNarrativeSummary()}
+          />
+        ) : null}
 
         {error ? (
           <div className="rounded-2xl border border-red-400/40 bg-red-50 p-4 text-sm text-red-700 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-100">
