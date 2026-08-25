@@ -146,3 +146,36 @@ Known boundary:
 - This is still a projected list-based graph view, not a canvas/node visualization.
 - Search/filtering is client-side over the loaded read-only projection.
 - Future phases may add richer graph visualization, backlink drill-down, or manual linking after separate audit and tests.
+
+## M18 visual graph canvas closeout
+
+Status: live in production.
+
+Completed rollout:
+- Frontend-only visual graph canvas added to `/memories` Graph View.
+- Implementation uses a plain SVG component with no new dependency.
+- Visual nodes include notes, types, tags, entities, and timeline anchors.
+- Visual edges include candidate backlinks and projected note-to-index relationships.
+- Search and section filters apply to the visual graph locally.
+- Existing list-based graph sections remain available below the visual map.
+- Backend graph endpoint unchanged.
+- Database schema unchanged.
+- Runtime retrieval behavior unchanged.
+- Memory writes unchanged; graph view remains read-only.
+- Memory Safety PIN gate remains required before graph data loads.
+
+Production smoke coverage:
+- Graph View unlock with Memory PIN.
+- Visual map appears below graph stat cards.
+- SVG node-link graph renders.
+- Search changes visible nodes and edges.
+- Section filters change the visual graph.
+- Existing list sections still render.
+- Refresh graph still works.
+- Lock still clears the verified PIN session.
+
+Known boundary:
+- Visual layout is static and deterministic, not yet draggable or zoomable.
+- There is no node inspector or click-to-focus behavior yet.
+- Graph remains a projected view over existing memory rows, not a separate editable graph database.
+- Future phases may add node selection, detail inspector, focus mode, zoom/pan, or manual linking after separate audit and tests.
