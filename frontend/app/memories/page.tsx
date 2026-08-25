@@ -479,7 +479,7 @@ function buildMemoryInsightCards(
     },
     {
       key: "needs-review",
-      title: "Needs review",
+      title: "To look over",
       count: needsReview,
       description: "Potential duplicates, conflicts, stale memories, or unclear memories waiting for cleanup.",
       sample:
@@ -1208,17 +1208,21 @@ export default function MemoriesPage() {
           </div>
 
           <div className="mt-6 grid gap-3 sm:grid-cols-5">
-            <StatCard label="Active" value={activeCount} />
-            <StatCard label="Archived" value={archivedCount} />
-            <StatCard label="Needs Review" value={reviewCount} />
+            <StatCard label="Remembered" value={activeCount} />
+            <StatCard label="Set aside" value={archivedCount} />
+            <StatCard label="Worth checking" value={reviewCount} />
             <StatCard label="Total" value={data?.counts?.total ?? 0} />
           </div>
+
+          <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-zinc-400">
+            Use this space to remember, explore, and gently improve what {assistantName} knows about you.
+          </p>
 
           {reviewCount > 0 ? (
             <div className="mt-4 rounded-2xl border border-amber-200/70 bg-amber-50/80 p-4 text-sm leading-6 text-amber-900 shadow-sm shadow-amber-900/5 dark:border-amber-300/15 dark:bg-amber-300/10 dark:text-amber-100">
               Memory review found {reviewCount} memor
               {reviewCount === 1 ? "y" : "ies"} that may need review.
-              Open the Needs Review tab to inspect and resolve them.
+              Open Review & improve to look them over safely.
             </div>
           ) : null}
         </header>
@@ -1247,7 +1251,7 @@ export default function MemoriesPage() {
                 setTab("review")
                 setMemoryActionNotice(null)
               }}
-              label={`Review (${reviewCount})`}
+              label={`Review & improve (${reviewCount})`}
             />
             <TabButton
               active={tab === "graph"}
@@ -1838,7 +1842,7 @@ function MemoryInsightSummary({
             </div>
 
             <p className="mt-3 text-xs font-medium text-slate-500 transition group-hover:text-slate-950 dark:text-zinc-500 dark:group-hover:text-white">
-              Review this area →
+              Review & improve →
             </p>
           </button>
         ))}
@@ -1875,7 +1879,7 @@ function MemoryNarrativeSummaryPanel({
             {assistantName}’s current understanding of you
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
-            A plain-English narrative of {assistantName}’s current understanding. If it feels wrong, use Needs Review to clean the underlying memories.
+            A plain-English narrative of {assistantName}’s current understanding. If it feels wrong, use To look over to clean the underlying memories.
           </p>
         </div>
 
@@ -2047,7 +2051,7 @@ function MemoryQualityPanel({
                 Memory review console
               </h2>
               <p className="text-sm text-slate-500 dark:text-zinc-400">
-                Review duplicates, conflicts, stale details, and unclear memories. Actions are protected by your Memory PIN.
+                Look over memories that may need cleanup, such as duplicates, conflicts, stale details, or unclear notes. Actions are protected by your Memory PIN.
               </p>
             </div>
           </div>
@@ -2164,7 +2168,7 @@ function memoryIssueActionLabel(item: MemoryQualityReviewItem) {
     return "Archive this if it is vague, incomplete, or not useful for future conversations."
   }
 
-  return "Review this memory issue and choose the safest action."
+  return "Look over this memory and choose the safest action."
 }
 
 function memoryIssuePrimaryAction(item: MemoryQualityReviewItem) {
@@ -2172,7 +2176,7 @@ function memoryIssuePrimaryAction(item: MemoryQualityReviewItem) {
   if (item.issue_type === "conflict") return "Resolve conflict"
   if (item.issue_type === "stale_memory") return "Confirm or archive"
   if (item.issue_type === "low_quality") return "Clean up memory"
-  return "Review issue"
+  return "Review safely"
 }
 
 function MemoryQualityIssueCard({
