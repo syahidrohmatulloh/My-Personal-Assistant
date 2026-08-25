@@ -31,6 +31,7 @@ import { useAssistantDisplayName } from "@/hooks/use-assistant-display-name";
 import { BackToLastChat } from "@/components/navigation/back-to-last-chat";
 import { createClient } from "@/lib/supabase/client";
 import { readSnapshot, SNAPSHOT_MAX_AGE_MS, userScopedSnapshotKey, writeSnapshot } from "@/lib/snapshot-cache";
+import { MemoryGraphCanvas } from "../../components/memory-graph-canvas"
 
 type MemoryItem = {
   id: string
@@ -1535,6 +1536,8 @@ function MemoryGraphViewPanel({
         <StatCard label="Entities" value={entities.length} />
         <StatCard label="Backlinks" value={backlinks.length} />
       </div>
+
+      <MemoryGraphCanvas payload={payload} query={query} sectionFilter={sectionFilter} />
 
 
 
