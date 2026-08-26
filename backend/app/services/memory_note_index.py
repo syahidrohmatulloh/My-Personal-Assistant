@@ -5,8 +5,71 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 
-GENERIC_LINK_TAG_PREFIXES = ("type:", "category:")
-GENERIC_LINK_TAGS = {"timeline", "calendar"}
+GENERIC_LINK_TAG_PREFIXES = ("type:", "category:", "field:")
+GENERIC_LINK_TAGS = {
+    "timeline",
+    "calendar",
+    "memory",
+    "note",
+    "fact",
+    "active",
+    "archived",
+    "deleted",
+    "retrievable",
+    "context",
+    "identity",
+    "general",
+    "misc",
+    "other",
+}
+
+ENTITY_LINK_WEIGHTS = {
+    "person": 4.0,
+    "family": 4.0,
+    "relationship": 3.8,
+    "project": 3.4,
+    "organization": 3.2,
+    "company": 3.2,
+    "client": 3.2,
+    "event": 2.8,
+    "goal": 2.8,
+    "routine": 2.7,
+    "constraint": 2.7,
+    "preference": 2.7,
+    "place": 2.5,
+    "location": 2.5,
+    "concept": 2.4,
+}
+
+TAG_LINK_WEIGHTS = {
+    "family": 1.8,
+    "relationship": 1.8,
+    "relationships": 1.8,
+    "preference": 1.75,
+    "preferences": 1.75,
+    "constraint": 1.7,
+    "constraints": 1.7,
+    "project": 1.7,
+    "projects": 1.7,
+    "routine": 1.6,
+    "routines": 1.6,
+    "goal": 1.55,
+    "goals": 1.55,
+    "school": 1.45,
+    "work": 1.4,
+    "finance": 1.35,
+    "travel": 1.3,
+}
+
+HIGH_SIGNAL_NOTE_TYPES = {
+    "relationship",
+    "preference",
+    "goal",
+    "routine",
+    "constraint",
+    "project",
+    "event",
+}
 
 
 @dataclass(frozen=True)
@@ -103,7 +166,7 @@ def build_candidate_links(
     notes: list[dict[str, Any]],
     *,
     max_links_per_note: int = 5,
-    minimum_score: float = 2.0,
+    minimum_score: float = 2.4,
 ) -> list[NoteLinkCandidate]:
     candidates: list[NoteLinkCandidate] = []
 
@@ -144,26 +207,105 @@ def candidate_link_score(left: dict[str, Any], right: dict[str, Any]) -> tuple[f
     reasons: list[str] = []
     score = 0.0
 
-    left_entities = {entity_key(entity) for entity in _entities(left)}
-    right_entities = {entity_key(entity) for entity in _entities(right)}
-    shared_entities = sorted(key for key in left_entities.intersection(right_entities) if key)
+    left_entities = _entities_by_key(left)
+    right_entities = _entities_by_key(right)
+    shared_entities = sorted(key for key in left_entities.keys() & right_entities.keys() if key)
     for key in shared_entities:
-        score += 3.0
-        reasons.append("entity:" + key)
+        entity = left_entities.get(key) or right_entities.get(key) or {}
+        entity_type = _entity_type(entity)
+        entity_name = _entity_name(entity) or _entity_name_from_key(key)
+        score += _entity_link_weight(entity_type)
+        reasons.append(_shared_entity_reason(entity_type, entity_name))
 
     left_date = _timeline_date(left)
     right_date = _timeline_date(right)
     if left_date and right_date and left_date == right_date:
-        score += 1.5
-        reasons.append("timeline:" + left_date)
+        score += 1.2
+        reasons.append(f"same date: {left_date}")
 
     shared_tags = sorted(_linkable_tags(left).intersection(_linkable_tags(right)))
     for tag in shared_tags:
-        score += 1.0
-        reasons.append("tag:" + tag)
+        score += _tag_link_weight(tag)
+        reasons.append(_shared_tag_reason(tag))
 
-    return score, reasons
+    note_type = _normalize_key(_note_type(left))
+    if reasons and note_type == _normalize_key(_note_type(right)) and note_type in HIGH_SIGNAL_NOTE_TYPES:
+        score += 0.35
+        reasons.append(f"same memory type: {_humanize_token(note_type)}")
 
+    return score, _dedupe_reasons(reasons)
+
+
+def _entities_by_key(note: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for entity in _entities(note):
+        key = entity_key(entity)
+        if key:
+            out.setdefault(key, entity)
+    return out
+
+
+def _entity_link_weight(entity_type: str) -> float:
+    return ENTITY_LINK_WEIGHTS.get(_normalize_key(entity_type), 2.4)
+
+
+def _tag_link_weight(tag: str) -> float:
+    return TAG_LINK_WEIGHTS.get(_normalize_key(tag), 1.0)
+
+
+def _shared_entity_reason(entity_type: str, entity_name: str) -> str:
+    entity_label = _entity_label(entity_type)
+    if entity_name:
+        return f"shared {entity_label}: {entity_name}"
+    return f"shared {entity_label}"
+
+
+def _shared_tag_reason(tag: str) -> str:
+    return f"shared tag: {_humanize_token(tag)}"
+
+
+def _entity_label(entity_type: str) -> str:
+    folded = _normalize_key(entity_type)
+    labels = {
+        "organization": "organization",
+        "company": "organization",
+        "client": "client",
+        "person": "person",
+        "family": "person",
+        "relationship": "relationship",
+        "project": "project",
+        "event": "event",
+        "goal": "goal",
+        "routine": "routine",
+        "constraint": "constraint",
+        "preference": "preference",
+        "place": "place",
+        "location": "place",
+        "concept": "topic",
+    }
+    return labels.get(folded, _humanize_token(folded) or "topic")
+
+
+def _entity_name_from_key(key: str) -> str:
+    if ":" not in key:
+        return key
+    return key.split(":", 1)[1].strip()
+
+
+def _humanize_token(value: str) -> str:
+    return " ".join(str(value or "").replace("_", " ").replace("-", " ").split())
+
+
+def _dedupe_reasons(reasons: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for reason in reasons:
+        cleaned = " ".join(str(reason or "").split())
+        key = cleaned.lower()
+        if cleaned and key not in seen:
+            out.append(cleaned)
+            seen.add(key)
+    return out
 
 def entity_key(entity: dict[str, Any]) -> str:
     entity_type = _normalize_key(_entity_type(entity))

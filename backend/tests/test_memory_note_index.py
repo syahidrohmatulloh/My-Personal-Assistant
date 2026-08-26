@@ -117,8 +117,8 @@ def test_candidate_links_from_shared_entity():
     score, reasons = candidate_link_score(left, right)
     links = build_candidate_links([left, right])
 
-    assert score >= 3.0
-    assert "entity:person:zahra" in reasons
+    assert score >= 4.0
+    assert "shared person: Zahra" in reasons
     assert links[0].source_note_id == "mem-1"
     assert links[0].target_note_id == "mem-2"
 
@@ -162,9 +162,9 @@ def test_candidate_links_from_timeline_plus_shared_tag():
 
     score, reasons = candidate_link_score(left, right)
 
-    assert score >= 2.0
-    assert "timeline:2026-08-24" in reasons
-    assert "tag:goal" in reasons
+    assert score >= 2.4
+    assert "same date: 2026-08-24" in reasons
+    assert "shared tag: goal" in reasons
 
 
 def test_entity_key_normalizes_name_and_type():
@@ -174,3 +174,78 @@ def test_entity_key_normalizes_name_and_type():
     }
 
     assert entity_key(entity) == "person:zahra aliya"
+
+
+def test_candidate_links_ignore_single_generic_tag():
+    left = {
+        "id": "mem-1",
+        "note_type": "fact",
+        "tags": ["calendar"],
+        "lifecycle": {"retrievable": True},
+    }
+    right = {
+        "id": "mem-2",
+        "note_type": "fact",
+        "tags": ["calendar"],
+        "lifecycle": {"retrievable": True},
+    }
+
+    score, reasons = candidate_link_score(left, right)
+    links = build_candidate_links([left, right])
+
+    assert score == 0.0
+    assert reasons == []
+    assert links == []
+
+
+def test_candidate_links_do_not_link_on_single_weak_tag():
+    left = {
+        "id": "mem-1",
+        "note_type": "fact",
+        "tags": ["work"],
+        "lifecycle": {"retrievable": True},
+    }
+    right = {
+        "id": "mem-2",
+        "note_type": "fact",
+        "tags": ["work"],
+        "lifecycle": {"retrievable": True},
+    }
+
+    score, reasons = candidate_link_score(left, right)
+    links = build_candidate_links([left, right])
+
+    assert 0 < score < 2.4
+    assert reasons == ["shared tag: work"]
+    assert links == []
+
+
+def test_candidate_link_reasons_are_human_readable_and_rank_high_signal_person():
+    left = project_memory_row(
+        {
+            "id": "mem-1",
+            "content": "User child name is Zahra",
+            "kind": "fact",
+            "category": "relationships",
+            "structured_field": "child_name",
+            "structured_value": "Zahra",
+            "status": "active",
+        }
+    )
+    right = project_memory_row(
+        {
+            "id": "mem-2",
+            "content": "Zahra prefers Lego and Disney toys",
+            "kind": "fact",
+            "category": "relationships",
+            "structured_field": "child_name",
+            "structured_value": "Zahra",
+            "status": "active",
+        }
+    )
+
+    score, reasons = candidate_link_score(left, right)
+
+    assert score >= 4.0
+    assert "shared person: Zahra" in reasons
+    assert all("_" not in reason for reason in reasons)
