@@ -145,6 +145,96 @@ _WEEKDAY_INDEX = {
 }
 
 
+
+_PUBLIC_SITUATIONAL_MARKERS = (
+    "katanya",
+    "kabarnya",
+    "beritanya",
+    "ada kabar",
+    "denger",
+    "dengar",
+    "rumornya",
+    "isunya",
+    "info",
+    "informasi",
+    "kemungkinan",
+)
+
+_PUBLIC_SITUATIONAL_PHRASES = (
+    "akan ada demo",
+    "ada demo",
+    "demo di",
+    "aksi demo",
+    "aksi massa",
+    "unjuk rasa",
+    "ada unjuk rasa",
+    "akan ada unjuk rasa",
+    "ada macet",
+    "akan macet",
+    "macet di",
+    "kemacetan di",
+    "ada konser",
+    "akan ada konser",
+    "konser di",
+    "ada banjir",
+    "banjir di",
+)
+
+_PUBLIC_SITUATIONAL_TERMS = (
+    "demo",
+    "demonstrasi",
+    "unjuk rasa",
+    "aksi massa",
+    "protes",
+    "macet",
+    "kemacetan",
+    "banjir",
+    "kecelakaan",
+    "razia",
+    "konser",
+)
+
+_PRODUCT_DEMO_EXCLUSIONS = (
+    "demo produk",
+    "product demo",
+    "demo app",
+    "demo aplikasi",
+    "demo sistem",
+    "demo system",
+)
+
+
+def is_public_situational_update(text: str | None) -> bool:
+    """True when the user is sharing public situational info, not scheduling."""
+
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+
+    if any(command in normalized for command in _EXPLICIT_CALENDAR_COMMANDS):
+        return False
+
+    if any(keyword in normalized for keyword in _REMINDER_KEYWORDS):
+        return False
+
+    if any(phrase in normalized for phrase in _PRODUCT_DEMO_EXCLUSIONS):
+        return False
+
+    has_marker = any(marker in normalized for marker in _PUBLIC_SITUATIONAL_MARKERS)
+    has_public_phrase = any(phrase in normalized for phrase in _PUBLIC_SITUATIONAL_PHRASES)
+    has_public_term = any(term in normalized for term in _PUBLIC_SITUATIONAL_TERMS)
+    has_date_signal = any(signal in normalized for signal in _DATE_SIGNALS)
+    has_place_signal = bool(re.search(r"\b(di|sekitar|area|dekat)\s+[a-z0-9]", normalized))
+
+    if has_marker and has_public_term:
+        return True
+
+    if has_public_phrase and (has_marker or has_date_signal or has_place_signal):
+        return True
+
+    return False
+
+
 @dataclass(frozen=True)
 class CalendarCandidate:
     title: str
@@ -163,6 +253,9 @@ class CalendarCandidate:
 def has_calendar_signal(text: str | None) -> bool:
     normalized = _normalize(text)
     if not normalized:
+        return False
+
+    if is_public_situational_update(normalized):
         return False
 
     has_event_keyword = any(keyword in normalized for keyword in _EVENT_KEYWORDS)

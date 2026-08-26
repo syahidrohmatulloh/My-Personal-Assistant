@@ -775,6 +775,7 @@ async def chat(
     calendar_candidate_hard_gate = (
         not is_calendar_draft_action_turn
         and not calendar_draft_actions.is_google_calendar_create_request(body.message)
+        and not calendar_candidate_extractor.is_public_situational_update(body.message)
         and chat_calendar_helpers.should_hard_gate_calendar_candidate(body.message)
     )
     if calendar_candidate_hard_gate:
@@ -1531,6 +1532,7 @@ async def _stream_claude_response(
         not should_schedule_proactive_nudge
         and not should_apply_calendar_draft_action
         and not should_create_google_calendar_event
+        and not calendar_candidate_extractor.is_public_situational_update(user_message)
         and (
             extraction_decision.run_calendar_candidate_extraction
             or calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(user_message)
