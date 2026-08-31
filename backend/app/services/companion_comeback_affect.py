@@ -7,7 +7,7 @@ punishment for the user's absence.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from statistics import median
 from typing import Any
 
@@ -488,6 +488,120 @@ def _cooldown_active(
         )
         < COOLDOWN_HOURS
     )
+
+
+def build_settings_inspector(
+    settings_row: dict[str, Any],
+    assistant_mode: str,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Return read-only M30 state for the settings inspector.
+
+    Ready means only that the global mode and cooldown gates
+    are open. Per-turn safety and cadence gates still apply.
+    """
+
+    now = (
+        now
+        or datetime.now(
+            timezone.utc
+        )
+    ).astimezone(
+        timezone.utc
+    )
+
+    preferences = settings_row.get(
+        "preferences"
+    )
+
+    if not isinstance(
+        preferences,
+        dict,
+    ):
+        preferences = {}
+
+    last_used = _parse_ts(
+        preferences.get(
+            "comeback_affect_last_used_at"
+        )
+    )
+
+    raw_last_label = preferences.get(
+        "comeback_affect_last_label"
+    )
+
+    last_label = (
+        str(
+            raw_last_label
+        ).strip()
+        if raw_last_label
+        else None
+    )
+
+    cooldown_until = (
+        last_used
+        + timedelta(
+            hours=COOLDOWN_HOURS
+        )
+        if last_used
+        else None
+    )
+
+    cooldown_active = bool(
+        cooldown_until
+        and now < cooldown_until
+    )
+
+    mode_gate_open = (
+        str(
+            settings_row.get(
+                "companion_mode"
+            )
+            or ""
+        )
+        == "partner"
+        and str(
+            settings_row.get(
+                "mood_realism"
+            )
+            or ""
+        )
+        == "dynamic"
+        and assistant_mode
+        == "life_companion"
+    )
+
+    if not mode_gate_open:
+        status = "disabled_by_mode"
+    elif cooldown_active:
+        status = "cooldown"
+    else:
+        status = "ready"
+
+    return {
+        "status": status,
+        "mode_gate_open": mode_gate_open,
+        "cooldown_active": cooldown_active,
+        "minimum_gap_hours":
+            MIN_GAP_HOURS,
+        "cadence_multiplier":
+            2.0,
+        "cooldown_hours":
+            COOLDOWN_HOURS,
+        "last_used_at": (
+            last_used.isoformat()
+            if last_used
+            else None
+        ),
+        "last_label":
+            last_label,
+        "cooldown_until": (
+            cooldown_until.isoformat()
+            if cooldown_until
+            else None
+        ),
+    }
 
 
 async def evaluate_for_chat(

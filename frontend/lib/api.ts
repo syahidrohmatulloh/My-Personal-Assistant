@@ -930,15 +930,30 @@ export type CompanionMode = "professional" | "friendly" | "affectionate" | "part
 export type MoodRealism = "stable" | "dynamic";
 export type AssistantMode = "life_companion" | "chief_of_staff";
 
+export type ComebackAffectInspector = {
+  status: "ready" | "cooldown" | "disabled_by_mode";
+  mode_gate_open: boolean;
+  cooldown_active: boolean;
+  minimum_gap_hours: number;
+  cadence_multiplier: number;
+  cooldown_hours: number;
+  last_used_at: string | null;
+  last_label: "warm_return" | "warm_notice" | "warm_lively" | null;
+  cooldown_until: string | null;
+};
+
 export type CompanionSettings = {
   companion_mode: CompanionMode;
   assistant_name: string;
   mood_realism: MoodRealism;
   repair_gate_enabled: boolean;
   assistant_mode: AssistantMode;
+  comeback_affect: ComebackAffectInspector;
 };
 
-export type CompanionSettingsPatch = Partial<CompanionSettings>;
+export type CompanionSettingsPatch = Partial<
+  Omit<CompanionSettings, "comeback_affect">
+>;
 
 export async function getCompanionSettings(): Promise<CompanionSettings> {
   const headers = await getAuthHeader();

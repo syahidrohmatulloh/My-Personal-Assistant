@@ -16,10 +16,22 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.core.auth import get_current_user_id
-from app.services import companion
+from app.services import companion, companion_comeback_affect
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/companion", tags=["companion"])
+
+
+class ComebackAffectInspectorOut(BaseModel):
+    status: str
+    mode_gate_open: bool
+    cooldown_active: bool
+    minimum_gap_hours: float
+    cadence_multiplier: float
+    cooldown_hours: float
+    last_used_at: str | None
+    last_label: str | None
+    cooldown_until: str | None
 
 
 class CompanionSettingsOut(BaseModel):
@@ -28,6 +40,7 @@ class CompanionSettingsOut(BaseModel):
     mood_realism: str
     repair_gate_enabled: bool
     assistant_mode: str
+    comeback_affect: ComebackAffectInspectorOut
 
 
 class CompanionSettingsPatchIn(BaseModel):
@@ -59,12 +72,23 @@ def _to_response(row: dict) -> CompanionSettingsOut:
         if isinstance(preferences, dict)
         else None
     )
+    resolved_assistant_mode = (
+        assistant_mode
+        or "life_companion"
+    )
+
     return CompanionSettingsOut(
         companion_mode=row.get("companion_mode") or "professional",
         assistant_name=row.get("assistant_name") or "Assistant",
         mood_realism=row.get("mood_realism") or "stable",
         repair_gate_enabled=bool(row.get("repair_gate_enabled")),
-        assistant_mode=assistant_mode or "life_companion",
+        assistant_mode=resolved_assistant_mode,
+        comeback_affect=(
+            companion_comeback_affect.build_settings_inspector(
+                row,
+                resolved_assistant_mode,
+            )
+        ),
     )
 
 

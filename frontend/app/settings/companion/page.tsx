@@ -7,6 +7,7 @@ import {
   type AssistantMode,
   type CompanionMode,
   type CompanionSettings,
+  type CompanionSettingsPatch,
   type MoodRealism,
   getCompanionSettings,
   patchCompanionSettings,
@@ -75,7 +76,7 @@ export default function CompanionSettingsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  async function applyPatch(field: string, patch: Partial<CompanionSettings>) {
+  async function applyPatch(field: string, patch: CompanionSettingsPatch) {
     if (!settings) return;
     setError(null);
     setSaving(field);
@@ -270,6 +271,89 @@ export default function CompanionSettingsPage() {
               </section>
             )}
 
+            {/* === M30C Warm comeback inspector === */}
+            <section className="ali-soft-section rounded-[1.5rem] p-4">
+              <Header
+                title="Warm comeback inspector"
+                saved={false}
+                saving={false}
+              />
+
+              <p className="text-xs text-fg-muted mt-1 mb-3">
+                Read-only M30 safety state. Ready means the relationship
+                mode and cooldown gates are open. Per-message safety and
+                cadence checks can still suppress the warm comeback.
+              </p>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <InspectorItem
+                  label="Status"
+                  value={
+                    settings.comeback_affect.status === "ready"
+                      ? "Ready"
+                      : settings.comeback_affect.status === "cooldown"
+                        ? "Cooldown active"
+                        : "Disabled by mode"
+                  }
+                />
+
+                <InspectorItem
+                  label="Mode gate"
+                  value={
+                    settings.comeback_affect.mode_gate_open
+                      ? "Open"
+                      : "Closed"
+                  }
+                />
+
+                <InspectorItem
+                  label="Minimum absence"
+                  value={`${settings.comeback_affect.minimum_gap_hours} hours`}
+                />
+
+                <InspectorItem
+                  label="Meaningful gap"
+                  value={`>= ${settings.comeback_affect.cadence_multiplier}x normal cadence`}
+                />
+
+                <InspectorItem
+                  label="Frequency guard"
+                  value={`Max 1 per ${settings.comeback_affect.cooldown_hours / 24} days`}
+                />
+
+                <InspectorItem
+                  label="Last label"
+                  value={
+                    settings.comeback_affect.last_label
+                    ?? "None yet"
+                  }
+                />
+
+                <InspectorItem
+                  label="Last recorded use"
+                  value={formatInspectorTime(
+                    settings.comeback_affect.last_used_at,
+                  )}
+                />
+
+                <InspectorItem
+                  label="Cooldown until"
+                  value={
+                    settings.comeback_affect.cooldown_active
+                      ? formatInspectorTime(
+                          settings.comeback_affect.cooldown_until,
+                        )
+                      : "Not active"
+                  }
+                />
+              </div>
+
+              <p className="mt-3 text-[11px] leading-relaxed text-fg-soft">
+                Suppress always wins. Distress, urgency, serious work,
+                cadence, and other runtime gates remain authoritative.
+              </p>
+            </section>
+
             {/* === Soft info for non-partner users === */}
             {!partnerActive && (
               <section className="text-xs text-fg-muted px-4 py-3 rounded-xl bg-fg/5">
@@ -287,6 +371,40 @@ export default function CompanionSettingsPage() {
 // =============================================================================
 // Sub-components
 // =============================================================================
+
+function formatInspectorTime(
+  value: string | null,
+): string {
+  if (!value) return "Never";
+
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleString();
+}
+
+function InspectorItem({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-fg/[0.035] px-3 py-2">
+      <p className="text-[10px] uppercase tracking-wide text-fg-subtle">
+        {label}
+      </p>
+
+      <p className="mt-1 text-xs font-medium text-fg">
+        {value}
+      </p>
+    </div>
+  );
+}
 
 function Header({
   title,
