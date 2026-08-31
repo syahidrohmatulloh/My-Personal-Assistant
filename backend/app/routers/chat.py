@@ -52,6 +52,7 @@ from app.services import (
     capability_registry,
     attachments,
     companion,
+    companion_comeback_affect,
     companion_mode,
     life_model,
     memory,
@@ -647,6 +648,16 @@ async def chat(
     messages = trim_history(messages)
     history_elapsed_ms = round((time.perf_counter() - history_started_at) * 1000, 1)
 
+    comeback_affect_decision = await companion_comeback_affect.evaluate_for_chat(
+        user_id=user_id,
+        conversation_id=body.conversation_id,
+        user_message=body.message,
+        companion_settings_row=companion_settings_row,
+        assistant_mode=assistant_mode,
+        assistant_name=assistant_name,
+        user_mood_context=user_mood_ctx,
+    )
+
     # Calendar update/delete actions must complete before Claude writes the
     # user-facing response. The result below becomes authoritative prompt
     # context, so success wording always follows actual persistence.
@@ -1108,6 +1119,12 @@ async def chat(
         if mood_block:
             volatile_context += "\n\n" + mood_block
 
+    comeback_affect_block = companion_comeback_affect.render_prompt_block(
+        comeback_affect_decision
+    )
+    if comeback_affect_block:
+        volatile_context += "\n\n" + comeback_affect_block
+
     response_texture_block = response_texture.render_response_texture_block(
         user_message=body.message,
         messages=messages,
@@ -1243,6 +1260,7 @@ async def chat(
             assistant_mode=assistant_mode,
             calendar_action_turn=is_calendar_draft_action_turn,
             calendar_action_snapshot_dirty=calendar_action_snapshot_dirty,
+            comeback_affect_decision=comeback_affect_decision,
         ),
         media_type="text/event-stream",
         headers={
@@ -1325,6 +1343,7 @@ async def _stream_claude_response(
     assistant_mode: str = "life_companion",
     calendar_action_turn: bool = False,
     calendar_action_snapshot_dirty: bool = False,
+    comeback_affect_decision: dict | None = None,
 ) -> AsyncIterator[str]:
     claude = get_claude()
     supabase = get_supabase()
@@ -1409,6 +1428,19 @@ async def _stream_claude_response(
                 .execute()
             )
         )
+
+        if (
+            comeback_affect_decision
+            and comeback_affect_decision.get(
+                "expression_policy"
+            ) == "one_short_warm_line"
+        ):
+            add_safe_background_task(
+                background_tasks,
+                companion_comeback_affect.mark_used,
+                user_id,
+                comeback_affect_decision,
+            )
 
     extraction_decision = background_extraction_gate.decide(
         user_message=user_message,
