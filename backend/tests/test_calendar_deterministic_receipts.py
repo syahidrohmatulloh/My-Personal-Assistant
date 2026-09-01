@@ -1,9 +1,13 @@
+import ast
 from pathlib import Path
 
 from app.services import calendar_draft_actions
 
 
 CHAT = Path("app/routers/chat.py").read_text(encoding="utf-8")
+CALENDAR_ORCHESTRATION = Path(
+    "app/services/cognitive_calendar_orchestration.py"
+).read_text(encoding="utf-8")
 SERVICE = Path("app/services/calendar_draft_actions.py").read_text(
     encoding="utf-8"
 )
@@ -102,13 +106,24 @@ def test_recurring_scope_receipt_is_deterministic():
     assert "seluruh rangkaian" in receipt
 
 
+
 def test_chat_bypasses_claude_for_calendar_action_receipts():
-    assert "calendar_action_receipt =" in CHAT
-    assert "render_calendar_action_user_receipt" in CHAT
-    assert "if is_calendar_draft_action_turn and calendar_action_receipt:" in CHAT
+    assert (
+        "render_calendar_action_user_receipt"
+        in CALENDAR_ORCHESTRATION
+    )
+    assert (
+        "calendar_action_receipt"
+        in CALENDAR_ORCHESTRATION
+    )
+
+    assert "execute_calendar_turn" in CHAT
     assert "_stream_static_assistant_response(" in CHAT
-    assert "conversation_id=body.conversation_id" in CHAT
-    assert "calendar_snapshot_dirty=calendar_action_snapshot_dirty" in CHAT
+
+    assert (
+        "render_calendar_action_user_receipt"
+        not in CHAT
+    )
 
 
 def test_static_stream_persists_and_emits_done_for_calendar_receipts():
@@ -198,12 +213,104 @@ def test_direct_google_create_receipt_is_multiline():
     assert "**Acara:**" not in receipt
 
 
-def test_chat_bypasses_claude_for_confirmation_and_google_create_receipts():
-    assert "render_calendar_confirmation_user_receipt" in CHAT
-    assert "apply_calendar_confirmation_decision" in CHAT
-    assert "render_google_calendar_create_user_receipt" in CHAT
-    assert "create_google_calendar_event_from_chat" in CHAT
 
+
+def test_chat_bypasses_claude_for_confirmation_and_google_create_receipts():
+    chat_tree = ast.parse(CHAT)
+    orchestration_tree = ast.parse(
+        CALENDAR_ORCHESTRATION
+    )
+
+    chat_fn = next(
+        node
+        for node in chat_tree.body
+        if isinstance(
+            node,
+            ast.AsyncFunctionDef,
+        )
+        and node.name == "chat"
+    )
+
+    def owner_calls(
+        tree_or_node,
+        owner,
+    ):
+        result = []
+
+        for node in ast.walk(
+            tree_or_node
+        ):
+            if not isinstance(
+                node,
+                ast.Call,
+            ):
+                continue
+
+            func = node.func
+
+            if (
+                isinstance(
+                    func,
+                    ast.Attribute,
+                )
+                and isinstance(
+                    func.value,
+                    ast.Name,
+                )
+                and func.value.id
+                == owner
+            ):
+                result.append(
+                    func.attr
+                )
+
+        return result
+
+    draft_calls = owner_calls(
+        orchestration_tree,
+        "calendar_draft_actions",
+    )
+
+    confirmation_calls = owner_calls(
+        orchestration_tree,
+        "calendar_confirmation_actions",
+    )
+
+    assert (
+        "render_calendar_confirmation_user_receipt"
+        in confirmation_calls
+    )
+    assert (
+        "apply_calendar_confirmation_decision"
+        in confirmation_calls
+    )
+    assert (
+        "render_google_calendar_create_user_receipt"
+        in draft_calls
+    )
+    assert (
+        "create_google_calendar_event_from_chat"
+        in draft_calls
+    )
+
+    # Foreground chat() must delegate.
+    # The same service may still be used later by transport-bound
+    # background work elsewhere in chat.py.
+    assert (
+        "create_google_calendar_event_from_chat"
+        not in owner_calls(
+            chat_fn,
+            "calendar_draft_actions",
+        )
+    )
+
+    assert (
+        "render_calendar_confirmation_user_receipt"
+        not in owner_calls(
+            chat_fn,
+            "calendar_confirmation_actions",
+        )
+    )
 
 def test_calendar_receipts_do_not_hardcode_beb_by_default():
     receipt = calendar_draft_actions.render_calendar_action_user_receipt(
@@ -292,23 +399,233 @@ def test_candidate_preview_is_deterministic_multiline_and_dynamic_address():
     assert "beb" not in preview.casefold()
 
 
+
+
 def test_chat_has_dynamic_calendar_address_and_candidate_preview_path():
-    assert "chat_calendar_helpers.load_calendar_address_term" in CHAT
-    assert "async def load_calendar_address_term" in HELPERS
-    assert "calendar_address_term" in CHAT
-    assert "render_calendar_candidate_preview" in CHAT
-    assert "address_term=calendar_address_term" in CHAT
+    chat_tree = ast.parse(CHAT)
+    orchestration_tree = ast.parse(
+        CALENDAR_ORCHESTRATION
+    )
+
+    chat_fn = next(
+        node
+        for node in chat_tree.body
+        if isinstance(
+            node,
+            ast.AsyncFunctionDef,
+        )
+        and node.name == "chat"
+    )
+
+    def owner_calls(
+        tree_or_node,
+        owner,
+    ):
+        result = []
+
+        for node in ast.walk(
+            tree_or_node
+        ):
+            if not isinstance(
+                node,
+                ast.Call,
+            ):
+                continue
+
+            func = node.func
+
+            if (
+                isinstance(
+                    func,
+                    ast.Attribute,
+                )
+                and isinstance(
+                    func.value,
+                    ast.Name,
+                )
+                and func.value.id
+                == owner
+            ):
+                result.append(
+                    func.attr
+                )
+
+        return result
+
+    helper_calls = owner_calls(
+        orchestration_tree,
+        "chat_calendar_helpers",
+    )
+
+    candidate_calls = owner_calls(
+        orchestration_tree,
+        "calendar_candidate_extractor",
+    )
+
+    assert (
+        "load_calendar_address_term"
+        in helper_calls
+    )
+
+    assert (
+        "render_calendar_candidate_preview"
+        in candidate_calls
+    )
+
+    assert (
+        "async def load_calendar_address_term"
+        in HELPERS
+    )
+
+    orchestration_names = {
+        node.id
+        for node in ast.walk(
+            orchestration_tree
+        )
+        if isinstance(
+            node,
+            ast.Name,
+        )
+    }
+
+    assert (
+        "calendar_address_term"
+        in orchestration_names
+    )
+
+    assert (
+        "load_calendar_address_term"
+        not in owner_calls(
+            chat_fn,
+            "chat_calendar_helpers",
+        )
+    )
 
 
 def test_chat_calendar_hard_gate_prevents_claude_preview_fallback():
-    assert "chat_calendar_helpers.should_hard_gate_calendar_candidate" in CHAT
-    assert "def should_hard_gate_calendar_candidate" in HELPERS
-    assert "calendar_candidate_hard_gate" in CHAT
-    assert "chat_calendar_helpers.render_calendar_hard_gate_clarification" in CHAT
-    assert "def render_calendar_hard_gate_clarification" in HELPERS
-    assert "deterministic_candidate_preview" in CHAT
-    assert "deterministic_calendar_clarification" in CHAT
+    chat_tree = ast.parse(CHAT)
+    orchestration_tree = ast.parse(
+        CALENDAR_ORCHESTRATION
+    )
 
+    chat_fn = next(
+        node
+        for node in chat_tree.body
+        if isinstance(
+            node,
+            ast.AsyncFunctionDef,
+        )
+        and node.name == "chat"
+    )
+
+    def owner_calls(
+        tree_or_node,
+        owner,
+    ):
+        result = []
+
+        for node in ast.walk(
+            tree_or_node
+        ):
+            if not isinstance(
+                node,
+                ast.Call,
+            ):
+                continue
+
+            func = node.func
+
+            if (
+                isinstance(
+                    func,
+                    ast.Attribute,
+                )
+                and isinstance(
+                    func.value,
+                    ast.Name,
+                )
+                and func.value.id
+                == owner
+            ):
+                result.append(
+                    func.attr
+                )
+
+        return result
+
+    helper_calls = owner_calls(
+        orchestration_tree,
+        "chat_calendar_helpers",
+    )
+
+    assert (
+        "should_hard_gate_calendar_candidate"
+        in helper_calls
+    )
+
+    assert (
+        "render_calendar_hard_gate_clarification"
+        in helper_calls
+    )
+
+    assert (
+        "def should_hard_gate_calendar_candidate"
+        in HELPERS
+    )
+
+    assert (
+        "def render_calendar_hard_gate_clarification"
+        in HELPERS
+    )
+
+    names = {
+        node.id
+        for node in ast.walk(
+            orchestration_tree
+        )
+        if isinstance(
+            node,
+            ast.Name,
+        )
+    }
+
+    assert (
+        "calendar_candidate_hard_gate"
+        in names
+    )
+
+    constants = {
+        node.value
+        for node in ast.walk(
+            orchestration_tree
+        )
+        if isinstance(
+            node,
+            ast.Constant,
+        )
+        and isinstance(
+            node.value,
+            str,
+        )
+    }
+
+    assert (
+        "deterministic_candidate_preview"
+        in constants
+    )
+
+    assert (
+        "deterministic_calendar_clarification"
+        in constants
+    )
+
+    assert (
+        "should_hard_gate_calendar_candidate"
+        not in owner_calls(
+            chat_fn,
+            "chat_calendar_helpers",
+        )
+    )
 
 def test_static_stream_marks_calendar_receipt_source():
     assert "calendar_receipt_source: str | None = None" in CHAT

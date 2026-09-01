@@ -1,9 +1,130 @@
+import ast
 import logging
 from pathlib import Path
 
 from app.services import cognitive_runtime
 from app.services import cognitive_trace
 from app.services import working_memory
+
+
+
+def _m31e_parse(path: str) -> ast.Module:
+    return ast.parse(
+        Path(path).read_text(
+            encoding="utf-8"
+        )
+    )
+
+
+def _m31e_top_level_function(
+    tree: ast.Module,
+    name: str,
+):
+    matches = [
+        node
+        for node in tree.body
+        if isinstance(
+            node,
+            (
+                ast.FunctionDef,
+                ast.AsyncFunctionDef,
+            ),
+        )
+        and node.name == name
+    ]
+
+    assert len(matches) == 1
+
+    return matches[0]
+
+
+def _m31e_runtime_method(
+    tree: ast.Module,
+    name: str,
+):
+    runtime = next(
+        node
+        for node in tree.body
+        if isinstance(
+            node,
+            ast.ClassDef,
+        )
+        and node.name
+        == "CognitiveRuntime"
+    )
+
+    matches = [
+        node
+        for node in runtime.body
+        if isinstance(
+            node,
+            (
+                ast.FunctionDef,
+                ast.AsyncFunctionDef,
+            ),
+        )
+        and node.name == name
+    ]
+
+    assert len(matches) == 1
+
+    return matches[0]
+
+
+def _m31e_owner_call_count(
+    node: ast.AST,
+    owner: str,
+    attr: str,
+) -> int:
+    count = 0
+
+    for child in ast.walk(node):
+        if not isinstance(
+            child,
+            ast.Call,
+        ):
+            continue
+
+        func = child.func
+
+        if (
+            isinstance(
+                func,
+                ast.Attribute,
+            )
+            and func.attr == attr
+            and isinstance(
+                func.value,
+                ast.Name,
+            )
+            and func.value.id == owner
+        ):
+            count += 1
+
+    return count
+
+
+def _m31e_service_import_names(
+    tree: ast.Module,
+) -> set[str]:
+    names: set[str] = set()
+
+    for node in tree.body:
+        if not isinstance(
+            node,
+            ast.ImportFrom,
+        ):
+            continue
+
+        if node.module != "app.services":
+            continue
+
+        names.update(
+            alias.name
+            for alias in node.names
+        )
+
+    return names
 
 
 def test_runtime_version() -> None:
@@ -332,62 +453,86 @@ def test_chat_creates_one_runtime_per_turn() -> None:
     )
 
 
+
 def test_chat_delegates_trace_and_working_memory_to_runtime() -> None:
-    source = Path(
+    chat_tree = _m31e_parse(
         "app/routers/chat.py"
-    ).read_text()
+    )
+
+    runtime_tree = _m31e_parse(
+        "app/services/cognitive_runtime.py"
+    )
+
+    chat = _m31e_top_level_function(
+        chat_tree,
+        "chat",
+    )
+
+    prepare = _m31e_runtime_method(
+        runtime_tree,
+        "prepare_generation_context",
+    )
 
     assert (
-        source.count(
-            "_cognitive_runtime."
-            "record_chat_observation_fail_open("
+        _m31e_owner_call_count(
+            chat,
+            "_cognitive_runtime",
+            "build_working_memory",
         )
         == 1
     )
 
     assert (
-        source.count(
-            "_cognitive_runtime."
-            "build_working_memory("
+        _m31e_owner_call_count(
+            chat,
+            "_cognitive_runtime",
+            "record_chat_observation_fail_open",
+        )
+        == 0
+    )
+
+    assert (
+        _m31e_owner_call_count(
+            prepare,
+            "self",
+            "record_chat_observation_fail_open",
         )
         == 1
     )
 
     assert (
-        "cognitive_trace."
-        "record_chat_observation_fail_open("
-        not in source
+        _m31e_owner_call_count(
+            chat,
+            "cognitive_trace",
+            "record_chat_observation_fail_open",
+        )
+        == 0
     )
 
     assert (
-        "working_memory."
-        "build_working_memory_state("
-        not in source
+        _m31e_owner_call_count(
+            chat,
+            "working_memory",
+            "build_working_memory_state",
+        )
+        == 0
     )
 
 
 def test_chat_imports_only_runtime_facade_for_m31_boundary() -> None:
-    source = Path(
+    chat_tree = _m31e_parse(
         "app/routers/chat.py"
-    ).read_text()
-
-    service_import_start = source.index(
-        "from app.services import ("
     )
 
-    service_import_end = source.index(
-        ")\nfrom app.services.user_mood_prompt",
-        service_import_start,
+    imports = (
+        _m31e_service_import_names(
+            chat_tree
+        )
     )
 
-    imports = source[
-        service_import_start:service_import_end
-    ]
-
-    assert "cognitive_runtime," in imports
-    assert "cognitive_trace," not in imports
-    assert "working_memory," not in imports
-
+    assert "cognitive_runtime" in imports
+    assert "cognitive_trace" not in imports
+    assert "working_memory" not in imports
 
 def test_m31b_and_m31c_services_remain_authoritative() -> None:
     source = Path(
@@ -476,27 +621,52 @@ def test_runtime_owns_memory_packing_delegation_boundary(
     }
 
 
+
 def test_chat_delegates_memory_packing_to_runtime() -> None:
-    source = Path(
+    chat_tree = _m31e_parse(
         "app/routers/chat.py"
-    ).read_text()
+    )
+
+    runtime_tree = _m31e_parse(
+        "app/services/cognitive_runtime.py"
+    )
+
+    chat = _m31e_top_level_function(
+        chat_tree,
+        "chat",
+    )
+
+    prepare = _m31e_runtime_method(
+        runtime_tree,
+        "prepare_generation_context",
+    )
 
     assert (
-        source.count(
-            "_cognitive_runtime."
-            "pack_chat_memory_context("
+        _m31e_owner_call_count(
+            chat,
+            "_cognitive_runtime",
+            "pack_chat_memory_context",
+        )
+        == 0
+    )
+
+    assert (
+        _m31e_owner_call_count(
+            prepare,
+            "self",
+            "pack_chat_memory_context",
         )
         == 1
     )
 
     assert (
-        "chat_memory_assembly."
-        "pack_chat_memory_context("
-        not in source
+        _m31e_owner_call_count(
+            chat,
+            "chat_memory_assembly",
+            "pack_chat_memory_context",
+        )
+        == 0
     )
-
-
-
 
 def test_runtime_packing_keeps_authoritative_service() -> None:
     source = Path(
@@ -565,48 +735,71 @@ def test_runtime_owns_memory_retrieval_delegation_boundary(
     ]
 
 
+
 def test_chat_delegates_memory_retrieval_to_runtime() -> None:
-    source = Path(
+    chat_tree = _m31e_parse(
         "app/routers/chat.py"
-    ).read_text()
+    )
+
+    runtime_tree = _m31e_parse(
+        "app/services/cognitive_runtime.py"
+    )
+
+    chat = _m31e_top_level_function(
+        chat_tree,
+        "chat",
+    )
+
+    source_fan_in = (
+        _m31e_runtime_method(
+            runtime_tree,
+            "retrieve_turn_context_sources",
+        )
+    )
 
     assert (
-        source.count(
-            "_cognitive_runtime."
-            "retrieve_chat_memory_assembly("
+        _m31e_owner_call_count(
+            chat,
+            "_cognitive_runtime",
+            "retrieve_chat_memory_assembly",
+        )
+        == 0
+    )
+
+    assert (
+        _m31e_owner_call_count(
+            source_fan_in,
+            "self",
+            "retrieve_chat_memory_assembly",
         )
         == 1
     )
 
     assert (
-        "chat_memory_assembly."
-        "retrieve_chat_memory_assembly("
-        not in source
+        _m31e_owner_call_count(
+            chat,
+            "chat_memory_assembly",
+            "retrieve_chat_memory_assembly",
+        )
+        == 0
     )
-
 
 
 def test_chat_no_longer_imports_chat_memory_assembly() -> None:
-    source = Path(
+    chat_tree = _m31e_parse(
         "app/routers/chat.py"
-    ).read_text()
-
-    service_import_start = source.index(
-        "from app.services import ("
     )
 
-    service_import_end = source.index(
-        "from app.services.user_mood_prompt",
-        service_import_start,
+    imports = (
+        _m31e_service_import_names(
+            chat_tree
+        )
     )
 
-    imports = source[
-        service_import_start:
-        service_import_end
-    ]
-
-    assert "chat_memory_assembly," not in imports
-
+    assert (
+        "chat_memory_assembly"
+        not in imports
+    )
 
 def test_runtime_retrieval_keeps_authoritative_service() -> None:
     source = Path(
@@ -779,45 +972,73 @@ def test_runtime_life_context_rejects_non_dict_result(
     assert result == {}
 
 
+
 def test_chat_delegates_life_context_to_runtime() -> None:
-    source = Path(
+    chat_source = Path(
         "app/routers/chat.py"
-    ).read_text()
+    ).read_text(
+        encoding="utf-8"
+    )
+
+    chat_tree = ast.parse(
+        chat_source
+    )
+
+    runtime_tree = _m31e_parse(
+        "app/services/cognitive_runtime.py"
+    )
+
+    chat = _m31e_top_level_function(
+        chat_tree,
+        "chat",
+    )
+
+    source_fan_in = (
+        _m31e_runtime_method(
+            runtime_tree,
+            "retrieve_turn_context_sources",
+        )
+    )
 
     assert (
-        source.count(
-            "_cognitive_runtime."
-            "retrieve_life_context("
+        _m31e_owner_call_count(
+            chat,
+            "_cognitive_runtime",
+            "retrieve_life_context",
+        )
+        == 0
+    )
+
+    assert (
+        _m31e_owner_call_count(
+            source_fan_in,
+            "self",
+            "retrieve_life_context",
         )
         == 1
     )
 
     assert (
         "_safe_life_model_context("
-        not in source
+        not in chat_source
     )
 
     assert (
-        "life_model.get_context("
-        not in source
+        _m31e_owner_call_count(
+            chat,
+            "life_model",
+            "get_context",
+        )
+        == 0
     )
 
-    service_import_start = source.index(
-        "from app.services import ("
+    imports = (
+        _m31e_service_import_names(
+            chat_tree
+        )
     )
 
-    service_import_end = source.index(
-        "from app.services.user_mood_prompt",
-        service_import_start,
-    )
-
-    imports = source[
-        service_import_start:
-        service_import_end
-    ]
-
-    assert "    life_model," not in imports
-
+    assert "life_model" not in imports
 
 def test_runtime_life_context_keeps_authoritative_service() -> None:
     source = Path(
@@ -884,44 +1105,45 @@ def test_runtime_owns_conversation_chronology_context_boundary(
     ]
 
 
+
 def test_chat_delegates_conversation_chronology_to_runtime() -> None:
-    source = Path(
+    chat_tree = _m31e_parse(
         "app/routers/chat.py"
-    ).read_text()
+    )
+
+    chat = _m31e_top_level_function(
+        chat_tree,
+        "chat",
+    )
 
     assert (
-        source.count(
-            "_cognitive_runtime."
-            "retrieve_conversation_chronology_context("
+        _m31e_owner_call_count(
+            chat,
+            "_cognitive_runtime",
+            "retrieve_conversation_chronology_context",
         )
         == 1
     )
 
     assert (
-        "conversation_chronology."
-        "build_context_if_relevant("
-        not in source
+        _m31e_owner_call_count(
+            chat,
+            "conversation_chronology",
+            "build_context_if_relevant",
+        )
+        == 0
     )
 
-    service_import_start = source.index(
-        "from app.services import ("
+    imports = (
+        _m31e_service_import_names(
+            chat_tree
+        )
     )
-
-    service_import_end = source.index(
-        "from app.services.user_mood_prompt",
-        service_import_start,
-    )
-
-    imports = source[
-        service_import_start:
-        service_import_end
-    ]
 
     assert (
-        "    conversation_chronology,"
+        "conversation_chronology"
         not in imports
     )
-
 
 def test_runtime_chronology_keeps_authoritative_service() -> None:
     import ast

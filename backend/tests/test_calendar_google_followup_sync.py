@@ -6,14 +6,30 @@ from app.services import calendar_draft_actions as actions
 
 
 CHAT = Path("app/routers/chat.py").read_text(encoding="utf-8")
+CALENDAR_ORCHESTRATION = Path(
+    "app/services/cognitive_calendar_orchestration.py"
+).read_text(encoding="utf-8")
 SERVICE = Path("app/services/calendar_draft_actions.py").read_text(encoding="utf-8")
 
 
+
 def test_google_followup_sync_helper_is_wired_before_clarification():
-    assert "sync_latest_confirmed_local_event_to_google_from_chat" in SERVICE
-    assert "latest_local_google_sync_result" in CHAT
-    assert '"no_confident_draft"' in CHAT
-    assert '"missing_required_fields"' in CHAT
+    assert (
+        "sync_latest_confirmed_local_event_to_google_from_chat"
+        in SERVICE
+    )
+
+    assert (
+        "latest_local_google_sync_result"
+        in CALENDAR_ORCHESTRATION
+    )
+    assert '"no_confident_draft"' in CALENDAR_ORCHESTRATION
+    assert '"missing_required_fields"' in CALENDAR_ORCHESTRATION
+
+    assert (
+        "latest_local_google_sync_result"
+        not in CHAT
+    )
 
 
 @pytest.mark.asyncio

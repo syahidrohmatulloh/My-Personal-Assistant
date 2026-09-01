@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -44,21 +45,120 @@ def test_chat_builds_one_working_memory_snapshot() -> None:
     )
 
 
+
 def test_snapshot_is_built_after_packed_memory() -> None:
     source = _chat_source()
+    tree = ast.parse(source)
 
-    pack_index = source.index(
-        "packed_memory_context = "
-        "_cognitive_runtime.pack_chat_memory_context("
+    chat_fn = next(
+        node
+        for node in tree.body
+        if isinstance(
+            node,
+            ast.AsyncFunctionDef,
+        )
+        and node.name == "chat"
     )
 
-    snapshot_index = source.index(
-        "_working_memory_state = "
-        "_cognitive_runtime.build_working_memory("
+    packed_assignments = []
+
+    snapshot_calls = []
+
+    for node in ast.walk(
+        chat_fn
+    ):
+        if isinstance(
+            node,
+            ast.Assign,
+        ):
+            if (
+                len(node.targets) == 1
+                and isinstance(
+                    node.targets[0],
+                    ast.Name,
+                )
+                and node.targets[0].id
+                == "packed_memory_context"
+                and isinstance(
+                    node.value,
+                    ast.Attribute,
+                )
+                and node.value.attr
+                == "packed_memory_context"
+                and isinstance(
+                    node.value.value,
+                    ast.Name,
+                )
+                and node.value.value.id
+                == "generation_context"
+            ):
+                packed_assignments.append(
+                    node
+                )
+
+        if not isinstance(
+            node,
+            ast.Call,
+        ):
+            continue
+
+        func = node.func
+
+        if (
+            isinstance(
+                func,
+                ast.Attribute,
+            )
+            and func.attr
+            == "build_working_memory"
+            and isinstance(
+                func.value,
+                ast.Name,
+            )
+            and func.value.id
+            == "_cognitive_runtime"
+        ):
+            snapshot_calls.append(
+                node
+            )
+
+    assert len(
+        packed_assignments
+    ) == 1
+
+    assert len(
+        snapshot_calls
+    ) == 1
+
+    packed_assignment = (
+        packed_assignments[0]
     )
 
-    assert snapshot_index > pack_index
+    snapshot_call = snapshot_calls[0]
 
+    # The packed result prepared by CognitiveRuntime is materialized
+    # before the WorkingMemory snapshot is built.
+    assert (
+        packed_assignment.lineno
+        < snapshot_call.lineno
+    )
+
+    packed_keyword = next(
+        keyword
+        for keyword in snapshot_call.keywords
+        if keyword.arg
+        == "packed_memory_context"
+    )
+
+    assert isinstance(
+        packed_keyword.value,
+        ast.Name,
+    )
+
+    assert (
+        packed_keyword.value.id
+        == "packed_memory_context"
+    )
 
 def test_snapshot_is_built_after_final_first_message_metadata() -> None:
     source = _chat_source()
@@ -164,27 +264,105 @@ def test_snapshot_builder_receives_metadata_not_raw_message() -> None:
     )
 
 
+
 def test_calendar_confirmation_is_initialized_for_all_paths() -> None:
-    source = _chat_source()
+    orchestration_source = Path(
+        "app/services/"
+        "cognitive_calendar_orchestration.py"
+    ).read_text()
+
+    tree = ast.parse(
+        orchestration_source
+    )
+
+    execute_fn = next(
+        node
+        for node in tree.body
+        if isinstance(
+            node,
+            ast.AsyncFunctionDef,
+        )
+        and node.name
+        == "execute_calendar_turn"
+    )
+
+    initializations = []
+
+    confirmation_branches = []
+
+    for node in ast.walk(
+        execute_fn
+    ):
+        if (
+            isinstance(
+                node,
+                ast.AnnAssign,
+            )
+            and isinstance(
+                node.target,
+                ast.Name,
+            )
+            and node.target.id
+            == "calendar_confirmation_result"
+            and isinstance(
+                node.value,
+                ast.Constant,
+            )
+            and node.value.value is None
+        ):
+            initializations.append(
+                node
+            )
+
+        if not isinstance(
+            node,
+            ast.If,
+        ):
+            continue
+
+        test = node.test
+
+        if (
+            isinstance(
+                test,
+                ast.UnaryOp,
+            )
+            and isinstance(
+                test.op,
+                ast.Not,
+            )
+            and isinstance(
+                test.operand,
+                ast.Name,
+            )
+            and test.operand.id
+            == "is_calendar_draft_action_turn"
+        ):
+            confirmation_branches.append(
+                node
+            )
+
+    assert len(
+        initializations
+    ) == 1
+
+    assert len(
+        confirmation_branches
+    ) >= 1
 
     initialization = (
-        "calendar_confirmation_result: "
-        "dict[str, Any] | None = None"
+        initializations[0]
     )
 
-    assert initialization in source
-
-    init_index = source.index(
-        initialization
+    first_confirmation_branch = min(
+        confirmation_branches,
+        key=lambda node: node.lineno,
     )
 
-    branch_index = source.index(
-        "if not is_calendar_draft_action_turn:",
-        init_index,
+    assert (
+        initialization.lineno
+        < first_confirmation_branch.lineno
     )
-
-    assert init_index < branch_index
-
 
 def test_realistic_calendar_success_is_mirrored() -> None:
     state = working_memory.build_working_memory_state(

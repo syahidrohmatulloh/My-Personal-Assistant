@@ -1,8 +1,15 @@
+import ast
 from app.services import calendar_draft_actions
 from pathlib import Path
 
 
 CHAT = Path("app/routers/chat.py").read_text(encoding="utf-8")
+CALENDAR_ORCHESTRATION = Path(
+    "app/services/cognitive_calendar_orchestration.py"
+).read_text(encoding="utf-8")
+TURN_CONTEXT = Path(
+    "app/services/cognitive_turn_context.py"
+).read_text(encoding="utf-8")
 
 
 def test_calendar_draft_action_request_detection():
@@ -83,27 +90,111 @@ def test_synced_google_detection_blocks_silent_chat_delete():
 
 
 
+
+
 def test_chat_executes_calendar_draft_actions_authoritatively_before_stream():
-    assert "calendar_draft_actions," in CHAT
-    assert (
-        "await calendar_draft_actions.apply_chat_calendar_draft_action("
-        in CHAT
+    chat_tree = ast.parse(CHAT)
+
+    orchestration_source = Path(
+        "app/services/"
+        "cognitive_calendar_orchestration.py"
+    ).read_text(
+        encoding="utf-8"
     )
-    assert (
-        "Calendar update/delete actions must complete before Claude writes"
-        in CHAT
+
+    orchestration_tree = ast.parse(
+        orchestration_source
     )
+
+    chat_fn = next(
+        node
+        for node in chat_tree.body
+        if isinstance(
+            node,
+            ast.AsyncFunctionDef,
+        )
+        and node.name == "chat"
+    )
+
+    def count_call(
+        tree_or_node,
+        owner,
+        attr,
+    ):
+        return sum(
+            1
+            for node in ast.walk(
+                tree_or_node
+            )
+            if isinstance(
+                node,
+                ast.Call,
+            )
+            and isinstance(
+                node.func,
+                ast.Attribute,
+            )
+            and node.func.attr == attr
+            and isinstance(
+                node.func.value,
+                ast.Name,
+            )
+            and node.func.value.id == owner
+        )
+
     assert (
-        "calendar_draft_actions.apply_chat_calendar_draft_action,"
-        not in CHAT
+        count_call(
+            orchestration_tree,
+            "calendar_draft_actions",
+            "apply_chat_calendar_draft_action",
+        )
+        == 1
+    )
+
+    assert (
+        count_call(
+            chat_fn,
+            "calendar_draft_actions",
+            "apply_chat_calendar_draft_action",
+        )
+        == 0
+    )
+
+    assert (
+        count_call(
+            chat_fn,
+            "_cognitive_runtime",
+            "execute_calendar_turn",
+        )
+        == 1
     )
 
 def test_chat_has_user_facing_calendar_action_guidance():
-    assert "Calendar draft action capability state — authoritative" in CHAT
-    assert "The Calendar action has already been attempted before this reply" in CHAT
-    assert "Follow the authoritative Calendar action result below exactly" in CHAT
-    assert "Say the action succeeded only when success is true" in CHAT
-    assert "render_calendar_action_result_context" in CHAT
+    assert (
+        "Calendar draft action capability state — authoritative"
+        in TURN_CONTEXT
+    )
+    assert (
+        "The Calendar action has already been attempted before this reply"
+        in TURN_CONTEXT
+    )
+    assert (
+        "Follow the authoritative Calendar action result below exactly"
+        in TURN_CONTEXT
+    )
+    assert (
+        "Say the action succeeded only when success is true"
+        in TURN_CONTEXT
+    )
+    assert (
+        "render_calendar_action_result_context"
+        in TURN_CONTEXT
+    )
+
+    assert (
+        "Calendar draft action capability state — authoritative"
+        not in CHAT
+    )
 
 
 def test_stream_uses_precomputed_calendar_action_state():
@@ -132,4 +223,3 @@ def test_colloquial_recurring_scope_reply_enters_action_flow():
             "yang ini aja"
         )
     )
-

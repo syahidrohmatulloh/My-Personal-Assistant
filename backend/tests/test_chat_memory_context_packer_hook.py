@@ -1,33 +1,236 @@
+import ast
 from pathlib import Path
 
 
+
 def test_chat_runtime_delegates_memory_assembly_and_packing() -> None:
-    source = Path("app/routers/chat.py").read_text(encoding="utf-8")
+    chat_source = Path(
+        "app/routers/chat.py"
+    ).read_text(
+        encoding="utf-8"
+    )
 
+    runtime_source = Path(
+        "app/services/cognitive_runtime.py"
+    ).read_text(
+        encoding="utf-8"
+    )
+
+    chat_tree = ast.parse(
+        chat_source
+    )
+
+    runtime_tree = ast.parse(
+        runtime_source
+    )
+
+    chat_fn = next(
+        node
+        for node in chat_tree.body
+        if isinstance(
+            node,
+            ast.AsyncFunctionDef,
+        )
+        and node.name == "chat"
+    )
+
+    runtime_class = next(
+        node
+        for node in runtime_tree.body
+        if isinstance(
+            node,
+            ast.ClassDef,
+        )
+        and node.name == "CognitiveRuntime"
+    )
+
+    source_fan_in = next(
+        node
+        for node in runtime_class.body
+        if isinstance(
+            node,
+            ast.AsyncFunctionDef,
+        )
+        and node.name
+        == "retrieve_turn_context_sources"
+    )
+
+    prepare_context = next(
+        node
+        for node in runtime_class.body
+        if isinstance(
+            node,
+            ast.AsyncFunctionDef,
+        )
+        and node.name
+        == "prepare_generation_context"
+    )
+
+    def calls(
+        node,
+        owner,
+        attr,
+    ):
+        return [
+            child
+            for child in ast.walk(node)
+            if isinstance(
+                child,
+                ast.Call,
+            )
+            and isinstance(
+                child.func,
+                ast.Attribute,
+            )
+            and child.func.attr == attr
+            and isinstance(
+                child.func.value,
+                ast.Name,
+            )
+            and child.func.value.id == owner
+        ]
+
+    # Major chat boundary: retrieval fan-in.
     assert (
-        "_cognitive_runtime.retrieve_chat_memory_assembly("
-        in source
+        len(
+            calls(
+                chat_fn,
+                "_cognitive_runtime",
+                "retrieve_turn_context_sources",
+            )
+        )
+        == 1
+    )
+
+    # chat.py no longer owns the lower-level retrieval call.
+    assert (
+        calls(
+            chat_fn,
+            "_cognitive_runtime",
+            "retrieve_chat_memory_assembly",
+        )
+        == []
+    )
+
+    retrieval_calls = calls(
+        source_fan_in,
+        "self",
+        "retrieve_chat_memory_assembly",
+    )
+
+    assert len(
+        retrieval_calls
+    ) == 1
+
+    retrieval_call = (
+        retrieval_calls[0]
+    )
+
+    retrieval_query = next(
+        keyword.value
+        for keyword in retrieval_call.keywords
+        if keyword.arg == "query_text"
+    )
+
+    assert isinstance(
+        retrieval_query,
+        ast.Name,
     )
 
     assert (
-        "_cognitive_runtime.pack_chat_memory_context("
-        in source
+        retrieval_query.id
+        == "user_message"
+    )
+
+    # Major chat boundary: complete model-context preparation.
+    assert (
+        len(
+            calls(
+                chat_fn,
+                "_cognitive_runtime",
+                "prepare_generation_context",
+            )
+        )
+        == 1
+    )
+
+    # Lower-level packing now belongs inside CognitiveRuntime.
+    assert (
+        calls(
+            chat_fn,
+            "_cognitive_runtime",
+            "pack_chat_memory_context",
+        )
+        == []
+    )
+
+    pack_calls = calls(
+        prepare_context,
+        "self",
+        "pack_chat_memory_context",
+    )
+
+    assert len(
+        pack_calls
+    ) == 1
+
+    pack_call = pack_calls[0]
+
+    pack_query = next(
+        keyword.value
+        for keyword in pack_call.keywords
+        if keyword.arg == "query_text"
+    )
+
+    assert isinstance(
+        pack_query,
+        ast.Attribute,
     )
 
     assert (
-        "chat_memory_assembly.retrieve_chat_memory_assembly("
-        not in source
+        pack_query.attr
+        == "message"
+    )
+
+    assert isinstance(
+        pack_query.value,
+        ast.Name,
     )
 
     assert (
-        "chat_memory_assembly.pack_chat_memory_context("
-        not in source
+        pack_query.value.id
+        == "body"
     )
 
-    assert "query_text=body.message" in source
-    assert "## Additional notes (unstructured)" not in source
-    assert "for m in legacy_memories[:5]" not in source
+    # Existing service remains behind the facade.
+    assert (
+        calls(
+            chat_fn,
+            "chat_memory_assembly",
+            "retrieve_chat_memory_assembly",
+        )
+        == []
+    )
 
+    assert (
+        calls(
+            chat_fn,
+            "chat_memory_assembly",
+            "pack_chat_memory_context",
+        )
+        == []
+    )
+
+    # Old inline fallback packing must remain gone.
+    assert (
+        "## Additional notes (unstructured)"
+        not in chat_source
+    )
+
+    assert (
+        "for m in legacy_memories[:5]"
+        not in chat_source
+    )
 
 def test_chat_memory_assembly_preserves_retrieval_fan_in_contract() -> None:
     source = Path("app/services/chat_memory_assembly.py").read_text(encoding="utf-8")

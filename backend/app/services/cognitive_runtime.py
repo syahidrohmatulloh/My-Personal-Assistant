@@ -9,13 +9,17 @@ Current ownership:
 - delegate WorkingMemoryState lifecycle to the existing M31C builder;
 - delegate cognitive trace finalization/emission to the existing M31B service;
 - own trace-sink configuration for one runtime instance;
+- orchestrate read-only cognitive turn-source fan-in;
 - delegate life-model context retrieval to the existing life-model service;
 - delegate conversation-chronology context retrieval to the existing chronology service;
 - delegate memory retrieval/summary fan-in to the existing chat-memory assembly service;
-- delegate memory-context packing to the existing chat-memory assembly service.
+- delegate memory-context packing to the existing chat-memory assembly service;
+- delegate complete per-turn cognitive context assembly and model-input preparation;
+- delegate foreground executive Calendar routing to existing Calendar services;
+- own deterministic assistant-mode command orchestration.
 
-Calendar routing, prompt assembly, LLM generation, and persistence remain
-outside CognitiveRuntime at this extraction step.
+HTTP/FastAPI serialization, Claude provider streaming, chat persistence, and
+transport-bound background task scheduling remain outside CognitiveRuntime.
 
 Dependency direction:
     chat.py -> CognitiveRuntime -> existing services
@@ -25,18 +29,43 @@ Existing services must never depend on CognitiveRuntime.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
 
+from app.services import assistant_mode_commands
 from app.services import chat_memory_assembly
+from app.services import cognitive_calendar_orchestration
 from app.services import cognitive_trace
+from app.services import cognitive_turn_context
+from app.services import companion
+from app.services import companion_comeback_affect
+from app.services import companion_mode
 from app.services import conversation_chronology
 from app.services import life_model
+from app.services import user_mood
 from app.services import working_memory
 
 
 COGNITIVE_RUNTIME_VERSION = "M31D-v1"
+
+
+@dataclass(frozen=True)
+class CognitiveTurnSources:
+    life_context: dict[str, Any]
+    memory_assembly: chat_memory_assembly.ChatMemoryAssembly
+    detected_mode: str | None
+    companion_settings_row: dict[str, Any]
+    current_mood: dict[str, Any] | None
+    user_mood_context: Any
+    latest_briefing_for_prompt: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class AssistantModeExecution:
+    target_mode: str
+    assistant_text: str
 
 
 @dataclass(frozen=True)
@@ -46,6 +75,251 @@ class CognitiveRuntime:
     trace_sink: cognitive_trace.TraceSink
     logger: logging.Logger | None = None
     version: str = COGNITIVE_RUNTIME_VERSION
+
+    async def retrieve_turn_context_sources(
+        self,
+        *,
+        user_id: str,
+        user_message: str,
+        conversation_id: str,
+    ) -> CognitiveTurnSources:
+        """Fan in read-only cognitive sources for one turn."""
+
+        briefing_awaitable = (
+            cognitive_turn_context
+            .retrieve_latest_briefing_for_prompt(
+                user_id
+            )
+            if cognitive_turn_context
+            .is_briefing_discussion_request(
+                user_message
+            )
+            else asyncio.sleep(
+                0,
+                result=None,
+            )
+        )
+
+        (
+            life_context,
+            memory_assembly,
+            detected_mode,
+            companion_settings_row,
+            current_mood,
+            user_mood_context,
+            latest_briefing_for_prompt,
+        ) = await asyncio.gather(
+            self.retrieve_life_context(
+                user_id=user_id,
+                mood_days=14,
+            ),
+            self.retrieve_chat_memory_assembly(
+                user_id=user_id,
+                query_text=user_message,
+                conversation_id=conversation_id,
+            ),
+            companion_mode.detect_mode(
+                user_message=user_message,
+            ),
+            companion.get_settings(
+                user_id
+            ),
+            companion.get_current_mood(
+                user_id
+            ),
+            user_mood.infer_user_mood(
+                user_id,
+                current_message=user_message,
+            ),
+            briefing_awaitable,
+        )
+
+        return CognitiveTurnSources(
+            life_context=life_context,
+            memory_assembly=memory_assembly,
+            detected_mode=detected_mode,
+            companion_settings_row=(
+                companion_settings_row
+                or {}
+            ),
+            current_mood=current_mood,
+            user_mood_context=(
+                user_mood_context
+            ),
+            latest_briefing_for_prompt=(
+                latest_briefing_for_prompt
+            ),
+        )
+
+    async def execute_assistant_mode_command(
+        self,
+        *,
+        user_id: str,
+        user_message: str,
+        previous_mode: str,
+    ) -> AssistantModeExecution | None:
+        """Execute deterministic assistant-mode commands."""
+
+        command = (
+            assistant_mode_commands
+            .detect_assistant_mode_command(
+                user_message
+            )
+        )
+
+        if command is None:
+            return None
+
+        new_mode = command.target_mode
+
+        await companion.update_settings(
+            user_id,
+            assistant_mode=new_mode,
+        )
+
+        assistant_text = (
+            assistant_mode_commands
+            .render_mode_command_confirmation(
+                command,
+                previous_mode=previous_mode,
+            )
+        )
+
+        return AssistantModeExecution(
+            target_mode=new_mode,
+            assistant_text=assistant_text,
+        )
+
+    async def evaluate_comeback_affect(
+        self,
+        **kwargs: Any,
+    ) -> Any:
+        """Delegate existing comeback-affect policy."""
+
+        return await (
+            companion_comeback_affect
+            .evaluate_for_chat(
+                **kwargs
+            )
+        )
+
+    async def execute_calendar_turn(
+        self,
+        **kwargs: Any,
+    ) -> cognitive_calendar_orchestration.CalendarTurnExecution:
+        """Own foreground Calendar executive sequencing."""
+
+        return await (
+            cognitive_calendar_orchestration
+            .execute_calendar_turn(
+                logger=self.logger,
+                **kwargs,
+            )
+        )
+
+    async def prepare_generation_context(
+        self,
+        *,
+        body: Any,
+        user_id: str,
+        context: dict[str, Any],
+        chronology_context: str | None,
+        assistant_mode: str,
+        assistant_name: str,
+        assistant_rename: str | None,
+        current_mood: dict[str, Any] | None,
+        user_mood_ctx: Any,
+        latest_briefing_for_prompt: dict[str, Any] | None,
+        comeback_affect_decision: Any,
+        messages: list[dict[str, Any]],
+        companion_settings_row: dict[str, Any],
+        detected_mode: str | None,
+        style_profile_id: str | None,
+        calendar_action_result: dict[str, Any] | None,
+        is_calendar_draft_action_turn: bool,
+        legacy_memories: list[dict[str, Any]],
+        related_summaries: list[dict[str, Any]],
+        memory_assembly: chat_memory_assembly.ChatMemoryAssembly,
+        turn_ref: str | None,
+        logger: logging.Logger | None = None,
+    ) -> cognitive_turn_context.CognitiveTurnContextAssembly:
+        """Prepare complete model-facing context for one turn."""
+
+        def pack_memory_context() -> Any:
+            return self.pack_chat_memory_context(
+                legacy_memories=legacy_memories,
+                related_summaries=related_summaries,
+                query_text=body.message,
+                user_id=user_id,
+                logger=logger,
+            )
+
+        def record_trace(
+            packed_memory_context: Any,
+        ) -> None:
+            self.record_chat_observation_fail_open(
+                turn_ref=turn_ref,
+                conversation_ref=(
+                    body.conversation_id
+                ),
+                user_ref=user_id,
+                assistant_mode=assistant_mode,
+                companion_settings_row=(
+                    companion_settings_row
+                ),
+                comeback_affect_decision=(
+                    comeback_affect_decision
+                ),
+                packed_memory_context=(
+                    packed_memory_context
+                ),
+                memory_retrieval_diagnostics=(
+                    memory_assembly
+                    .memory_retrieval_diagnostics
+                ),
+                legacy_memories=(
+                    legacy_memories
+                ),
+            )
+
+        return await (
+            cognitive_turn_context
+            .assemble_turn_context(
+                body=body,
+                user_id=user_id,
+                context=context,
+                chronology_context=(
+                    chronology_context
+                ),
+                assistant_mode=assistant_mode,
+                assistant_name=assistant_name,
+                assistant_rename=assistant_rename,
+                current_mood=current_mood,
+                user_mood_ctx=user_mood_ctx,
+                latest_briefing_for_prompt=(
+                    latest_briefing_for_prompt
+                ),
+                comeback_affect_decision=(
+                    comeback_affect_decision
+                ),
+                messages=messages,
+                companion_settings_row=(
+                    companion_settings_row
+                ),
+                detected_mode=detected_mode,
+                style_profile_id=style_profile_id,
+                calendar_action_result=(
+                    calendar_action_result
+                ),
+                is_calendar_draft_action_turn=(
+                    is_calendar_draft_action_turn
+                ),
+                pack_memory_context=(
+                    pack_memory_context
+                ),
+                record_trace=record_trace,
+            )
+        )
 
     def build_working_memory(
         self,

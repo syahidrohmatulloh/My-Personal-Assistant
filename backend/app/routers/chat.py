@@ -43,217 +43,32 @@ from app.services import (
     calendar_candidate_extractor,
     calendar_confirmation_actions,
     calendar_draft_actions,
-    chat_time_helpers,
-    chat_style_directive,
-    chat_calendar_helpers,
     conversation_summary,
-    capability_registry,
     attachments,
     companion,
     companion_comeback_affect,
     cognitive_runtime,
-    companion_mode,
     memory,
     memory_intelligence,
     proactive_nudges,
     name_normalization,
-    temporal_grounding,
     background_extraction_gate,
     goal_intelligence,
     mood_memory_feedback,
     relationship_memory,
-    response_texture,
-    interaction_preferences,
-    user_mood,
 )
-from app.services.user_mood_prompt import render_user_mood_block
-from app.services.deterministic_profile import render_profile_runtime_context
 from app.services.claude import get_claude
 from app.services.prompt_builder import (
-    BASE_PROMPT,
-    get_base_prompt,
-    render_client_time_context,
-    render_context,
     trim_history,
 )
 from app.services.supabase_client import get_supabase, safe_execute
 from app.services.safe_background import add_safe_background_task
-from app.services.assistant_mode_commands import (
-    detect_assistant_mode_command,
-    render_mode_command_confirmation,
-)
 
 log = logging.getLogger(__name__)
 timing_log = logging.getLogger("uvicorn.error")
 CHAT_HISTORY_LOAD_LIMIT = 80
 
 router = APIRouter(tags=["chat"])
-
-# ---------------------------------------------------------------------------
-# Companion mood repair gate — keyword detectors
-# ---------------------------------------------------------------------------
-
-
-def _is_romantic_simulation_request(message: str | None) -> bool:
-    if not message:
-        return False
-
-    lower = message.lower()
-
-    simulation_words = (
-        "simulasi",
-        "simulate",
-        "testing",
-        "test ",
-        "tes ",
-        "pura-pura",
-        "inisiasi",
-        "trigger",
-        "tunjukin",
-        "demonstrate",
-    )
-    romantic_words = (
-        "romantis",
-        "romantic",
-        "sayang",
-        "bunga mawar",
-        "mawar",
-        "love",
-        "melting",
-    )
-
-    return any(w in lower for w in simulation_words) and any(
-        w in lower for w in romantic_words
-    )
-
-
-def _is_user_repair_message(message: str | None) -> bool:
-    if not message:
-        return False
-
-    lower = message.lower()
-
-    repair_words = (
-        "maaf",
-        "sorry",
-        "jangan marah",
-        "aku di sini",
-        "aku disini",
-        "tenang",
-        "sabar ya",
-        "aku sayang",
-        "aku cuma bercanda",
-        "jangan ngambek",
-        "peluk",
-        "hug",
-    )
-
-    return any(w in lower for w in repair_words)
-
-
-def _build_mood_block(
-    companion_settings_row: dict,
-    current_mood: dict | None,
-    user_message: str | None,
-    ui_context: dict | None,
-) -> str:
-    """Render the companion mood block. Caller must verify mood is active.
-
-    Repair gate logic only fires if repair_gate_enabled in settings.
-    """
-    # Prefer UI-supplied mood if frontend pushed a more recent one.
-    state = current_mood or {}
-    if isinstance(ui_context, dict):
-        ui_companion = ui_context.get("companion_mood")
-        if isinstance(ui_companion, dict):
-            state = ui_companion
-
-    if not state:
-        state = {
-            "mood": "calm",
-            "intensity": 1,
-            "reason": "no previous companion mood state",
-            "mood_scores": {},
-        }
-
-    mood = state.get("mood", "calm")
-    intensity = int(state.get("intensity") or 1)
-    reason = state.get("reason") or ""
-    mood_scores = state.get("mood_scores") or {}
-
-    repair_gate_on = bool(companion_settings_row.get("repair_gate_enabled"))
-    romantic_simulation_requested = _is_romantic_simulation_request(user_message)
-    user_is_repairing = _is_user_repair_message(user_message)
-
-    negative_mood = mood in {
-        "annoyed",
-        "hurt",
-        "jealous_playful",
-        "withdrawn_soft",
-    }
-    negative_score = 0
-    if isinstance(mood_scores, dict):
-        negative_score = max(
-            int(mood_scores.get("annoyed") or 0),
-            int(mood_scores.get("hurt") or 0),
-            int(mood_scores.get("jealous_playful") or 0),
-            int(mood_scores.get("withdrawn_soft") or 0),
-        )
-
-    # Repair required only when ALL conditions met:
-    #   1. User enabled the repair gate in settings
-    #   2. User asked for romantic simulation
-    #   3. User is NOT already repairing
-    #   4. Companion is in negative mood with sufficient intensity OR score
-    repair_required = (
-        repair_gate_on
-        and romantic_simulation_requested
-        and not user_is_repairing
-        and (
-            (negative_mood and intensity >= 4)
-            or negative_score >= 4
-        )
-    )
-
-    lines = [
-        "## Companion mood state",
-        f"Current simulated companion mood: {mood}",
-        f"Intensity: {intensity}/10",
-        f"Reason: {reason}",
-        f"Mood scores: {mood_scores}",
-        "",
-        "Use this as expressive companion-style affect only.",
-        "Do not claim to be literally human or conscious.",
-        "Never be abusive, threatening, manipulative, or guilt-tripping.",
-        "Jealousy, possessiveness, annoyance, and clinginess must stay playful, consensual, and reversible.",
-        "If the user asks to stop/reset/normal/calm down, soften immediately.",
-    ]
-
-    if romantic_simulation_requested:
-        lines.extend(
-            [
-                "",
-                "The user is asking the assistant to initiate or simulate romantic mode.",
-                "Do not let the user's request alone decide the mood; only your actual reply should express the companion mood.",
-            ]
-        )
-
-    if repair_required:
-        lines.extend(
-            [
-                "",
-                "IMPORTANT REPAIR GATE:",
-                "The user is asking for romantic simulation, but the assistant is still in a negatively activated companion mood.",
-                "Do NOT instantly become romantic. This rule is mandatory when repair_required is true.",
-                "Gently hesitate or refuse in a light, safe, affectionate way.",
-                "Ask the user to reassure, apologize, or calm the assistant first before any romantic simulation.",
-                "Do not be toxic, threatening, cold, or manipulative.",
-                "If the user comforts you, accept it warmly and soften toward reassured/affectionate.",
-            ]
-        )
-
-    return "\n".join(lines)
-
 
 def _clean_assistant_name(name: str | None) -> str | None:
     return name_normalization.normalize_assistant_name(name)
@@ -305,65 +120,6 @@ def _mood_to_palette(mood: str | None) -> str:
         "angry": "muted-amber",
     }
     return mapping.get(mood or "", "calm-blue")
-
-
-def _context_to_dict(value: object) -> dict | None:
-    if value is None:
-        return None
-    if isinstance(value, dict):
-        return value
-    if hasattr(value, "model_dump"):
-        dumped = value.model_dump(exclude_none=True)
-        return dumped if isinstance(dumped, dict) else None
-    if hasattr(value, "dict"):
-        dumped = value.dict(exclude_none=True)
-        return dumped if isinstance(dumped, dict) else None
-    return None
-
-
-def _render_ui_context(ui_context: dict | None) -> str | None:
-    """Render frontend app/browser state as ephemeral prompt context.
-
-    This lets the assistant answer questions about the current app state and
-    local time without pretending it can literally see the user's screen.
-    """
-    if not isinstance(ui_context, dict) or not ui_context:
-        return None
-
-    def clean(value: object, limit: int = 80) -> str | None:
-        if value is None:
-            return None
-        text = str(value).strip()
-        if not text:
-            return None
-        return text[:limit]
-
-    labels = {
-        "timezone": "User local timezone",
-        "local_time_iso": "User local time",
-        "theme": "Theme",
-        "background_style": "Active background style",
-        "background_intensity": "Background intensity",
-        "background_motion": "Background motion",
-        "background_mode": "Background mode",
-        "client_platform": "Client platform",
-        "current_page": "Current page",
-    }
-    lines = ["## Current app context (ephemeral, from frontend)"]
-    for key, label in labels.items():
-        value = clean(ui_context.get(key))
-        if value:
-            lines.append(f"- {label}: {value}")
-
-    if len(lines) == 1:
-        return None
-
-    lines.append(
-        "Rules: You may refer to this as app state when relevant. Do not claim "
-        "you can literally see the user's screen. Browser-provided local time "
-        "is the source of truth; memory timezone is only fallback."
-    )
-    return "\n".join(lines)
 
 
 async def _check_ownership(_supabase, conversation_id: str, user_id: str):
@@ -426,77 +182,6 @@ async def _load_history(_supabase, conversation_id: str) -> list[dict]:
     return [{"role": m["role"], "content": m["content"]} for m in rows]
 
 
-def _is_briefing_discussion_request(message: str | None) -> bool:
-    if not message:
-        return False
-
-    lower = message.lower()
-
-    briefing_terms = (
-        "briefing",
-        "briefings",
-        "daily brief",
-        "daily briefing",
-        "today's brief",
-        "today's briefing",
-        "todays briefing",
-        "morning briefing",
-        "briefing hari ini",
-        "bahas briefing",
-        "bicarakan briefing",
-        "diskusikan briefing",
-        "ringkasan hari ini",
-    )
-
-    return any(term in lower for term in briefing_terms)
-
-
-async def _load_latest_briefing_for_prompt(user_id: str) -> dict | None:
-    result = await asyncio.to_thread(
-        lambda: safe_execute(
-            lambda sb: sb.table("daily_briefings")
-            .select("id, briefing_date, content, generated_at")
-            .eq("user_id", user_id)
-            .order("briefing_date", desc=True)
-            .order("generated_at", desc=True)
-            .limit(1)
-            .maybe_single()
-            .execute()
-        )
-    )
-
-    if not result or not result.data:
-        return None
-
-    content = str(result.data.get("content") or "").strip()
-    if not content:
-        return None
-
-    return result.data
-
-
-def _render_briefing_context_for_prompt(briefing_row: dict | None) -> str | None:
-    if not briefing_row:
-        return None
-
-    content = str(briefing_row.get("content") or "").strip()
-    if not content:
-        return None
-
-    briefing_date = briefing_row.get("briefing_date") or "latest"
-
-    return (
-        "## Latest daily briefing context\n"
-        f"- Briefing date: {briefing_date}\n"
-        "- The user is asking to discuss this briefing. Use it as context, "
-        "but do not recite it unless useful.\n\n"
-        f"{content}"
-    )
-
-
-
-
-
 @router.post("/chat")
 async def chat(
     body: ChatIn,
@@ -513,49 +198,48 @@ async def chat(
         logger=log,
     )
 
-    # === Parallel phase 1: ownership + save + context + legacy mems + related summaries + attachments + mode + companion settings + mood ===
+    # === Parallel phase 1: transport work + one cognitive source fan-in ===
     (
         convo_result,
         user_message_id,
-        context,
-        memory_assembly,
+        cognitive_sources,
         attachment_rows,
-        detected_mode,
-        companion_settings_row,
-        current_mood,
-        user_mood_ctx,
-        latest_briefing_for_prompt,
     ) = await asyncio.gather(
-        _check_ownership(supabase, body.conversation_id, user_id),
-        _save_user_message(supabase, body.conversation_id, body.message),
-        _cognitive_runtime.retrieve_life_context(
-            user_id=user_id,
-            mood_days=14,
+        _check_ownership(
+            supabase,
+            body.conversation_id,
+            user_id,
         ),
-        _cognitive_runtime.retrieve_chat_memory_assembly(
+        _save_user_message(
+            supabase,
+            body.conversation_id,
+            body.message,
+        ),
+        _cognitive_runtime.retrieve_turn_context_sources(
             user_id=user_id,
-            query_text=body.message,
+            user_message=body.message,
             conversation_id=body.conversation_id,
         ),
         asyncio.to_thread(
             lambda: attachments.fetch_for_user(
-                user_id=user_id, attachment_ids=body.attachment_ids
+                user_id=user_id,
+                attachment_ids=body.attachment_ids,
             )
         ),
-        companion_mode.detect_mode(user_message=body.message),
-        # Companion settings: stable, controls whether companion mood/repair logic
-        # is active for this user. Always loaded — cheap.
-        companion.get_settings(user_id),
-        # Current companion mood. Returns None if mood is not applicable
-        # per user settings (mode != 'partner' or realism != 'dynamic').
-        companion.get_current_mood(user_id),
-        # User mood (Layer A) — inferred from emotional_state + current msg.
-        # Read-only, never overwrites companion mood. Returns has_data: False
-        # when there's nothing useful to render.
-        user_mood.infer_user_mood(user_id, current_message=body.message),
-        _load_latest_briefing_for_prompt(user_id)
-        if _is_briefing_discussion_request(body.message)
-        else asyncio.sleep(0, result=None),
+    )
+
+    context = cognitive_sources.life_context
+    memory_assembly = cognitive_sources.memory_assembly
+    detected_mode = cognitive_sources.detected_mode
+    companion_settings_row = (
+        cognitive_sources.companion_settings_row
+    )
+    current_mood = cognitive_sources.current_mood
+    user_mood_ctx = (
+        cognitive_sources.user_mood_context
+    )
+    latest_briefing_for_prompt = (
+        cognitive_sources.latest_briefing_for_prompt
     )
 
     if not convo_result or not convo_result.data:
@@ -597,28 +281,18 @@ async def chat(
     if assistant_mode not in {"life_companion", "chief_of_staff"}:
         assistant_mode = "life_companion"
 
-    assistant_mode_command = detect_assistant_mode_command(body.message)
-    if assistant_mode_command:
-        new_mode = assistant_mode_command.target_mode
-        await companion.update_settings(user_id, assistant_mode=new_mode)
-
-        assistant_text = render_mode_command_confirmation(
-            assistant_mode_command,
-            previous_mode=assistant_mode,  # type: ignore[arg-type]
+    assistant_mode_execution = (
+        await _cognitive_runtime.execute_assistant_mode_command(
+            user_id=user_id,
+            user_message=body.message,
+            previous_mode=assistant_mode,
         )
+    )
 
-        await asyncio.to_thread(
-            lambda: safe_execute(
-                lambda sb: sb.table("messages")
-                .insert(
-                    {
-                        "conversation_id": body.conversation_id,
-                        "role": "assistant",
-                        "content": assistant_text,
-                    }
-                )
-                .execute()
-            )
+    if assistant_mode_execution:
+        assistant_text = (
+            assistant_mode_execution
+            .assistant_text
         )
 
         return StreamingResponse(
@@ -629,7 +303,9 @@ async def chat(
             ),
             media_type="text/event-stream",
             headers={
-                "Cache-Control": "no-cache, no-transform",
+                "Cache-Control": (
+                    "no-cache, no-transform"
+                ),
                 "X-Accel-Buffering": "no",
                 "Connection": "keep-alive",
             },
@@ -650,7 +326,7 @@ async def chat(
     messages = trim_history(messages)
     history_elapsed_ms = round((time.perf_counter() - history_started_at) * 1000, 1)
 
-    comeback_affect_decision = await companion_comeback_affect.evaluate_for_chat(
+    comeback_affect_decision = await _cognitive_runtime.evaluate_comeback_affect(
         user_id=user_id,
         conversation_id=body.conversation_id,
         user_message=body.message,
@@ -660,564 +336,149 @@ async def chat(
         user_mood_context=user_mood_ctx,
     )
 
-    # Calendar update/delete actions must complete before Claude writes the
-    # user-facing response. The result below becomes authoritative prompt
-    # context, so success wording always follows actual persistence.
-    is_calendar_draft_action_turn = (
-        calendar_draft_actions.is_calendar_draft_action_request(
-            body.message
+    # M31E-FINAL — foreground executive routing belongs to CognitiveRuntime.
+    calendar_execution = (
+        await _cognitive_runtime.execute_calendar_turn(
+            user_id=user_id,
+            conversation_id=body.conversation_id,
+            user_message=body.message,
+            client_context=body.client_context,
+            recent_messages=messages,
+            assistant_mode=assistant_mode,
         )
     )
-    calendar_action_result: dict[str, Any] | None = None
 
-    if is_calendar_draft_action_turn:
-        try:
-            calendar_action_result = (
-                await calendar_draft_actions.apply_chat_calendar_draft_action(
-                    user_id=user_id,
-                    conversation_id=body.conversation_id,
-                    user_message=body.message,
-                    client_context=body.client_context,
-                    recent_messages=messages,
-                )
-            )
-        except Exception as exc:  # noqa: BLE001
-            log.warning(
-                "chat: authoritative calendar action failed "
-                "user=%s conversation=%s error_type=%s",
-                user_id[:8],
-                body.conversation_id[:8],
-                type(exc).__name__,
-            )
-            calendar_action_result = {
-                "attempted": True,
-                "success": False,
-                "updated": False,
-                "deleted": False,
-                "action": "unknown",
-                "source": "unknown",
-                "reason": "calendar_action_exception",
-            }
-
-    calendar_action_success = (
-        calendar_draft_actions.calendar_action_succeeded(
-            calendar_action_result
-        )
-    )
-    calendar_action_reason = str(
-        (calendar_action_result or {}).get("reason") or ""
-    )
-    calendar_action_snapshot_dirty = bool(
-        calendar_action_success
-        or calendar_action_reason
-        in {
-            "local_update_after_google_patch_failed",
-            "local_archive_after_google_delete_failed",
-        }
-    )
-
-    calendar_address_term = await chat_calendar_helpers.load_calendar_address_term(
-        user_id=user_id,
-        assistant_mode=assistant_mode,
-    )
-
-    calendar_action_receipt = (
-        calendar_draft_actions.render_calendar_action_user_receipt(
-            calendar_action_result,
-            address_term=calendar_address_term,
-        )
-    )
-    if is_calendar_draft_action_turn and calendar_action_receipt:
+    if calendar_execution.receipt_text:
         return StreamingResponse(
             _stream_static_assistant_response(
-                assistant_text=calendar_action_receipt,
-                assistant_name=assistant_name,
-                detected_mode=detected_mode,
-                assistant_mode=assistant_mode,
-                conversation_id=body.conversation_id,
-                calendar_snapshot_dirty=calendar_action_snapshot_dirty,
-                calendar_receipt_source="deterministic_calendar_action",
-            ),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache, no-transform",
-                "X-Accel-Buffering": "no",
-                "Connection": "keep-alive",
-            },
-            background=background_tasks,
-        )
-
-    calendar_confirmation_result: dict[str, Any] | None = None
-
-    if not is_calendar_draft_action_turn:
-        calendar_confirmation_result = (
-            await calendar_confirmation_actions.apply_calendar_confirmation_decision(
-                user_id=user_id,
-                conversation_id=body.conversation_id,
-                user_message=body.message,
-                client_context=body.client_context,
-                recent_messages=messages,
-            )
-        )
-        calendar_confirmation_receipt = (
-            calendar_confirmation_actions.render_calendar_confirmation_user_receipt(
-                calendar_confirmation_result,
-                address_term=calendar_address_term,
-            )
-        )
-        if calendar_confirmation_receipt:
-            return StreamingResponse(
-                _stream_static_assistant_response(
-                    assistant_text=calendar_confirmation_receipt,
-                    assistant_name=assistant_name,
-                    detected_mode=detected_mode,
-                    assistant_mode=assistant_mode,
-                    conversation_id=body.conversation_id,
-                    calendar_snapshot_dirty=bool(
-                        calendar_confirmation_result.get("executed")
-                    ),
-                    calendar_receipt_source="deterministic_calendar_confirmation",
+                assistant_text=(
+                    calendar_execution
+                    .receipt_text
                 ),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache, no-transform",
-                    "X-Accel-Buffering": "no",
-                    "Connection": "keep-alive",
-                },
-                background=background_tasks,
-            )
-
-    calendar_candidate_hard_gate = (
-        not is_calendar_draft_action_turn
-        and not calendar_draft_actions.is_google_calendar_create_request(body.message)
-        and not calendar_candidate_extractor.is_public_situational_update(body.message)
-        and chat_calendar_helpers.should_hard_gate_calendar_candidate(body.message)
-    )
-    if calendar_candidate_hard_gate:
-        calendar_candidate_result = (
-            await calendar_candidate_extractor.extract_and_persist(
-                user_id=user_id,
-                conversation_id=body.conversation_id,
-                user_message=body.message,
-                client_context=body.client_context,
-                recent_messages=messages,
-            )
-        )
-        calendar_candidate_preview = (
-            calendar_candidate_extractor.render_calendar_candidate_preview(
-                calendar_candidate_result,
-                address_term=calendar_address_term,
-            )
-        )
-        if not calendar_candidate_preview:
-            calendar_candidate_preview = chat_calendar_helpers.render_calendar_hard_gate_clarification(
-                address_term=calendar_address_term,
-            )
-
-        return StreamingResponse(
-            _stream_static_assistant_response(
-                assistant_text=calendar_candidate_preview,
                 assistant_name=assistant_name,
                 detected_mode=detected_mode,
                 assistant_mode=assistant_mode,
-                conversation_id=body.conversation_id,
-                calendar_snapshot_dirty=bool(
-                    calendar_candidate_result.get("saved")
+                conversation_id=(
+                    body.conversation_id
+                ),
+                calendar_snapshot_dirty=(
+                    calendar_execution
+                    .receipt_snapshot_dirty
                 ),
                 calendar_receipt_source=(
-                    "deterministic_candidate_preview"
-                    if calendar_candidate_result.get("candidate")
-                    else "deterministic_calendar_clarification"
+                    calendar_execution
+                    .receipt_source
                 ),
             ),
             media_type="text/event-stream",
             headers={
-                "Cache-Control": "no-cache, no-transform",
+                "Cache-Control": (
+                    "no-cache, no-transform"
+                ),
                 "X-Accel-Buffering": "no",
                 "Connection": "keep-alive",
             },
             background=background_tasks,
         )
 
-    if (
-        not is_calendar_draft_action_turn
-        and calendar_draft_actions.is_google_calendar_create_request(body.message)
-    ):
-        google_create_result = (
-            await calendar_draft_actions.create_google_calendar_event_from_chat(
-                user_id=user_id,
-                conversation_id=body.conversation_id,
-                user_message=body.message,
-                client_context=body.client_context,
-                recent_messages=messages,
-            )
-        )
-
-        if str(google_create_result.get("reason") or "") in {
-            "no_confident_draft",
-            "missing_required_fields",
-        }:
-            latest_local_google_sync_result = (
-                await calendar_draft_actions.sync_latest_confirmed_local_event_to_google_from_chat(
-                    user_id=user_id,
-                    conversation_id=body.conversation_id,
-                    user_message=body.message,
-                )
-            )
-            latest_local_google_sync_receipt = (
-                calendar_draft_actions.render_google_calendar_create_user_receipt(
-                    latest_local_google_sync_result,
-                    address_term=calendar_address_term,
-                )
-            )
-            if latest_local_google_sync_receipt:
-                google_create_result = latest_local_google_sync_result
-
-        google_create_receipt = (
-            calendar_draft_actions.render_google_calendar_create_user_receipt(
-                google_create_result,
-                address_term=calendar_address_term,
-            )
-        )
-        if google_create_receipt:
-            return StreamingResponse(
-                _stream_static_assistant_response(
-                    assistant_text=google_create_receipt,
-                    assistant_name=assistant_name,
-                    detected_mode=detected_mode,
-                    assistant_mode=assistant_mode,
-                    conversation_id=body.conversation_id,
-                    calendar_snapshot_dirty=bool(
-                        google_create_result.get("google_event_id")
-                    ),
-                    calendar_receipt_source="deterministic_google_calendar_create",
-                ),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache, no-transform",
-                    "X-Accel-Buffering": "no",
-                    "Connection": "keep-alive",
-                },
-                background=background_tasks,
-            )
-
-    # === Build prompt with cached base + volatile context ===
-    volatile_context = render_context(context)
-    if chronology_context:
-        volatile_context += "\n\n" + chronology_context
-    volatile_context += "\n\n" + capability_registry.render_capability_registry()
-    volatile_context += (
-        "\n\nCalendar response style policy:"
-        "\n- Never say 'Aku siapkan...' for an implicit schedule mention."
-        "\n- Say 'Mau aku masukin ke Calendar?' instead."
-        "\n- Do not ask the user to open Memories or Calendar just to confirm a newly detected agenda."
-        "\n- Confirmation should happen in chat."
+    is_calendar_draft_action_turn = (
+        calendar_execution
+        .is_draft_action_turn
     )
 
-    volatile_context += (
-        "\n\nMemory response style policy:"
-        "\n- When the user gives a durable preference, boundary, self-regulation instruction, or personal context, acknowledge it naturally."
-        "\n- Prefer wording like: 'Noted', 'Aku inget', 'Ke depan aku akan...', or 'Siap, aku pegang itu.'"
-        "\n- Do not say you saved, added, stored, or recorded something in Memories unless the user explicitly asks about memory management."
-        "\n- Do not ask the user to open Memory Review just to confirm a normal preference."
-        "\n- If the preference is ambiguous, ask a short natural clarification in chat instead of turning it into an admin/review task."
+    calendar_action_result = (
+        calendar_execution
+        .action_result
     )
-    volatile_context += (
-        "\n\nCalendar confirmation UX rule — strict:"
-        "\n- When the user mentions a possible schedule/event, do NOT say it has been prepared, added, saved, created, or inserted yet."
-        "\n- Ask for confirmation first: 'Ini kayaknya agenda. Mau aku masukin ke Calendar?'"
-        "\n- Summarize Acara, Tanggal, Waktu, and Lokasi if available."
-        "\n- Never use user-facing terms like 'agenda kalender', 'agenda kalender', 'Calendar event', or 'calendar event'."
-        "\n- Never infer Calendar action success from user wording alone."
-        "\n- If an authoritative Calendar action result is present, follow it exactly."
-        "\n- Without an authoritative success result, never claim an update or deletion succeeded."
-    )
-    pending_calendar_confirmation_context = await calendar_confirmation_actions.render_pending_calendar_confirmation_context(
-        user_id=user_id,
-        conversation_id=getattr(body, "conversation_id", None),
-    )
-    if pending_calendar_confirmation_context:
-        volatile_context += "\n\n" + pending_calendar_confirmation_context
 
-    volatile_context += (
-        "\n\nCalendar user-facing language rule — strict:"
-        "\n- Never use the phrases 'Calendar event', 'calendar event', 'event Calendar', or 'event Calendar' in user-facing replies."
-        "\n- Use natural product wording: Calendar, event, agenda, jadwal, aku catat, aku update, aku hapus."
-        "\n- If an event is prepared, updated, synced, or deleted, summarize it naturally with Acara, Tanggal, Waktu, and Lokasi when available."
+    calendar_confirmation_result = (
+        calendar_execution
+        .confirmation_result
     )
-    volatile_context += (
-        "\\n\\nGoal feature capability state — authoritative:"
-        "\\n- The app has a background Goal Intelligence system that can prepare pending goal suggestions from chat."
-        "\\n- If the user explicitly asks to track/save something as a goal, say you will prepare it as a trackable goal candidate in Goals."
-        "\\n- Do not say you have no access to Goals."
-        "\\n- Do not claim the goal is already active/saved unless a direct create-goal action has explicitly succeeded in the current request."
-        "\\n- Preferred wording: Aku bantu siapkan ini sebagai kandidat goal di Goals."
+
+    calendar_action_snapshot_dirty = (
+        calendar_execution
+        .action_snapshot_dirty
     )
-    is_calendar_candidate_turn = (
-        not is_calendar_draft_action_turn
-        and calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(
-            body.message
+
+    # M31E-FINAL — complete cognitive turn context + model input preparation.
+    style_profile_id = (
+        convo_result.data.get(
+            "style_profile_id"
         )
     )
 
-    if is_calendar_candidate_turn:
-        volatile_context += (
-            "\\n\\nCalendar event capability state — authoritative:"
-            "\\n- The user message appears to contain a schedule/calendar event request."
-            "\\n- The app can detect a possible Calendar event from chat, but user confirmation is required before it should be treated as added."
-            "\\n- Internally this may be stored as a calendar event, do not expose implementation names in user-facing replies."
-            "\\n- Use natural wording like: Ini kayaknya agenda kalender. Mau aku masukin ke Calendar?"
-            "\\n- Do not say you cannot help with calendar handling."
-            "\\n- Do not claim the event is already created in Google Calendar unless a direct Google Calendar sync action has explicitly succeeded in the current request."
-            "\\n- For implicit schedule mentions, ask the user for confirmation before adding the detected event to Calendar."
-            "\\n- Summarize the event naturally with Acara, Tanggal, Waktu, and Lokasi if available from the user's message."
-            "\\n- Preferred Indonesian wording for implicit schedule mentions: Ini kayaknya agenda. Mau aku masukin ke Calendar?"
-        )
-    if is_calendar_draft_action_turn:
-        volatile_context += (
-            "\n\nCalendar draft action capability state — authoritative:"
-            "\n- The user asked to edit, reschedule, remove, cancel, or delete a Calendar item."
-            "\n- The Calendar action has already been attempted before this reply."
-            "\n- Follow the authoritative Calendar action result below exactly."
-            "\n- Say the action succeeded only when success is true."
-            "\n- For Calendar action replies, use only facts explicitly present in the authoritative result."
-            "\n- Do not use chronology, memories, workspace cards, or other agenda items to add before/after, overlap, free-time, or schedule-fit commentary."
-            "\n- Do not mention another meeting or reminder unless it is explicitly included in the authoritative result."
-            "\n- Keep a successful Calendar receipt brief and factual; do not add conversational embellishment."
-            "\n- If success is false, briefly explain that the change could not be completed."
-            "\n- Do not replace a failure result with optimistic or process wording."
-            "\n- Do not use the phrase 'Calendar event' in user-facing replies."
-        )
-        volatile_context += (
-            "\n\n"
-            + calendar_draft_actions.render_calendar_action_result_context(
+    generation_context = (
+        await _cognitive_runtime.prepare_generation_context(
+            body=body,
+            user_id=user_id,
+            context=context,
+            chronology_context=chronology_context,
+            assistant_mode=assistant_mode,
+            assistant_name=assistant_name,
+            assistant_rename=assistant_rename,
+            current_mood=current_mood,
+            user_mood_ctx=user_mood_ctx,
+            latest_briefing_for_prompt=(
+                latest_briefing_for_prompt
+            ),
+            comeback_affect_decision=(
+                comeback_affect_decision
+            ),
+            messages=messages,
+            companion_settings_row=(
+                companion_settings_row
+            ),
+            detected_mode=detected_mode,
+            style_profile_id=style_profile_id,
+            calendar_action_result=(
                 calendar_action_result
-            )
+            ),
+            is_calendar_draft_action_turn=(
+                is_calendar_draft_action_turn
+            ),
+            legacy_memories=legacy_memories,
+            related_summaries=related_summaries,
+            memory_assembly=memory_assembly,
+            turn_ref=user_message_id,
+            logger=timing_log,
         )
-
-    if is_calendar_candidate_turn:
-        volatile_context += (
-            "\n\nCalendar scheduling contract for this user turn — highest priority:"
-            "\n- The current user message appears to contain schedule/event details."
-            "\n- If the user only mentions a plan, appointment, place, or time, ask for confirmation before adding anything."
-            "\n- Ask naturally: Ini kayaknya agenda. Mau aku masukin ke Calendar?"
-            "\n- You may summarize Acara, Tanggal, Waktu, and Lokasi if available."
-            "\n- Do not say the event has already been prepared, added, saved, created, inserted, or scheduled."
-            "\n- Do not tell the user to check the Calendar feature for confirmation."
-            "\n- Do not expose internal implementation names for hidden suggestions."
-            "\n- If the user explicitly asks to add/save/sync this event, you may say you will process it."
-            "\n- If the user explicitly mentions Google Calendar, you may say you will sync it to Google Calendar."
-        )
-    temporal_grounding_block = temporal_grounding.render_temporal_grounding_block(
-        user_message=body.message,
-        client_context=getattr(body, "client_context", None),
-    )
-    if temporal_grounding_block:
-        volatile_context += "\n\n" + temporal_grounding_block
-    identity = context.get("identity") or {}
-    profile = identity.get("profile") or {}
-    raw_ui_context = _context_to_dict(getattr(body, "ui_context", None))
-
-    raw_client_context = None
-    if getattr(body, "client_context", None) is not None:
-        raw = body.client_context
-        raw_client_context = (
-            raw.model_dump(exclude_none=True)
-            if hasattr(raw, "model_dump")
-            else raw.dict(exclude_none=True)
-            if hasattr(raw, "dict")
-            else raw
-        )
-    local_time_available = bool(
-        isinstance(raw_client_context, dict)
-        and str(raw_client_context.get("local_time") or "").strip()
-    )
-    volatile_context += (
-        "\n\n## Time-of-day grounding — strict rule\n"
-        "- Before using any time-of-day label such as pagi, siang, sore, malam, morning, afternoon, evening, or night, verify it against the browser-provided user local time in the app context.\n"
-        "- Never infer time-of-day from conversational cues, activity descriptions, meal references, calendar events, vibes, or assumptions.\n"
-        "- If browser-provided user local time is unavailable, ask the user for the current local time before using a time-of-day label. Do not guess.\n"
-        "- This rule applies to greetings, reactions, calendar/schedule comments, and any contextual comment about timing.\n"
-        "- If the user mentions a future or past event time, treat that as an event timestamp, not as the current time.\n"
-        f"- Browser-provided user local time available this turn: {'yes' if local_time_available else 'no'}."
     )
 
-    client_time_block = render_client_time_context(raw_client_context, profile)
-    if client_time_block:
-        volatile_context += "\n\n" + client_time_block
-    time_sensitive_calculation_block = chat_time_helpers.render_time_sensitive_calculation_block(
-        body.message,
-        raw_client_context,
-    )
-    if time_sensitive_calculation_block:
-        volatile_context += "\n\n" + time_sensitive_calculation_block
-        volatile_context += (
-            "\n\n## Time-sensitive reasoning rule — high priority\n"
-            "- The browser-provided client local time above is the source of truth for the user's current local time.\n"
-            "- Use it whenever the user mentions a time, schedule, meeting, deadline, appointment, today, tonight, morning, afternoon, evening, later, soon, or asks how long remains.\n"
-            "- Before saying something like 'masih beberapa jam', 'sebentar lagi', 'nanti', 'pagi ini', or 'sore nanti', calculate against the browser local time first.\n"
-            "- Do not estimate the current time from chat history, server time, model runtime, or memory.\n"
-            "- The user's remembered timezone, such as GMT+7 or Asia/Jakarta, is only a fallback if browser local time is missing.\n"
-            "- If browser local time exists and the user says they have a meeting at 13:00, compare 13:00 to the browser local time before responding.\n"
-            "- If the user asks 'berapa jam lagi', 'how long until', 'sisa berapa lama', 'berapa lama lagi', or similar, the starting point is ALWAYS browser local time now, not a previously mentioned event time.\n"
-            "- Treat previously mentioned times like 'aku sampai kantor jam 08.30 tadi' as event timestamps, not as current time, unless the user explicitly says 'sekarang jam 08.30'.\n"
-            "- Example: if browser local time is 09:07 and the target is jam 1 / 13:00, answer 3 jam 53 menit lagi, even if the user earlier mentioned arriving at 08:30.\n"
-            "- Match time-of-day wording to the browser local time and the temporal grounding period.\n"
-            "- For meal wording, use the computed current local meal wording from temporal grounding; do not reuse an earlier meal phrase if it conflicts with current local time.\n"
-            "- If current local time is already afternoon/evening/night, avoid saying 'siang ini' or 'makan siang' unless the user explicitly refers to lunch earlier.\n"
-            "- If you are unsure whether the meeting time is local time, assume it is the user's local time unless they specify another timezone.\n"
-            "- If the user corrects your timing, acknowledge briefly and recalculate using browser local time."
-        )
-    volatile_context += (
-        f"\n\n## Assistant identity\n"
-        f"- Your display name in this app is: {assistant_name}.\n"
-        f"- If the user asks your name or calls you by this name, respond naturally.\n"
-        f"- Do not introduce yourself repeatedly unless relevant."
-    )
-    if assistant_rename:
-        volatile_context += (
-            f"\n- The user just renamed you to {assistant_name}; acknowledge it briefly and then continue."
-        )
-    ui_context_block = _render_ui_context(raw_ui_context)
-    if ui_context_block:
-        volatile_context += "\n\n" + ui_context_block
-
-    briefing_context_block = _render_briefing_context_for_prompt(
-        latest_briefing_for_prompt
-    )
-    if briefing_context_block:
-        volatile_context += "\n\n" + briefing_context_block
-
-    # User mood (Layer A) — appended BEFORE companion mood so it sits
-    # higher in the context. User mood informs how the assistant should
-    # behave; companion mood is the assistant's own affect.
-    user_mood_block = render_user_mood_block(user_mood_ctx)
-    interaction_pref_block = await interaction_preferences.get_interaction_preferences_block(user_id=user_id)
-    if user_mood_block:
-        volatile_context += "\n\n" + user_mood_block
-
-    if interaction_pref_block:
-        volatile_context += "\n\n" + interaction_pref_block
-
-    # Deterministic profile context (Phase 4.15) — computes age from
-    # browser local date so the LLM doesn't have to. Reads identity
-    # already fetched via life_model.get_context.
-    profile_runtime_block = render_profile_runtime_context(
-        context.get("identity") if isinstance(context, dict) else None,
-        raw_ui_context,
-    )
-    if profile_runtime_block:
-        volatile_context += "\n\n" + profile_runtime_block
-
-    # Companion mood block — ONLY injected if user has dynamic mood enabled.
-    # Default users (professional/friendly/affectionate or stable realism) get
-    # exactly zero mood-related prompt content. Repair gate inside the block
-    # is further gated by repair_gate_enabled.
-    if companion.is_mood_active(companion_settings_row):
-        mood_block = _build_mood_block(
-            companion_settings_row,
-            current_mood,
-            body.message,
-            raw_ui_context,
-        )
-        if mood_block:
-            volatile_context += "\n\n" + mood_block
-
-    comeback_affect_block = companion_comeback_affect.render_prompt_block(
-        comeback_affect_decision
-    )
-    if comeback_affect_block:
-        volatile_context += "\n\n" + comeback_affect_block
-
-    response_texture_block = response_texture.render_response_texture_block(
-        user_message=body.message,
-        messages=messages,
-        companion_settings_row=companion_settings_row,
-        current_mood=current_mood,
-        user_mood_context=user_mood_ctx,
-    )
-    if response_texture_block:
-        volatile_context += "\n\n" + response_texture_block
-
-    packed_memory_context = _cognitive_runtime.pack_chat_memory_context(
-        legacy_memories=legacy_memories,
-        related_summaries=related_summaries,
-        query_text=body.message,
-        user_id=user_id,
-        logger=timing_log,
-    )
-    if packed_memory_context.text:
-        volatile_context += "\n\n" + packed_memory_context.text
-
-    _cognitive_runtime.record_chat_observation_fail_open(
-        turn_ref=user_message_id,
-        conversation_ref=body.conversation_id,
-        user_ref=user_id,
-        assistant_mode=assistant_mode,
-        companion_settings_row=companion_settings_row,
-        comeback_affect_decision=comeback_affect_decision,
-        packed_memory_context=packed_memory_context,
-        memory_retrieval_diagnostics=(
-            memory_assembly.memory_retrieval_diagnostics
-        ),
-        legacy_memories=legacy_memories,
+    volatile_context = (
+        generation_context
+        .volatile_context
     )
 
-    if assistant_mode == "chief_of_staff":
-        volatile_context += (
-            "\n\n## Current-turn Chief of Staff surface-style override"
-            "\n- This is the highest-priority style directive for this turn."
-            "\n- Address the user by their real name when natural."
-            "\n- Do not use affectionate nicknames such as 'beb', 'sayang', 'dear', 'love', or similar."
-            "\n- Do not use romantic, playful, partner-like, or overly cute wording."
-            "\n- Do not use emoji-like symbols."
-            "\n- Keep warmth subtle and professional."
-            "\n- Prefer concise, structured, action-oriented replies."
-        )
+    packed_memory_context = (
+        generation_context
+        .packed_memory_context
+    )
 
-    # Inject companion mode directive. Placed near the end so it has high
-    # recency weight in Claude's attention. None on short / ambiguous messages.
-    mode_directive = companion_mode.directive_for(detected_mode)
-    if mode_directive:
-        volatile_context += "\n\n" + mode_directive
+    pending_calendar_confirmation_context = (
+        generation_context
+        .pending_calendar_confirmation_context
+    )
 
-    # Inject style profile directive if this conversation has one. The
-    # safety preamble is non-negotiable — Claude is adopting STYLE, never
-    # impersonating the source person.
-    style_profile_id = convo_result.data.get("style_profile_id")
-    if style_profile_id:
-        style_block = await asyncio.to_thread(
-            lambda: chat_style_directive.fetch_style_directive(user_id, style_profile_id)
-        )
-        if style_block:
-            volatile_context += "\n\n" + style_block
+    is_calendar_candidate_turn = (
+        generation_context
+        .is_calendar_candidate_turn
+    )
 
-    # Audit log — explicit which style mode is active and whether companion
-    # mood is active for this turn. Visible in Fly logs.
     style_audit = (
-        f"style_profile:{style_profile_id[:8]}" if style_profile_id else "default"
-    )
-    companion_audit = (
-        f"companion={companion_settings_row.get('companion_mode')}"
-        f"/realism={companion_settings_row.get('mood_realism')}"
-        f"/repair={companion_settings_row.get('repair_gate_enabled')}"
+        generation_context
+        .style_audit
     )
 
-    # Final Assistant Mode surface-style override.
-    # This is intentionally placed after all memory/style/relationship/texture blocks
-    # so Chief of Staff mode wins over nickname memory and partner/affectionate tone.
-    if assistant_mode == "chief_of_staff":
-        volatile_context += (
-            "\n\n## FINAL RESPONSE STYLE OVERRIDE — CHIEF OF STAFF MODE"
-            "\nThis is the final and highest-priority surface-style instruction for this reply."
-            "\n- Address the user by their real name when natural."
-            "\n- Never use affectionate nicknames, including: beb, sayang, dear, love."
-            "\n- Ignore nickname-memory and partner-style preferences for surface wording in this mode."
-            "\n- Do not use romantic, playful, cute, or partner-like wording."
-            "\n- Do not use emoji or emoji-like symbols."
-            "\n- Keep the tone professional, concise, structured, and action-oriented."
-            "\n- For greetings, use a professional greeting such as: 'Hi Syahid.' or 'Baik, Syahid.'"
-        )
+    companion_audit = (
+        generation_context
+        .companion_audit
+    )
+
+    system_blocks = (
+        generation_context
+        .system_blocks
+    )
 
     timing_log.info(
         "chat: user=%s %s",
@@ -1317,7 +578,7 @@ async def chat(
             user_id=user_id,
             conversation_id=body.conversation_id,
             messages=messages,
-            volatile_context=volatile_context,
+            system_blocks=system_blocks,
             user_message=body.message,
             client_context=body.client_context,
             background_tasks=background_tasks,
@@ -1400,7 +661,7 @@ async def _stream_claude_response(
     user_id: str,
     conversation_id: str,
     messages: list[dict],
-    volatile_context: str,
+    system_blocks: list[dict],
     user_message: str,
     client_context: dict | None = None,
     background_tasks: BackgroundTasks,
@@ -1418,19 +679,6 @@ async def _stream_claude_response(
     assistant_text = ""
     stream_started_at = time.perf_counter()
     first_token_logged = False
-
-    # System prompt as two blocks:
-    #   - BASE_PROMPT: stable, cached for 5 min (ephemeral cache)
-    #   - volatile_context: per-user, per-turn, not cached
-    system_blocks: list[dict] = [
-        {
-            "type": "text",
-            "text": get_base_prompt(assistant_mode),
-            "cache_control": {"type": "ephemeral"},
-        }
-    ]
-    if volatile_context:
-        system_blocks.append({"type": "text", "text": volatile_context})
 
     mood = _mode_to_mood(detected_mode)
     meta_event = {

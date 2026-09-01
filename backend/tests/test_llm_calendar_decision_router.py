@@ -1,9 +1,16 @@
+import ast
 from app.services import calendar_decision_router
 from app.services.calendar_decision_router import CalendarDecision
 from pathlib import Path
 
 
 CHAT = Path("app/routers/chat.py").read_text(encoding="utf-8")
+CALENDAR_ORCHESTRATION = Path(
+    "app/services/cognitive_calendar_orchestration.py"
+).read_text(encoding="utf-8")
+TURN_CONTEXT = Path(
+    "app/services/cognitive_turn_context.py"
+).read_text(encoding="utf-8")
 ROUTER = Path("app/services/calendar_decision_router.py").read_text(encoding="utf-8")
 ACTIONS = Path("app/services/calendar_confirmation_actions.py").read_text(encoding="utf-8")
 
@@ -46,8 +53,111 @@ def test_calendar_confirmation_actions_execute_router_decisions():
     assert "llm_calendar_confirmation_dismissed" in ACTIONS
 
 
+
+
 def test_chat_wires_llm_calendar_confirmation_router():
-    assert "calendar_confirmation_actions," in CHAT
-    assert "render_pending_calendar_confirmation_context" in CHAT
-    assert "apply_calendar_confirmation_decision" in CHAT
-    assert "Mau aku masukin ke Calendar?" in CHAT
+    chat_tree = ast.parse(CHAT)
+
+    orchestration_tree = ast.parse(
+        CALENDAR_ORCHESTRATION
+    )
+
+    context_tree = ast.parse(
+        TURN_CONTEXT
+    )
+
+    chat_fn = next(
+        node
+        for node in chat_tree.body
+        if isinstance(
+            node,
+            ast.AsyncFunctionDef,
+        )
+        and node.name == "chat"
+    )
+
+    def owner_calls(
+        tree_or_node,
+        owner,
+    ):
+        result = []
+
+        for node in ast.walk(
+            tree_or_node
+        ):
+            if not isinstance(
+                node,
+                ast.Call,
+            ):
+                continue
+
+            func = node.func
+
+            if (
+                isinstance(
+                    func,
+                    ast.Attribute,
+                )
+                and isinstance(
+                    func.value,
+                    ast.Name,
+                )
+                and func.value.id
+                == owner
+            ):
+                result.append(
+                    func.attr
+                )
+
+        return result
+
+    runtime_calls = owner_calls(
+        chat_fn,
+        "_cognitive_runtime",
+    )
+
+    assert (
+        "execute_calendar_turn"
+        in runtime_calls
+    )
+
+    confirmation_calls = owner_calls(
+        orchestration_tree,
+        "calendar_confirmation_actions",
+    )
+
+    assert (
+        "apply_calendar_confirmation_decision"
+        in confirmation_calls
+    )
+
+    context_confirmation_calls = owner_calls(
+        context_tree,
+        "calendar_confirmation_actions",
+    )
+
+    assert (
+        "render_pending_calendar_confirmation_context"
+        in context_confirmation_calls
+    )
+
+    assert (
+        "Mau aku masukin ke Calendar?"
+        in TURN_CONTEXT
+    )
+
+    assert (
+        "apply_calendar_confirmation_decision"
+        not in owner_calls(
+            chat_fn,
+            "calendar_confirmation_actions",
+        )
+    )
+
+    assert (
+        "render_pending_calendar_confirmation_context"
+        not in owner_calls(
+            chat_fn,
+            "calendar_confirmation_actions",
+        )
+    )

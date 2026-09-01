@@ -1,3 +1,4 @@
+import ast
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -203,55 +204,154 @@ def test_default_runtime_sink_remains_null() -> None:
     )
 
 
+
 def test_chat_wiring_is_observational() -> None:
-    source = Path(
+    chat_source = Path(
         "app/routers/chat.py"
     ).read_text()
 
-    # M31D owns the orchestration boundary while the authoritative
-    # M31B implementation remains cognitive_trace behind the facade.
+    runtime_source = Path(
+        "app/services/cognitive_runtime.py"
+    ).read_text()
+
+    chat_tree = ast.parse(
+        chat_source
+    )
+
+    runtime_tree = ast.parse(
+        runtime_source
+    )
+
+    chat_fn = next(
+        node
+        for node in chat_tree.body
+        if isinstance(
+            node,
+            ast.AsyncFunctionDef,
+        )
+        and node.name == "chat"
+    )
+
+    runtime_class = next(
+        node
+        for node in runtime_tree.body
+        if isinstance(
+            node,
+            ast.ClassDef,
+        )
+        and node.name == "CognitiveRuntime"
+    )
+
+    prepare_method = next(
+        node
+        for node in runtime_class.body
+        if isinstance(
+            node,
+            ast.AsyncFunctionDef,
+        )
+        and node.name
+        == "prepare_generation_context"
+    )
+
+    def owner_calls(
+        node,
+        owner,
+        attr,
+    ):
+        return [
+            child
+            for child in ast.walk(
+                node
+            )
+            if isinstance(
+                child,
+                ast.Call,
+            )
+            and isinstance(
+                child.func,
+                ast.Attribute,
+            )
+            and child.func.attr == attr
+            and isinstance(
+                child.func.value,
+                ast.Name,
+            )
+            and child.func.value.id == owner
+        ]
+
+    # chat.py delegates the major model-context boundary.
     assert (
-        "_cognitive_runtime.record_chat_observation_fail_open("
-        in source
+        len(
+            owner_calls(
+                chat_fn,
+                "_cognitive_runtime",
+                "prepare_generation_context",
+            )
+        )
+        == 1
     )
 
+    # Trace finalization is no longer a direct router responsibility.
     assert (
-        "cognitive_trace.record_chat_observation_fail_open("
-        not in source
+        owner_calls(
+            chat_fn,
+            "_cognitive_runtime",
+            "record_chat_observation_fail_open",
+        )
+        == []
     )
 
-    hook_start = source.index(
-        "_cognitive_runtime.record_chat_observation_fail_open("
+    trace_calls = owner_calls(
+        prepare_method,
+        "self",
+        "record_chat_observation_fail_open",
     )
 
-    hook_end = source.index(
-        "\n    )",
-        hook_start,
-    )
+    assert len(trace_calls) == 1
 
-    hook = source[
-        hook_start:hook_end
+    trace_call = trace_calls[0]
+
+    keyword_names = {
+        keyword.arg
+        for keyword in trace_call.keywords
+        if keyword.arg is not None
+    }
+
+    # M31B observation contract remains metadata-only.
+    assert "packed_memory_context" in keyword_names
+    assert "comeback_affect_decision" in keyword_names
+
+    assert "user_message" not in keyword_names
+    assert "sink" not in keyword_names
+    assert "logger" not in keyword_names
+
+    raw_message_refs = [
+        node
+        for node in ast.walk(
+            trace_call
+        )
+        if isinstance(
+            node,
+            ast.Attribute,
+        )
+        and node.attr == "message"
+        and isinstance(
+            node.value,
+            ast.Name,
+        )
+        and node.value.id == "body"
     ]
 
-    # Raw user content still must not enter the observation bridge.
-    assert "body.message" not in hook
-    assert "user_message=" not in hook
+    assert raw_message_refs == []
 
-    assert (
-        "packed_memory_context=packed_memory_context"
-        in hook
+    # Authoritative implementation still remains behind the facade.
+    direct_trace_calls = owner_calls(
+        chat_fn,
+        "cognitive_trace",
+        "record_chat_observation_fail_open",
     )
 
-    assert (
-        "comeback_affect_decision="
-        "comeback_affect_decision"
-        in hook
-    )
-
-    # Sink/logger ownership moved to CognitiveRuntime.
-    assert "sink=" not in hook
-    assert "logger=" not in hook
-
+    assert direct_trace_calls == []
 
 def test_explicit_logging_enable_selects_logging_sink() -> None:
     cognitive_trace.reset_trace_sink()
