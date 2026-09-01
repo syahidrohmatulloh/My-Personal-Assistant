@@ -832,3 +832,155 @@ def test_runtime_life_context_keeps_authoritative_service() -> None:
     assert "get_user_context" not in source
     assert ".rpc(" not in source
     assert ".table(" not in source
+
+
+def test_runtime_owns_conversation_chronology_context_boundary(
+    monkeypatch,
+) -> None:
+    import asyncio
+
+    from app.services import conversation_chronology
+
+    calls = []
+
+    async def fake_build_context_if_relevant(
+        *,
+        user_id,
+        query_text,
+    ):
+        calls.append(
+            {
+                "user_id": user_id,
+                "query_text": query_text,
+            }
+        )
+
+        return "CHRONOLOGY SENTINEL"
+
+    monkeypatch.setattr(
+        conversation_chronology,
+        "build_context_if_relevant",
+        fake_build_context_if_relevant,
+    )
+
+    runtime = (
+        cognitive_runtime.create_cognitive_runtime()
+    )
+
+    result = asyncio.run(
+        runtime.retrieve_conversation_chronology_context(
+            user_id="user-123",
+            query_text="when did we first chat?",
+        )
+    )
+
+    assert result == "CHRONOLOGY SENTINEL"
+
+    assert calls == [
+        {
+            "user_id": "user-123",
+            "query_text": "when did we first chat?",
+        }
+    ]
+
+
+def test_chat_delegates_conversation_chronology_to_runtime() -> None:
+    source = Path(
+        "app/routers/chat.py"
+    ).read_text()
+
+    assert (
+        source.count(
+            "_cognitive_runtime."
+            "retrieve_conversation_chronology_context("
+        )
+        == 1
+    )
+
+    assert (
+        "conversation_chronology."
+        "build_context_if_relevant("
+        not in source
+    )
+
+    service_import_start = source.index(
+        "from app.services import ("
+    )
+
+    service_import_end = source.index(
+        "from app.services.user_mood_prompt",
+        service_import_start,
+    )
+
+    imports = source[
+        service_import_start:
+        service_import_end
+    ]
+
+    assert (
+        "    conversation_chronology,"
+        not in imports
+    )
+
+
+def test_runtime_chronology_keeps_authoritative_service() -> None:
+    import ast
+
+    source = Path(
+        "app/services/cognitive_runtime.py"
+    ).read_text()
+
+    tree = ast.parse(source)
+
+    runtime_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "CognitiveRuntime"
+    )
+
+    method = next(
+        node
+        for node in runtime_class.body
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name
+        == "retrieve_conversation_chronology_context"
+    )
+
+    delegate_calls = []
+
+    forbidden_calls = []
+
+    for node in ast.walk(method):
+        if not isinstance(node, ast.Call):
+            continue
+
+        func = node.func
+
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr
+            == "build_context_if_relevant"
+            and isinstance(func.value, ast.Name)
+            and func.value.id
+            == "conversation_chronology"
+        ):
+            delegate_calls.append(node)
+
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr
+            in {
+                "get_conversation_chronology",
+                "render_chronology_context",
+                "table",
+                "rpc",
+            }
+        ):
+            forbidden_calls.append(
+                func.attr
+            )
+
+    assert len(delegate_calls) == 1
+
+    assert forbidden_calls == []

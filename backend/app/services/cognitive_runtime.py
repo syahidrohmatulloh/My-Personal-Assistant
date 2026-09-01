@@ -10,6 +10,7 @@ Current ownership:
 - delegate cognitive trace finalization/emission to the existing M31B service;
 - own trace-sink configuration for one runtime instance;
 - delegate life-model context retrieval to the existing life-model service;
+- delegate conversation-chronology context retrieval to the existing chronology service;
 - delegate memory retrieval/summary fan-in to the existing chat-memory assembly service;
 - delegate memory-context packing to the existing chat-memory assembly service.
 
@@ -30,6 +31,7 @@ from typing import Any
 
 from app.services import chat_memory_assembly
 from app.services import cognitive_trace
+from app.services import conversation_chronology
 from app.services import life_model
 from app.services import working_memory
 
@@ -58,6 +60,23 @@ class CognitiveRuntime:
 
         return working_memory.build_working_memory_state(
             **kwargs
+        )
+
+    async def retrieve_conversation_chronology_context(
+        self,
+        *,
+        user_id: str,
+        query_text: str | None,
+    ) -> str | None:
+        """Own the M31E conversation-chronology context boundary.
+
+        Detection, database lookup, and rendering remain authoritative in
+        conversation_chronology. This facade only delegates orchestration.
+        """
+
+        return await conversation_chronology.build_context_if_relevant(
+            user_id=user_id,
+            query_text=query_text,
         )
 
     async def retrieve_life_context(

@@ -46,7 +46,6 @@ from app.services import (
     chat_time_helpers,
     chat_style_directive,
     chat_calendar_helpers,
-    conversation_chronology,
     conversation_summary,
     capability_registry,
     attachments,
@@ -637,9 +636,11 @@ async def chat(
             background=background_tasks,
         )
 
-    chronology_context = await conversation_chronology.build_context_if_relevant(
-        user_id=user_id,
-        query_text=body.message,
+    chronology_context = (
+        await _cognitive_runtime.retrieve_conversation_chronology_context(
+            user_id=user_id,
+            query_text=body.message,
+        )
     )
 
     history_started_at = time.perf_counter()
