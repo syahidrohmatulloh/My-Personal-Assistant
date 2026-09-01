@@ -13,6 +13,7 @@ from app.services.memory_context_packer import pack_memory_context_for_prompt
 class ChatMemoryAssembly:
     legacy_memories: list[dict[str, Any]]
     related_summaries: list[dict[str, Any]]
+    memory_retrieval_diagnostics: Any = None
 
 
 async def retrieve_chat_memory_assembly(
@@ -33,9 +34,16 @@ async def retrieve_chat_memory_assembly(
         ),
     )
 
+    memory_retrieval_diagnostics = getattr(
+        legacy_memories,
+        "diagnostics",
+        None,
+    )
+
     return ChatMemoryAssembly(
         legacy_memories=list(legacy_memories or []),
         related_summaries=list(related_summaries or []),
+        memory_retrieval_diagnostics=memory_retrieval_diagnostics,
     )
 
 

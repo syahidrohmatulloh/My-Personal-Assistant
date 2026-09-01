@@ -13,17 +13,30 @@ def test_retrieve_chat_memory_assembly_uses_memory_and_summary_fan_in(monkeypatc
             "query_text": query_text,
             "limit": limit,
         }
-        return [{"id": "mem-1", "content": "Memory", "similarity": 0.9}]
+        return [
+            {
+                "id": "mem-1",
+                "content": "Memory",
+                "similarity": 0.9,
+            }
+        ]
 
     async def fake_retrieve_related_summaries(**kwargs):
         calls["summary"] = kwargs
-        return [{"id": "sum-1", "summary": "Summary", "similarity": 0.8}]
+        return [
+            {
+                "id": "sum-1",
+                "summary": "Summary",
+                "similarity": 0.8,
+            }
+        ]
 
     monkeypatch.setattr(
         chat_memory_assembly.memory,
         "retrieve_relevant",
         fake_retrieve_relevant,
     )
+
     monkeypatch.setattr(
         chat_memory_assembly.conversation_summary,
         "retrieve_related_summaries",
@@ -40,11 +53,16 @@ def test_retrieve_chat_memory_assembly_uses_memory_and_summary_fan_in(monkeypatc
 
     assert result.legacy_memories[0]["id"] == "mem-1"
     assert result.related_summaries[0]["id"] == "sum-1"
+
+    # Ordinary list-returning mocks remain fully compatible.
+    assert result.memory_retrieval_diagnostics is None
+
     assert calls["memory"] == {
         "user_id": "user-123456",
         "query_text": "siapa nama anakku?",
         "limit": 12,
     }
+
     assert calls["summary"] == {
         "user_id": "user-123456",
         "query_text": "siapa nama anakku?",

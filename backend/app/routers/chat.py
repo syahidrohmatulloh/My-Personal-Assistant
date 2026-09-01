@@ -53,6 +53,7 @@ from app.services import (
     attachments,
     companion,
     companion_comeback_affect,
+    cognitive_trace,
     companion_mode,
     life_model,
     memory,
@@ -1145,6 +1146,24 @@ async def chat(
     if packed_memory_context.text:
         volatile_context += "\n\n" + packed_memory_context.text
 
+    cognitive_trace.record_chat_observation_fail_open(
+        sink=cognitive_trace.get_trace_sink(
+            logging_enabled=settings.COGNITIVE_TRACE_LOG,
+            preview_policy=settings.COGNITIVE_TRACE_PREVIEW_POLICY,
+        ),
+        turn_ref=user_message_id,
+        conversation_ref=body.conversation_id,
+        user_ref=user_id,
+        assistant_mode=assistant_mode,
+        companion_settings_row=companion_settings_row,
+        comeback_affect_decision=comeback_affect_decision,
+        packed_memory_context=packed_memory_context,
+        memory_retrieval_diagnostics=(
+            memory_assembly.memory_retrieval_diagnostics
+        ),
+        legacy_memories=legacy_memories,
+        logger=log,
+    )
 
     if assistant_mode == "chief_of_staff":
         volatile_context += (

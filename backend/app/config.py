@@ -4,6 +4,8 @@ We use pydantic-settings so every env var is validated at startup. If something
 is missing, the app refuses to start instead of crashing on the first request.
 """
 
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -50,6 +52,15 @@ class Settings(BaseSettings):
     CHAT_LLM_PROVIDER: str = "claude"
     UTILITY_LLM_PROVIDER: str = "claude"
     UTILITY_LLM_MODEL: str = "claude-haiku-4-5"
+
+    # M31B cognitive trace diagnostics.
+    # Production defaults are intentionally silent and content-free.
+    COGNITIVE_TRACE_LOG: bool = False
+    COGNITIVE_TRACE_PREVIEW_POLICY: Literal[
+        "none",
+        "redacted",
+        "dev",
+    ] = "none"
 
     # Ollama / self-hosted local model settings for future utility pilots.
     OLLAMA_BASE_URL: str = "http://localhost:11434"

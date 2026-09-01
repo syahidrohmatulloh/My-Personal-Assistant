@@ -23,6 +23,7 @@ Design notes:
 import json
 import logging
 import time
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -557,12 +558,44 @@ def rank_memory_rows(rows: list[dict], *, min_similarity: float = MIN_SIMILARITY
         ranked.append(row)
 
     return ranked
+@dataclass(frozen=True)
+class MemoryRetrievalDiagnostics:
+    attempted: bool
+    gate_reason: str | None = None
+    strategy: str | None = None
+    fetched_count: int = 0
+    returned_count: int = 0
+    latency_ms: float | None = None
+    subsystem_status: str = "healthy"
+    normalized_applied: bool | None = None
+    normalize_reason: str | None = None
+    min_similarity: float | None = None
+
+
+class MemoryRetrievalRows(list):
+    """Backward-compatible list carrying read-only M31B metadata."""
+
+    def __init__(
+        self,
+        rows=(),
+        *,
+        diagnostics: MemoryRetrievalDiagnostics,
+    ):
+        super().__init__(
+            rows
+        )
+        self.diagnostics = diagnostics
+
+
 async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> list[dict]:
     """Find and rank memories relevant to the current user message.
 
     Ranking combines semantic similarity, confidence, structured-field/category
     priority, source priority, recency, and optional salience. Superseded rows are
     excluded both by SQL RPC when available and again in Python for safety.
+
+    M31B attaches read-only diagnostics to the returned list-compatible object.
+    Retrieval behavior, ranking, thresholds, and logging remain authoritative here.
     """
 
     from app.services.memory_query_normalizer import normalize_memory_query
@@ -571,7 +604,18 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
 
     gate_decision = should_retrieve_memory(query_text)
     if not gate_decision.should_retrieve:
-        return []
+        return MemoryRetrievalRows(
+            [],
+            diagnostics=MemoryRetrievalDiagnostics(
+                attempted=False,
+                gate_reason=gate_decision.reason,
+                strategy=None,
+                fetched_count=0,
+                returned_count=0,
+                latency_ms=None,
+                subsystem_status="not_applicable",
+            ),
+        )
 
     started = time.perf_counter()
 
@@ -587,12 +631,31 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
     try:
         query_embedding = await embed_query(retrieval_query)
     except Exception as exc:  # noqa: BLE001
+        elapsed_ms = (time.perf_counter() - started) * 1000
+
         log.warning("memory retrieval: embed failed: %s", exc)
-        return []
+
+        return MemoryRetrievalRows(
+            [],
+            diagnostics=MemoryRetrievalDiagnostics(
+                attempted=True,
+                gate_reason=gate_decision.reason,
+                strategy="semantic",
+                fetched_count=0,
+                returned_count=0,
+                latency_ms=elapsed_ms,
+                subsystem_status="degraded",
+                normalized_applied=normalized_query.applied,
+                normalize_reason=normalized_query.reason,
+                min_similarity=min_similarity,
+            ),
+        )
 
     supabase = get_supabase()
+
     # Ask for more candidates than final limit so reranking has room to work.
     match_count = min(max(limit * 4, limit), 32)
+
     try:
         result = supabase.rpc(
             "match_memories",
@@ -602,16 +665,35 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
                 "p_match_count": match_count,
             },
         ).execute()
+
     except Exception as exc:  # noqa: BLE001
+        elapsed_ms = (time.perf_counter() - started) * 1000
+
         logging.getLogger("uvicorn.error").warning(
-            "memory retrieval rpc failed: user=%s gate=%s requested_limit=%d match_count=%d error_type=%s",
+            "memory retrieval rpc failed: user=%s gate=%s "
+            "requested_limit=%d match_count=%d error_type=%s",
             str(user_id)[:8],
             gate_decision.reason,
             limit,
             match_count,
             type(exc).__name__,
         )
-        return []
+
+        return MemoryRetrievalRows(
+            [],
+            diagnostics=MemoryRetrievalDiagnostics(
+                attempted=True,
+                gate_reason=gate_decision.reason,
+                strategy="semantic",
+                fetched_count=0,
+                returned_count=0,
+                latency_ms=elapsed_ms,
+                subsystem_status="degraded",
+                normalized_applied=normalized_query.applied,
+                normalize_reason=normalized_query.reason,
+                min_similarity=min_similarity,
+            ),
+        )
 
     rows = result.data or []
     ranked = rank_memory_rows(rows, min_similarity=min_similarity)
@@ -619,8 +701,9 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
     elapsed_ms = (time.perf_counter() - started) * 1000
 
     logging.getLogger("uvicorn.error").info(
-        "memory retrieval trace: user=%s gate=%s normalized=%s normalize_reason=%s "
-        "min_similarity=%.2f requested_limit=%d match_count=%d fetched=%d returned=%d elapsed_ms=%.1f",
+        "memory retrieval trace: user=%s gate=%s normalized=%s "
+        "normalize_reason=%s min_similarity=%.2f requested_limit=%d "
+        "match_count=%d fetched=%d returned=%d elapsed_ms=%.1f",
         str(user_id)[:8],
         gate_decision.reason,
         normalized_query.applied,
@@ -632,6 +715,7 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
         len(returned),
         elapsed_ms,
     )
+
     logging.getLogger("uvicorn.error").info(
         "memory lifecycle trace: user=%s %s returned=%d",
         str(user_id)[:8],
@@ -639,7 +723,21 @@ async def retrieve_relevant(user_id: str, query_text: str, limit: int = 8) -> li
         len(returned),
     )
 
-    return returned
+    return MemoryRetrievalRows(
+        returned,
+        diagnostics=MemoryRetrievalDiagnostics(
+            attempted=True,
+            gate_reason=gate_decision.reason,
+            strategy="semantic",
+            fetched_count=len(rows),
+            returned_count=len(returned),
+            latency_ms=elapsed_ms,
+            subsystem_status="healthy",
+            normalized_applied=normalized_query.applied,
+            normalize_reason=normalized_query.reason,
+            min_similarity=min_similarity,
+        ),
+    )
 
 
 def format_for_prompt(memories: list[dict]) -> str:
