@@ -116,7 +116,15 @@ def test_chat_uses_broader_calendar_attempt_trigger():
     )
 
     assert (
+        "temporal_calendar_policy"
+        in HELPERS
+    )
+    assert (
+        ".assess_calendar_semantics("
+        in HELPERS
+    )
+    assert (
         "calendar_candidate_extractor."
         "should_attempt_calendar_candidate_extraction(raw)"
-        in HELPERS
+        not in HELPERS
     )

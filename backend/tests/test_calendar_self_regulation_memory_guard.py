@@ -4,6 +4,7 @@ import pytest
 
 from app.services import background_extraction_gate
 from app.services import calendar_candidate_extractor
+from app.services import temporal_calendar_policy
 
 
 CHAT_SOURCE = Path("app/routers/chat.py").read_text(encoding="utf-8")
@@ -32,7 +33,19 @@ def test_self_regulation_preference_routes_to_memory_not_calendar_background() -
 
 
 def test_chat_hard_gate_has_self_regulation_guard() -> None:
-    assert "looks_like_self_regulation_memory_preference(user_message)" in CALENDAR_HELPERS_SOURCE
+    assessment = (
+        temporal_calendar_policy
+        .assess_calendar_semantics(
+            "kalau aku overthinking "
+            "tolong ingetin aku istirahat"
+        )
+    )
+
+    assert assessment.route == "normal_chat"
+    assert (
+        "calendar.self_regulation_not_schedule"
+        in assessment.reason_codes
+    )
 
 
 @pytest.mark.parametrize(

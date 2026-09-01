@@ -17,6 +17,7 @@ from app.services import (
     calendar_confirmation_actions,
     calendar_draft_actions,
     chat_calendar_helpers,
+    temporal_calendar_policy,
 )
 
 
@@ -46,6 +47,13 @@ async def execute_calendar_turn(
     is_calendar_draft_action_turn = (
         calendar_draft_actions
         .is_calendar_draft_action_request(
+            user_message
+        )
+    )
+
+    calendar_semantic_assessment = (
+        temporal_calendar_policy
+        .assess_calendar_semantics(
             user_message
         )
     )
@@ -177,6 +185,16 @@ async def execute_calendar_turn(
     ) = None
 
     if not is_calendar_draft_action_turn:
+        calendar_confirmation_relevant = (
+            temporal_calendar_policy
+            .should_check_pending_confirmation(
+                user_message
+            )
+        )
+    else:
+        calendar_confirmation_relevant = False
+
+    if calendar_confirmation_relevant:
         calendar_confirmation_result = (
             await calendar_confirmation_actions
             .apply_calendar_confirmation_decision(
@@ -239,9 +257,9 @@ async def execute_calendar_turn(
         .is_google_calendar_create_request(
             user_message
         )
-        and not calendar_candidate_extractor
-        .is_public_situational_update(
-            user_message
+        and temporal_calendar_policy
+        .requires_calendar_handling(
+            calendar_semantic_assessment
         )
         and chat_calendar_helpers
         .should_hard_gate_calendar_candidate(
@@ -283,6 +301,10 @@ async def execute_calendar_turn(
                 .render_calendar_hard_gate_clarification(
                     address_term=(
                         calendar_address_term
+                    ),
+                    user_message=user_message,
+                    semantic_assessment=(
+                        calendar_semantic_assessment
                     ),
                 )
             )

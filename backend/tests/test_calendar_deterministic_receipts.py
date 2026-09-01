@@ -2,6 +2,7 @@ import ast
 from pathlib import Path
 
 from app.services import calendar_draft_actions
+from app.services import chat_calendar_helpers
 
 
 CHAT = Path("app/routers/chat.py").read_text(encoding="utf-8")
@@ -390,7 +391,9 @@ def test_candidate_preview_is_deterministic_multiline_and_dynamic_address():
     )
 
     assert preview is not None
-    assert preview.startswith("Joni, ini kayaknya agenda.")
+    assert preview.startswith(
+        "Joni, mau aku masukin ke Calendar?"
+    )
     assert "\n\nAcara: Fisioterapi" in preview
     assert "Tanggal: 22 Juni 2026" in preview
     assert "Waktu: 12.00–13.00" in preview
@@ -633,13 +636,33 @@ def test_static_stream_marks_calendar_receipt_source():
 
 
 def test_calendar_hard_gate_catches_natural_schedule_messages():
-    assert "nonton" in HELPERS
-    assert "bioskop" in HELPERS
-    assert "fisioterapi" in HELPERS
-    assert "has_activity and (has_date or has_time)" in HELPERS
+    for message in (
+        "besok jam 7 nonton bioskop",
+        "fisioterapi besok jam 10",
+    ):
+        assert (
+            chat_calendar_helpers
+            .should_hard_gate_calendar_candidate(
+                message
+            )
+            is True
+        )
 
 
 def test_calendar_hard_gate_clarification_has_no_markdown_or_hardcoded_beb():
-    assert "Bisa sebutkan acara, tanggal, waktu, dan lokasi?" in HELPERS
+    text = (
+        chat_calendar_helpers
+        .render_calendar_hard_gate_clarification(
+            user_message=(
+                "meeting sama tim besok"
+            )
+        )
+    )
+
+    assert (
+        "aku belum mau menganggap ini jadwal dulu"
+        in text
+    )
+    assert "**Acara:**" not in text
+    assert "beb" not in text.casefold()
     assert "**Acara:**" not in CHAT
-    assert "Beb, ini kayaknya" not in CHAT

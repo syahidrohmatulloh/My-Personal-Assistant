@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from app.routers.calendar_oauth import get_active_google_calendar_access_token
 from app.services import calendar_decision_router
+from app.services import temporal_calendar_policy
 from app.services.supabase_client import safe_execute
 from app.services.google_calendar_payload import build_google_event_body
 from app.services.memory_user_facing_safety import human_calendar_structured_value
@@ -189,40 +190,88 @@ async def render_pending_calendar_confirmation_context(
     *,
     user_id: str,
     conversation_id: str | None = None,
+    user_message: str | None = None,
 ) -> str | None:
+    if (
+        user_message is not None
+        and not temporal_calendar_policy
+        .should_surface_pending_context(
+            user_message
+        )
+    ):
+        return None
+
     suggestions = await load_pending_calendar_suggestions(
         user_id=user_id,
         conversation_id=conversation_id,
         limit=1,
     )
-    if not suggestions and conversation_id:
-        suggestions = await load_pending_calendar_suggestions(user_id=user_id, limit=1)
+
+    allow_cross_conversation = (
+        user_message is None
+        or temporal_calendar_policy
+        .allows_cross_conversation_pending_reference(
+            user_message
+        )
+    )
+
+    if (
+        not suggestions
+        and allow_cross_conversation
+    ):
+        suggestions = (
+            await load_pending_calendar_suggestions(
+                user_id=user_id,
+                limit=1,
+            )
+        )
 
     if not suggestions:
         return None
 
     row = suggestions[0]
-    title = _event_title_from_row(row)
-    date = _event_date_from_row(row) or "unknown date"
-    start_at = row.get("calendar_event_start_at")
-    end_at = row.get("calendar_event_end_at")
-    time_text = _format_time_range(start_at, end_at)
-    is_reminder = "reminder" in str(row.get("content") or "").lower()
-    item_label = "reminder" if is_reminder else "calendar item"
+    title = _event_title_from_row(
+        row
+    )
+    date = (
+        _event_date_from_row(
+            row
+        )
+        or "unknown date"
+    )
+    start_at = row.get(
+        "calendar_event_start_at"
+    )
+    end_at = row.get(
+        "calendar_event_end_at"
+    )
+    time_text = _format_time_range(
+        start_at,
+        end_at,
+    )
+    is_reminder = (
+        "reminder"
+        in str(
+            row.get("content")
+            or ""
+        ).casefold()
+    )
+    item_label = (
+        "reminder"
+        if is_reminder
+        else "calendar item"
+    )
 
     return (
         "Calendar/reminder pending suggestion context — internal:\n"
-        f"- There is a hidden pending {item_label} awaiting user confirmation.\n"
-        "- If the user seems to be asking you to remember/remind/schedule something, ask for confirmation naturally.\n"
-        "- For reminders, prefer wording like: 'Mau aku ingetin?' or 'Do you want me to remind you?'\n"
-        "- If the user confirms, you may say you will add it to Calendar/reminders.\n"
-        "- If the user asks for Google Calendar, you may say you will sync it to Google Calendar.\n"
-        "- If the user declines, you may say you will ignore/remove the suggestion.\n"
-        "- Do not use internal terms like candidate or event draft.\n"
-        f"- Pending suggestion id: {row.get('id')}\n"
-        f"- Item: {title}\n"
+        f"- The current turn refers to a hidden pending {item_label}.\n"
+        "- Use this pending state only for this referential turn; "
+        "ignore it for unrelated conversation.\n"
+        f"- Title: {title}\n"
         f"- Date: {date}\n"
-        f"- Time: {time_text}"
+        f"- Time: {time_text or 'unknown time'}\n"
+        "- Do not claim confirmation or Calendar success unless the "
+        "authoritative action result says it succeeded."
     )
 
 
@@ -435,16 +484,42 @@ async def apply_calendar_confirmation_decision(
     client_context: dict[str, Any] | None = None,
     recent_messages: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    if not (
+        temporal_calendar_policy
+        .should_check_pending_confirmation(
+            user_message
+        )
+    ):
+        return {
+            "attempted": False,
+            "executed": False,
+            "reason": "pending_not_relevant",
+        }
+
     suggestions = await load_pending_calendar_suggestions(
         user_id=user_id,
         conversation_id=conversation_id,
         limit=3,
     )
-    if not suggestions:
-        suggestions = await load_pending_calendar_suggestions(user_id=user_id, limit=3)
+
+    if (
+        not suggestions
+        and temporal_calendar_policy
+        .allows_cross_conversation_pending_reference(
+            user_message
+        )
+    ):
+        suggestions = await load_pending_calendar_suggestions(
+            user_id=user_id,
+            limit=3,
+        )
 
     if not suggestions:
-        return {"attempted": False, "executed": False, "reason": "no_pending_suggestions"}
+        return {
+            "attempted": False,
+            "executed": False,
+            "reason": "no_pending_suggestions",
+        }
 
     detail_update = await _apply_pending_detail_update_if_possible(
         user_id=user_id,

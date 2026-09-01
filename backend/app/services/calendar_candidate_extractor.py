@@ -460,7 +460,7 @@ def render_calendar_candidate_preview(
         return None
 
     opener = _preview_addressed_sentence(
-        "Ini kayaknya agenda. Mau aku masukin ke Calendar?",
+        "Mau aku masukin ke Calendar?",
         address_term,
     )
     details = _preview_details_block(result)

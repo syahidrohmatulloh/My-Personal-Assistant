@@ -21,6 +21,7 @@ Current ownership:
 - own M31G intrinsic salience + attention overlay before that final trace.
 - own M32 habit-learning operation boundary while transport scheduling stays in chat.py.
 - own M33 explicit consolidation operation boundary; deferred scheduler remains a service.
+- keep M34 temporal/Calendar semantic policy behind foreground Calendar orchestration.
 
 HTTP/FastAPI serialization, Claude provider streaming, chat persistence, and
 transport-bound background task scheduling remain outside CognitiveRuntime.

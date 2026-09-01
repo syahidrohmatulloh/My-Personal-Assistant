@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from app.services import (
-    calendar_candidate_extractor,
+    temporal_calendar_policy,
     calendar_confirmation_actions,
     calendar_draft_actions,
     capability_registry,
@@ -377,10 +377,11 @@ async def assemble_turn_context(
     volatile_context += "\n\n" + capability_registry.render_capability_registry()
     volatile_context += (
         "\n\nCalendar response style policy:"
-        "\n- Never say 'Aku siapkan...' for an implicit schedule mention."
-        "\n- Say 'Mau aku masukin ke Calendar?' instead."
-        "\n- Do not ask the user to open Memories or Calendar just to confirm a newly detected agenda."
+        "\n- A date/time mention is NOT automatically a schedule."
+        "\n- Tentative plans, routines, public/third-party events, and time questions are not Calendar agenda unless the user explicitly asks."
+        "\n- A committed personal event may be offered for Calendar confirmation, but never claim it is already saved."
         "\n- Confirmation should happen in chat."
+        "\n- Do not ask the user to open Memories or Calendar just to confirm a newly detected schedule."
     )
 
     volatile_context += (
@@ -393,10 +394,12 @@ async def assemble_turn_context(
     )
     volatile_context += (
         "\n\nCalendar confirmation UX rule — strict:"
-        "\n- When the user mentions a possible schedule/event, do NOT say it has been prepared, added, saved, created, or inserted yet."
-        "\n- Ask for confirmation first: 'Ini kayaknya agenda. Mau aku masukin ke Calendar?'"
+        "\n- time mention != event != commitment != scheduling request."
+        "\n- When M34 qualifies a committed schedule candidate, do NOT say it has been prepared, added, saved, created, or inserted yet."
+        "\n- Ask neutrally: 'Mau aku masukin ke Calendar?'"
+        "\n- Never presuppose that ambiguous temporal language is a schedule."
         "\n- Summarize Acara, Tanggal, Waktu, and Lokasi if available."
-        "\n- Never use user-facing terms like 'agenda kalender', 'agenda kalender', 'Calendar event', or 'calendar event'."
+        "\n- Never use user-facing terms like 'Calendar event' or internal candidate terminology."
         "\n- Never infer Calendar action success from user wording alone."
         "\n- If an authoritative Calendar action result is present, follow it exactly."
         "\n- Without an authoritative success result, never claim an update or deletion succeeded."
@@ -404,6 +407,7 @@ async def assemble_turn_context(
     pending_calendar_confirmation_context = await calendar_confirmation_actions.render_pending_calendar_confirmation_context(
         user_id=user_id,
         conversation_id=getattr(body, "conversation_id", None),
+        user_message=body.message,
     )
     if pending_calendar_confirmation_context:
         volatile_context += "\n\n" + pending_calendar_confirmation_context
@@ -422,25 +426,29 @@ async def assemble_turn_context(
         "\\n- Do not claim the goal is already active/saved unless a direct create-goal action has explicitly succeeded in the current request."
         "\\n- Preferred wording: Aku bantu siapkan ini sebagai kandidat goal di Goals."
     )
+    calendar_semantic_assessment = (
+        temporal_calendar_policy
+        .assess_calendar_semantics(
+            body.message
+        )
+    )
     is_calendar_candidate_turn = (
         not is_calendar_draft_action_turn
-        and calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(
-            body.message
+        and temporal_calendar_policy
+        .requires_calendar_handling(
+            calendar_semantic_assessment
         )
     )
 
     if is_calendar_candidate_turn:
         volatile_context += (
             "\\n\\nCalendar event capability state — authoritative:"
-            "\\n- The user message appears to contain a schedule/calendar event request."
-            "\\n- The app can detect a possible Calendar event from chat, but user confirmation is required before it should be treated as added."
-            "\\n- Internally this may be stored as a calendar event, do not expose implementation names in user-facing replies."
-            "\\n- Use natural wording like: Ini kayaknya agenda kalender. Mau aku masukin ke Calendar?"
+            "\\n- M34 classified the current turn as Calendar-eligible after separating time, eventhood, commitment, and action intent."
+            "\\n- User confirmation is required before a newly detected schedule should be treated as added."
+            "\\n- Ask neutrally: Mau aku masukin ke Calendar?"
             "\\n- Do not say you cannot help with calendar handling."
             "\\n- Do not claim the event is already created in Google Calendar unless a direct Google Calendar sync action has explicitly succeeded in the current request."
-            "\\n- For implicit schedule mentions, ask the user for confirmation before adding the detected event to Calendar."
-            "\\n- Summarize the event naturally with Acara, Tanggal, Waktu, and Lokasi if available from the user's message."
-            "\\n- Preferred Indonesian wording for implicit schedule mentions: Ini kayaknya agenda. Mau aku masukin ke Calendar?"
+            "\\n- Summarize Acara, Tanggal, Waktu, and Lokasi only when supported by the user's message or authoritative Calendar result."
         )
     if is_calendar_draft_action_turn:
         volatile_context += (
@@ -467,15 +475,15 @@ async def assemble_turn_context(
     if is_calendar_candidate_turn:
         volatile_context += (
             "\n\nCalendar scheduling contract for this user turn — highest priority:"
-            "\n- The current user message appears to contain schedule/event details."
-            "\n- If the user only mentions a plan, appointment, place, or time, ask for confirmation before adding anything."
-            "\n- Ask naturally: Ini kayaknya agenda. Mau aku masukin ke Calendar?"
-            "\n- You may summarize Acara, Tanggal, Waktu, and Lokasi if available."
+            "\n- The current turn passed M34 semantic Calendar gating."
+            "\n- Keep temporal certainty, eventhood, commitment, and action certainty separate."
+            "\n- Ask neutrally: Mau aku masukin ke Calendar?"
+            "\n- For a qualified implicit candidate, ask for confirmation before adding anything."
             "\n- Do not say the event has already been prepared, added, saved, created, inserted, or scheduled."
             "\n- Do not tell the user to check the Calendar feature for confirmation."
-            "\n- Do not expose internal implementation names for hidden suggestions."
-            "\n- If the user explicitly asks to add/save/sync this event, you may say you will process it."
-            "\n- If the user explicitly mentions Google Calendar, you may say you will sync it to Google Calendar."
+            "\n- Pending schedule suggestions are internal only; do not expose implementation names."
+            "\n- If the user explicitly asks to add/save/sync this event, follow the authoritative Calendar execution path and its result."
+            "\n- If the user explicitly mentions Google Calendar, only claim sync success when the authoritative Google result says it succeeded."
         )
     temporal_grounding_block = temporal_grounding.render_temporal_grounding_block(
         user_message=body.message,

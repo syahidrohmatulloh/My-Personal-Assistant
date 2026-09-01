@@ -21,8 +21,13 @@ def test_render_calendar_hard_gate_clarification_uses_clean_address_term() -> No
         address_term=" beb "
     )
 
-    assert text.startswith("beb, ini kayaknya agenda")
-    assert "Bisa sebutkan acara, tanggal, waktu, dan lokasi?" in text
+    assert text.startswith(
+        "beb, aku belum mau menganggap ini jadwal dulu"
+    )
+    assert (
+        "Kamu sedang cerita/rencana saja"
+        in text
+    )
 
 
 def test_clean_calendar_address_term_rejects_unsafe_or_long_values() -> None:

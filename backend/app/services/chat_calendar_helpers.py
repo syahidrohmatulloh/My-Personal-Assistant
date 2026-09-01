@@ -2,129 +2,76 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 
-from app.services import calendar_candidate_extractor
+from app.services import temporal_calendar_policy
 from app.services.supabase_client import safe_execute
 
 
 log = logging.getLogger(__name__)
 
 
-def should_hard_gate_calendar_candidate(user_message: str | None) -> bool:
-    if calendar_candidate_extractor.looks_like_self_regulation_memory_preference(user_message):
-        return False
-    """Hard gate Calendar-like turns before Claude can answer freely."""
-    raw = str(user_message or "").strip()
-    if not raw:
-        return False
+def should_hard_gate_calendar_candidate(
+    user_message: str | None,
+) -> bool:
+    """Gate only turns semantically eligible for Calendar handling."""
 
-    lower = raw.casefold()
-    compact = " ".join(lower.split())
-
-    if calendar_candidate_extractor.is_calendar_absence_statement(raw):
-        return False
-
-    if compact in {
-        "iya",
-        "ya",
-        "yes",
-        "y",
-        "oke",
-        "ok",
-        "sip",
-        "siap",
-        "batal",
-        "gajadi",
-        "ga jadi",
-        "nggak jadi",
-        "tidak jadi",
-    }:
-        return False
-
-    if calendar_candidate_extractor.should_attempt_calendar_candidate_extraction(raw):
-        return True
-
-    date_terms = (
-        "tgl",
-        "tanggal",
-        "besok",
-        "lusa",
-        "hari ini",
-        "malam ini",
-        "pagi ini",
-        "siang ini",
-        "sore ini",
-        "senin",
-        "selasa",
-        "rabu",
-        "kamis",
-        "jumat",
-        "jum'at",
-        "sabtu",
-        "minggu",
-        "januari",
-        "februari",
-        "maret",
-        "april",
-        "mei",
-        "juni",
-        "juli",
-        "agustus",
-        "september",
-        "oktober",
-        "november",
-        "desember",
-    )
-    activity_terms = (
-        "aku mau",
-        "saya mau",
-        "ada",
-        "acara",
-        "agenda",
-        "jadwal",
-        "meeting",
-        "rapat",
-        "ketemu",
-        "appointment",
-        "janji",
-        "dokter",
-        "klinik",
-        "fisioterapi",
-        "terapi",
-        "gym",
-        "golf",
-        "dinner",
-        "lunch",
-        "makan",
-        "nonton",
-        "bioskop",
-        "flight",
-        "terbang",
-        "event",
-        "launching",
+    assessment = (
+        temporal_calendar_policy
+        .assess_calendar_semantics(
+            user_message
+        )
     )
 
-    has_date = any(term in compact for term in date_terms)
-    has_time = bool(
-        re.search(r"\bjam\s*\d{1,2}(?:[.:]\d{2})?\b", compact)
-        or re.search(r"\b\d{1,2}[.:]\d{2}\b", compact)
-        or re.search(r"\b\d{1,2}\s*(?:pagi|siang|sore|malam)\b", compact)
+    return (
+        temporal_calendar_policy
+        .requires_calendar_handling(
+            assessment
+        )
     )
-    has_activity = any(term in compact for term in activity_terms)
-
-    return bool(has_activity and (has_date or has_time))
 
 def render_calendar_hard_gate_clarification(
     *,
     address_term: str | None = None,
+    user_message: str | None = None,
+    semantic_assessment=None,
 ) -> str:
-    term = clean_calendar_address_term(address_term)
+    term = clean_calendar_address_term(
+        address_term
+    )
     prefix = f"{term}, " if term else ""
 
+    assessment = semantic_assessment
+    if assessment is None:
+        assessment = (
+            temporal_calendar_policy
+            .assess_calendar_semantics(
+                user_message
+            )
+        )
+
+    if (
+        assessment.persistence_target
+        == "reminder"
+    ):
+        return (
+            f"{prefix}aku belum punya detail yang cukup "
+            "untuk reminder itu. Kapan kamu mau diingatkan?"
+        )
+
+    if (
+        assessment.persistence_target
+        == "calendar"
+    ):
+        return (
+            f"{prefix}aku belum punya detail yang cukup "
+            "untuk memasukkannya ke Calendar. "
+            "Acara apa dan kapan waktunya?"
+        )
+
     return (
-        f"{prefix}ini kayaknya agenda, tapi aku belum cukup yakin detailnya.\n\n"
-        "Bisa sebutkan acara, tanggal, waktu, dan lokasi?"
+        f"{prefix}aku belum mau menganggap ini jadwal dulu. "
+        "Kamu sedang cerita/rencana saja, atau mau ini "
+        "dijadikan agenda di Calendar?"
     )
 
 async def load_calendar_address_term(

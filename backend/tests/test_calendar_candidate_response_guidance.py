@@ -6,7 +6,8 @@ CONTEXT = Path("app/services/cognitive_turn_context.py").read_text(encoding="utf
 def test_calendar_event_draft_response_guidance_is_in_volatile_context():
     assert "Calendar event capability state — authoritative" in CONTEXT
     assert "is_calendar_candidate_turn = (" in CONTEXT
-    assert "calendar_candidate_extractor.should_attempt_calendar_candidate_extraction" in CONTEXT
+    assert "temporal_calendar_policy" in CONTEXT
+    assert "assess_calendar_semantics(" in CONTEXT
     assert "not is_calendar_draft_action_turn" in CONTEXT
     assert "Confirmation should happen in chat" in CONTEXT
     assert "Do not claim the event is already created in Google Calendar" in CONTEXT
