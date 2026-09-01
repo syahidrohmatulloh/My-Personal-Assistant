@@ -573,6 +573,42 @@ async def chat(
         ),
     )
 
+    _metacognitive_finalization = (
+        _cognitive_runtime.finalize_metacognitive_turn(
+            working_state=_working_memory_state,
+            legacy_memories=legacy_memories,
+            user_message=body.message,
+            recent_messages=messages,
+            turn_ref=user_message_id,
+            conversation_ref=body.conversation_id,
+            user_ref=user_id,
+            assistant_mode=assistant_mode,
+            companion_settings_row=companion_settings_row,
+            comeback_affect_decision=(
+                comeback_affect_decision
+            ),
+            packed_memory_context=(
+                packed_memory_context
+            ),
+            memory_retrieval_diagnostics=(
+                memory_assembly
+                .memory_retrieval_diagnostics
+            ),
+        )
+    )
+
+    if _metacognitive_finalization.prompt_directive:
+        system_blocks = [
+            *system_blocks,
+            {
+                "type": "text",
+                "text": (
+                    _metacognitive_finalization
+                    .prompt_directive
+                ),
+            },
+        ]
+
     return StreamingResponse(
         _stream_claude_response(
             user_id=user_id,
@@ -590,6 +626,21 @@ async def chat(
             calendar_action_turn=is_calendar_draft_action_turn,
             calendar_action_snapshot_dirty=calendar_action_snapshot_dirty,
             comeback_affect_decision=comeback_affect_decision,
+            metacognitive_response_posture=(
+                _metacognitive_finalization
+                .decision
+                .response_posture
+            ),
+            metacognitive_projection_posture=(
+                _metacognitive_finalization
+                .decision
+                .durable_projection_posture
+            ),
+            metacognitive_allow_background_inference=(
+                _metacognitive_finalization
+                .decision
+                .allow_background_inference
+            ),
         ),
         media_type="text/event-stream",
         headers={
@@ -673,6 +724,9 @@ async def _stream_claude_response(
     calendar_action_turn: bool = False,
     calendar_action_snapshot_dirty: bool = False,
     comeback_affect_decision: dict | None = None,
+    metacognitive_response_posture: str = "proceed",
+    metacognitive_projection_posture: str = "eligible",
+    metacognitive_allow_background_inference: bool = True,
 ) -> AsyncIterator[str]:
     claude = get_claude()
     supabase = get_supabase()
@@ -770,7 +824,10 @@ async def _stream_claude_response(
 
     # Legacy memory extraction is now gated because memory_intelligence is the
     # primary structured extractor. This prevents duplicate durable memories.
-    if extraction_decision.run_legacy_memory:
+    if (
+        metacognitive_allow_background_inference
+        and extraction_decision.run_legacy_memory
+    ):
         add_safe_background_task(background_tasks, 
             memory.extract_and_save,
             user_id=user_id,
@@ -791,10 +848,16 @@ async def _stream_claude_response(
                 *messages,
                 {"role": "assistant", "content": assistant_text},
             ],
+            projection_posture=(
+                metacognitive_projection_posture
+            ),
         )
 
     # Mood-memory feedback — only when debugging/frustration/support-style signal exists.
-    if extraction_decision.run_mood_memory_feedback:
+    if (
+        metacognitive_allow_background_inference
+        and extraction_decision.run_mood_memory_feedback
+    ):
         add_safe_background_task(background_tasks, 
             mood_memory_feedback.extract_and_persist,
             user_id=user_id,
@@ -804,7 +867,10 @@ async def _stream_claude_response(
         )
 
     # Relationship memory — only when user gives interaction-style or Aliyya-specific signal.
-    if extraction_decision.run_relationship_memory:
+    if (
+        metacognitive_allow_background_inference
+        and extraction_decision.run_relationship_memory
+    ):
         add_safe_background_task(background_tasks, 
             relationship_memory.extract_and_persist,
             user_id=user_id,
@@ -813,7 +879,10 @@ async def _stream_claude_response(
         )
 
     # Goal intelligence — only on goal-like turns. Suggestions still require confirmation.
-    if extraction_decision.run_goal_intelligence:
+    if (
+        metacognitive_allow_background_inference
+        and extraction_decision.run_goal_intelligence
+    ):
         add_safe_background_task(background_tasks, 
             goal_intelligence.extract_and_persist,
             user_id=user_id,
@@ -840,6 +909,7 @@ async def _stream_claude_response(
 
     should_schedule_proactive_nudge = (
         not calendar_action_turn
+        and metacognitive_allow_background_inference
         and proactive_nudges.should_attempt_proactive_nudge(
             user_message
         )
@@ -877,7 +947,8 @@ async def _stream_claude_response(
 
     # Calendar candidate extraction — deterministic/Haiku-assisted, review-first, never syncs directly.
     should_extract_calendar_candidate = (
-        not should_schedule_proactive_nudge
+        metacognitive_allow_background_inference
+        and not should_schedule_proactive_nudge
         and not should_apply_calendar_draft_action
         and not should_create_google_calendar_event
         and not calendar_candidate_extractor.is_public_situational_update(user_message)

@@ -253,6 +253,17 @@ def test_chat_wiring_is_observational() -> None:
         == "prepare_generation_context"
     )
 
+    finalize_method = next(
+        node
+        for node in runtime_class.body
+        if isinstance(
+            node,
+            ast.FunctionDef,
+        )
+        and node.name
+        == "finalize_metacognitive_turn"
+    )
+
     def owner_calls(
         node,
         owner,
@@ -279,7 +290,6 @@ def test_chat_wiring_is_observational() -> None:
             and child.func.value.id == owner
         ]
 
-    # chat.py delegates the major model-context boundary.
     assert (
         len(
             owner_calls(
@@ -291,7 +301,17 @@ def test_chat_wiring_is_observational() -> None:
         == 1
     )
 
-    # Trace finalization is no longer a direct router responsibility.
+    assert (
+        len(
+            owner_calls(
+                chat_fn,
+                "_cognitive_runtime",
+                "finalize_metacognitive_turn",
+            )
+        )
+        == 1
+    )
+
     assert (
         owner_calls(
             chat_fn,
@@ -301,8 +321,17 @@ def test_chat_wiring_is_observational() -> None:
         == []
     )
 
+    assert (
+        owner_calls(
+            prepare_method,
+            "self",
+            "record_chat_observation_fail_open",
+        )
+        == []
+    )
+
     trace_calls = owner_calls(
-        prepare_method,
+        finalize_method,
         "self",
         "record_chat_observation_fail_open",
     )
@@ -317,34 +346,13 @@ def test_chat_wiring_is_observational() -> None:
         if keyword.arg is not None
     }
 
-    # M31B observation contract remains metadata-only.
     assert "packed_memory_context" in keyword_names
     assert "comeback_affect_decision" in keyword_names
+    assert "metacognitive_decision" in keyword_names
 
-    assert "user_message" not in keyword_names
     assert "sink" not in keyword_names
     assert "logger" not in keyword_names
 
-    raw_message_refs = [
-        node
-        for node in ast.walk(
-            trace_call
-        )
-        if isinstance(
-            node,
-            ast.Attribute,
-        )
-        and node.attr == "message"
-        and isinstance(
-            node.value,
-            ast.Name,
-        )
-        and node.value.id == "body"
-    ]
-
-    assert raw_message_refs == []
-
-    # Authoritative implementation still remains behind the facade.
     direct_trace_calls = owner_calls(
         chat_fn,
         "cognitive_trace",
@@ -352,6 +360,7 @@ def test_chat_wiring_is_observational() -> None:
     )
 
     assert direct_trace_calls == []
+
 
 def test_explicit_logging_enable_selects_logging_sink() -> None:
     cognitive_trace.reset_trace_sink()

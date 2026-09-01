@@ -16,7 +16,8 @@ Current ownership:
 - delegate memory-context packing to the existing chat-memory assembly service;
 - delegate complete per-turn cognitive context assembly and model-input preparation;
 - delegate foreground executive Calendar routing to existing Calendar services;
-- own deterministic assistant-mode command orchestration.
+- own deterministic assistant-mode command orchestration;
+- own M31F deterministic metacognitive policy + final trace sequencing.
 
 HTTP/FastAPI serialization, Claude provider streaming, chat persistence, and
 transport-bound background task scheduling remain outside CognitiveRuntime.
@@ -44,6 +45,7 @@ from app.services import companion_comeback_affect
 from app.services import companion_mode
 from app.services import conversation_chronology
 from app.services import life_model
+from app.services import metacognitive_policy
 from app.services import user_mood
 from app.services import working_memory
 
@@ -66,6 +68,13 @@ class CognitiveTurnSources:
 class AssistantModeExecution:
     target_mode: str
     assistant_text: str
+
+
+@dataclass(frozen=True)
+class MetacognitiveTurnFinalization:
+    decision: metacognitive_policy.MetacognitiveDecision
+    prompt_directive: str | None
+    trace_recorded: bool
 
 
 @dataclass(frozen=True)
@@ -254,33 +263,12 @@ class CognitiveRuntime:
                 logger=logger,
             )
 
-        def record_trace(
-            packed_memory_context: Any,
+        def defer_trace(
+            _packed_memory_context: Any,
         ) -> None:
-            self.record_chat_observation_fail_open(
-                turn_ref=turn_ref,
-                conversation_ref=(
-                    body.conversation_id
-                ),
-                user_ref=user_id,
-                assistant_mode=assistant_mode,
-                companion_settings_row=(
-                    companion_settings_row
-                ),
-                comeback_affect_decision=(
-                    comeback_affect_decision
-                ),
-                packed_memory_context=(
-                    packed_memory_context
-                ),
-                memory_retrieval_diagnostics=(
-                    memory_assembly
-                    .memory_retrieval_diagnostics
-                ),
-                legacy_memories=(
-                    legacy_memories
-                ),
-            )
+            # M31F finalizes the single CognitiveDecisionTrace only after
+            # WorkingMemoryState and deterministic metacognitive policy exist.
+            return None
 
         return await (
             cognitive_turn_context
@@ -317,8 +305,101 @@ class CognitiveRuntime:
                 pack_memory_context=(
                     pack_memory_context
                 ),
-                record_trace=record_trace,
+                record_trace=defer_trace,
             )
+        )
+
+    def evaluate_metacognitive_policy(
+        self,
+        **kwargs: Any,
+    ) -> metacognitive_policy.MetacognitiveDecision:
+        """Delegate deterministic M31F policy evaluation."""
+
+        return (
+            metacognitive_policy
+            .evaluate_metacognitive_policy(
+                **kwargs
+            )
+        )
+
+    def finalize_metacognitive_turn(
+        self,
+        *,
+        working_state: working_memory.WorkingMemoryState,
+        legacy_memories: list[dict[str, Any]],
+        user_message: str,
+        recent_messages: list[dict[str, Any]],
+        turn_ref: str | None,
+        conversation_ref: str | None,
+        user_ref: str | None,
+        assistant_mode: str | None,
+        companion_settings_row: dict[str, Any] | None,
+        comeback_affect_decision: Any,
+        packed_memory_context: Any,
+        memory_retrieval_diagnostics: Any = None,
+    ) -> MetacognitiveTurnFinalization:
+        """Finalize M31F policy, prompt directive, and one-turn trace.
+
+        Policy failures fail open to the pre-M31F behavior. Trace failures also
+        remain fail open and never block generation.
+        """
+
+        try:
+            decision = self.evaluate_metacognitive_policy(
+                working_state=working_state,
+                legacy_memories=legacy_memories,
+                user_message=user_message,
+                recent_messages=recent_messages,
+            )
+        except Exception as exc:  # noqa: BLE001
+            if self.logger is not None:
+                try:
+                    self.logger.warning(
+                        "metacognitive policy failed open: %s",
+                        type(exc).__name__,
+                    )
+                except Exception:
+                    pass
+
+            decision = (
+                metacognitive_policy
+                .safe_default_decision()
+            )
+
+        prompt_directive = (
+            metacognitive_policy
+            .render_prompt_directive(
+                decision
+            )
+        )
+
+        trace_recorded = (
+            self.record_chat_observation_fail_open(
+                turn_ref=turn_ref,
+                conversation_ref=conversation_ref,
+                user_ref=user_ref,
+                assistant_mode=assistant_mode,
+                companion_settings_row=(
+                    companion_settings_row
+                ),
+                comeback_affect_decision=(
+                    comeback_affect_decision
+                ),
+                packed_memory_context=(
+                    packed_memory_context
+                ),
+                memory_retrieval_diagnostics=(
+                    memory_retrieval_diagnostics
+                ),
+                legacy_memories=legacy_memories,
+                metacognitive_decision=decision,
+            )
+        )
+
+        return MetacognitiveTurnFinalization(
+            decision=decision,
+            prompt_directive=prompt_directive,
+            trace_recorded=trace_recorded,
         )
 
     def build_working_memory(

@@ -379,7 +379,6 @@ def test_runtime_does_not_implement_later_phase_logic() -> None:
     forbidden = [
         "packing_score",
         "salience_score",
-        "metacognitive",
         "habit",
         "consolidation",
         "dream_cycle",
@@ -473,11 +472,25 @@ def test_chat_delegates_trace_and_working_memory_to_runtime() -> None:
         "prepare_generation_context",
     )
 
+    finalize = _m31e_runtime_method(
+        runtime_tree,
+        "finalize_metacognitive_turn",
+    )
+
     assert (
         _m31e_owner_call_count(
             chat,
             "_cognitive_runtime",
             "build_working_memory",
+        )
+        == 1
+    )
+
+    assert (
+        _m31e_owner_call_count(
+            chat,
+            "_cognitive_runtime",
+            "finalize_metacognitive_turn",
         )
         == 1
     )
@@ -494,6 +507,15 @@ def test_chat_delegates_trace_and_working_memory_to_runtime() -> None:
     assert (
         _m31e_owner_call_count(
             prepare,
+            "self",
+            "record_chat_observation_fail_open",
+        )
+        == 0
+    )
+
+    assert (
+        _m31e_owner_call_count(
+            finalize,
             "self",
             "record_chat_observation_fail_open",
         )

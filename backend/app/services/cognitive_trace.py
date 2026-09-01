@@ -96,6 +96,25 @@ REASON_CODES = frozenset(
         "policy.mood_realism.dynamic",
         "policy.command.explicit_assistant_mode",
         "policy.fallback.safe_default",
+        "metacognition.evidence.not_applicable",
+        "metacognition.evidence.trusted",
+        "metacognition.evidence.mixed",
+        "metacognition.evidence.unverified",
+        "metacognition.evidence.unavailable",
+        "metacognition.retrieval.degraded",
+        "metacognition.retrieval.failed",
+        "metacognition.response.proceed",
+        "metacognition.response.caution",
+        "metacognition.response.clarify.ambiguity",
+        "metacognition.response.clarify.contradiction",
+        "metacognition.response.clarify.repeated_rephrase",
+        "metacognition.response.clarify.personal_context_unavailable",
+        "metacognition.projection.eligible",
+        "metacognition.projection.hold_for_confirmation",
+        "metacognition.background_inference.allowed",
+        "metacognition.background_inference.held",
+        "metacognition.rephrase.detected",
+        "metacognition.fallback.safe_default",
         "action.detected.calendar",
         "action.detected.reminder",
         "action.detected.memory_encoding",
@@ -220,6 +239,16 @@ class AffectRuleTrace:
 
 
 @dataclass
+class MetacognitiveTrace:
+    response_posture: str
+    evidence_trust: str
+    durable_projection_posture: str
+    allow_background_inference: bool
+    unverified_memory_refs: list[str] = field(default_factory=list)
+    reason_codes: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ConfirmationTrace:
     action_type: str
     required: bool
@@ -233,6 +262,7 @@ class PolicyTrace:
     companion_mode: str | None = None
     mood_realism: str | None = None
     affect_rules: list[AffectRuleTrace] = field(default_factory=list)
+    metacognition: MetacognitiveTrace | None = None
     confirmation_requirements: list[ConfirmationTrace] = field(
         default_factory=list
     )
@@ -551,6 +581,40 @@ def validate_trace(
             }:
                 raise ValueError(
                     "Invalid affect decision"
+                )
+
+        metacognition = trace.policy.metacognition
+
+        if metacognition is not None:
+            if metacognition.response_posture not in {
+                "proceed",
+                "caution",
+                "clarify",
+            }:
+                raise ValueError(
+                    "Invalid metacognitive response_posture"
+                )
+
+            if metacognition.evidence_trust not in {
+                "not_applicable",
+                "trusted",
+                "mixed",
+                "unverified",
+                "unavailable",
+            }:
+                raise ValueError(
+                    "Invalid metacognitive evidence_trust"
+                )
+
+            if (
+                metacognition.durable_projection_posture
+                not in {
+                    "eligible",
+                    "hold_for_confirmation",
+                }
+            ):
+                raise ValueError(
+                    "Invalid metacognitive durable_projection_posture"
                 )
 
     for health in trace.subsystem_health:
@@ -1389,6 +1453,69 @@ def _build_memory_observation(
     )
 
 
+def build_metacognitive_policy_trace(
+    decision: Any,
+) -> MetacognitiveTrace | None:
+    if decision is None:
+        return None
+
+    return MetacognitiveTrace(
+        response_posture=str(
+            getattr(
+                decision,
+                "response_posture",
+                "",
+            )
+            or ""
+        ),
+        evidence_trust=str(
+            getattr(
+                decision,
+                "evidence_trust",
+                "",
+            )
+            or ""
+        ),
+        durable_projection_posture=str(
+            getattr(
+                decision,
+                "durable_projection_posture",
+                "",
+            )
+            or ""
+        ),
+        allow_background_inference=bool(
+            getattr(
+                decision,
+                "allow_background_inference",
+                False,
+            )
+        ),
+        unverified_memory_refs=[
+            str(value)
+            for value in (
+                getattr(
+                    decision,
+                    "unverified_memory_refs",
+                    (),
+                )
+                or ()
+            )
+        ],
+        reason_codes=[
+            str(value)
+            for value in (
+                getattr(
+                    decision,
+                    "reason_codes",
+                    (),
+                )
+                or ()
+            )
+        ],
+    )
+
+
 def build_chat_observation_trace(
     *,
     turn_ref: str | None,
@@ -1400,6 +1527,7 @@ def build_chat_observation_trace(
     packed_memory_context: Any,
     memory_retrieval_diagnostics: Any = None,
     legacy_memories: list[dict[str, Any]] | None = None,
+    metacognitive_decision: Any = None,
     now: datetime | None = None,
 ) -> CognitiveDecisionTrace:
     """Mirror chat decisions already made by the current runtime.
@@ -1527,6 +1655,9 @@ def build_chat_observation_trace(
                 comeback_affect_decision
             )
         ],
+        metacognition=build_metacognitive_policy_trace(
+            metacognitive_decision
+        ),
         policy_markers=_policy_markers(
             assistant_mode=assistant_mode,
             companion_mode=companion_mode,
@@ -1606,6 +1737,7 @@ def record_chat_observation_fail_open(
     packed_memory_context: Any,
     memory_retrieval_diagnostics: Any = None,
     legacy_memories: list[dict[str, Any]] | None = None,
+    metacognitive_decision: Any = None,
     logger: logging.Logger | None = None,
 ) -> bool:
     """Build + emit one partial M31B trace without risking chat."""
@@ -1628,6 +1760,7 @@ def record_chat_observation_fail_open(
             packed_memory_context=packed_memory_context,
             memory_retrieval_diagnostics=memory_retrieval_diagnostics,
             legacy_memories=legacy_memories,
+            metacognitive_decision=metacognitive_decision,
         )
 
     except Exception as exc:

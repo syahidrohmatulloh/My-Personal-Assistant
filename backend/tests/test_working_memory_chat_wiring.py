@@ -175,7 +175,7 @@ def test_snapshot_is_built_after_final_first_message_metadata() -> None:
     assert snapshot_index > first_message_index
 
 
-def test_snapshot_is_not_used_to_control_response() -> None:
+def test_snapshot_is_used_only_through_m31f_runtime_boundary() -> None:
     source = _chat_source()
 
     assignment = (
@@ -191,27 +191,32 @@ def test_snapshot_is_not_used_to_control_response() -> None:
     )
 
     assert (
-        "working_memory_state="
-        not in source
+        source.count(
+            "_cognitive_runtime.finalize_metacognitive_turn("
+        )
+        == 1
     )
 
-    assert (
-        "_working_memory_state,"
-        not in source
+    finalization_start = source.index(
+        "_metacognitive_finalization = ("
     )
 
+    finalization_end = source.index(
+        "\n    )",
+        finalization_start,
+    )
+
+    finalization_block = source[
+        finalization_start:finalization_end
+    ]
+
     assert (
-        "_working_memory_state)"
-        not in source
+        "working_state=_working_memory_state"
+        in finalization_block
     )
 
     assert (
         "_working_memory_state."
-        not in source
-    )
-
-    assert (
-        "if _working_memory_state"
         not in source
     )
 

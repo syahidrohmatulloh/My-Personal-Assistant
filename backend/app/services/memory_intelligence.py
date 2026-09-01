@@ -296,6 +296,7 @@ async def extract_and_persist(
     user_id: str,
     conversation_id: str,
     recent_messages: list[dict],
+    projection_posture: str = "eligible",
 ) -> dict:
     """Run extraction over recent messages, save high-confidence facts.
 
@@ -309,6 +310,16 @@ async def extract_and_persist(
 
     if not recent_messages:
         return audit
+
+    safe_projection_posture = (
+        projection_posture
+        if projection_posture
+        in {
+            "eligible",
+            "hold_for_confirmation",
+        }
+        else "hold_for_confirmation"
+    )
 
     window = recent_messages[-CONTEXT_WINDOW_MESSAGES:]
     transcript = _format_transcript(window)
@@ -334,6 +345,23 @@ async def extract_and_persist(
 
     # === Persist each ===
     for cand in candidates:
+        if (
+            safe_projection_posture
+            == "hold_for_confirmation"
+            and cand.source_priority
+            in {
+                "repeated_pattern",
+                "assistant_confirmation",
+            }
+        ):
+            audit["skipped"] += 1
+            log.info(
+                "memory_intelligence: M31F held inferred candidate "
+                "source=%s",
+                cand.source_priority,
+            )
+            continue
+
         threshold = _SAVE_THRESHOLDS.get(cand.source_priority, 0.95)
         if cand.confidence < threshold:
             audit["skipped"] += 1

@@ -54,7 +54,9 @@ def _trace(
 
 
 def test_reason_registry_matches_locked_taxonomy() -> None:
-    assert len(REASON_CODES) == 80
+    # M31F adds 19 canonical metacognitive reason codes
+    # while M31G salience remains out of scope.
+    assert len(REASON_CODES) == 99
 
     assert (
         "affect.warm_comeback.suppressed.serious_work_task"
