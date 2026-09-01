@@ -1376,7 +1376,7 @@ function ChatV2MessageBubble({
 
   if (!isUser && pending && !displayContent.trim()) {
     return (
-      <div className="max-w-[min(92%,52rem)] rounded-[1.6rem] rounded-bl-md border px-4 py-4 text-sm leading-7 sm:px-5">
+      <div className="max-w-[min(88%,48rem)] rounded-[1.6rem] rounded-bl-md border px-4 py-4 text-sm leading-7 sm:px-5">
         <div
           className={[
             "inline-flex items-center gap-2",
@@ -1396,7 +1396,7 @@ function ChatV2MessageBubble({
         "group relative",
         isUser
           ? "ml-auto max-w-[min(88%,48rem)] rounded-[1.6rem] rounded-br-md px-4 py-3 text-sm leading-7 sm:px-5"
-          : "max-w-[min(92%,52rem)] rounded-[1.6rem] rounded-bl-md border px-4 py-4 text-sm leading-7 sm:px-5",
+          : "max-w-[min(88%,48rem)] rounded-[1.6rem] rounded-bl-md border px-4 py-4 text-sm leading-7 sm:px-5",
         isUser
           ? isChief
             ? "bg-slate-100 text-slate-950"
@@ -1691,7 +1691,7 @@ function ChatFrame({
 
             <div
               className={[
-                "max-w-[86%] rounded-3xl border px-5 py-4 text-sm leading-7",
+                "max-w-[min(88%,48rem)] rounded-3xl border px-5 py-4 text-sm leading-7",
                 isChief
                   ? "border-white/10 bg-white/[0.055] text-slate-200"
                   : "border-white/80 bg-white/72 text-stone-800",
