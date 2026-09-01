@@ -49,7 +49,7 @@ def test_snapshot_is_built_after_packed_memory() -> None:
 
     pack_index = source.index(
         "packed_memory_context = "
-        "chat_memory_assembly.pack_chat_memory_context("
+        "_cognitive_runtime.pack_chat_memory_context("
     )
 
     snapshot_index = source.index(

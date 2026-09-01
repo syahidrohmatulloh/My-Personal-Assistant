@@ -408,3 +408,224 @@ def test_m31b_and_m31c_services_remain_authoritative() -> None:
         "cognitive_trace.get_trace_sink("
         in source
     )
+
+
+def test_runtime_owns_memory_packing_delegation_boundary(
+    monkeypatch,
+) -> None:
+    from app.services import chat_memory_assembly
+
+    calls = []
+
+    sentinel = object()
+
+    def fake_pack(**kwargs):
+        calls.append(
+            kwargs
+        )
+        return sentinel
+
+    monkeypatch.setattr(
+        chat_memory_assembly,
+        "pack_chat_memory_context",
+        fake_pack,
+    )
+
+    runtime = (
+        cognitive_runtime.create_cognitive_runtime()
+    )
+
+    logger = logging.getLogger(
+        "tests.cognitive_runtime.packing"
+    )
+
+    result = runtime.pack_chat_memory_context(
+        legacy_memories=[
+            {
+                "id": "mem-1",
+            }
+        ],
+        related_summaries=[
+            {
+                "id": "sum-1",
+            }
+        ],
+        query_text="hello",
+        user_id="user-1",
+        logger=logger,
+    )
+
+    assert result is sentinel
+
+    assert len(calls) == 1
+
+    assert calls[0] == {
+        "legacy_memories": [
+            {
+                "id": "mem-1",
+            }
+        ],
+        "related_summaries": [
+            {
+                "id": "sum-1",
+            }
+        ],
+        "query_text": "hello",
+        "user_id": "user-1",
+        "logger": logger,
+    }
+
+
+def test_chat_delegates_memory_packing_to_runtime() -> None:
+    source = Path(
+        "app/routers/chat.py"
+    ).read_text()
+
+    assert (
+        source.count(
+            "_cognitive_runtime."
+            "pack_chat_memory_context("
+        )
+        == 1
+    )
+
+    assert (
+        "chat_memory_assembly."
+        "pack_chat_memory_context("
+        not in source
+    )
+
+
+
+
+def test_runtime_packing_keeps_authoritative_service() -> None:
+    source = Path(
+        "app/services/cognitive_runtime.py"
+    ).read_text()
+
+    assert (
+        "chat_memory_assembly."
+        "pack_chat_memory_context("
+        in source
+    )
+
+    assert "pack_memory_context_for_prompt(" not in source
+    assert "_packing_score(" not in source
+    assert "_query_intent(" not in source
+
+
+
+def test_runtime_owns_memory_retrieval_delegation_boundary(
+    monkeypatch,
+) -> None:
+    import asyncio
+
+    from app.services import chat_memory_assembly
+
+    calls = []
+
+    sentinel = object()
+
+    async def fake_retrieve(**kwargs):
+        calls.append(
+            kwargs
+        )
+        return sentinel
+
+    monkeypatch.setattr(
+        chat_memory_assembly,
+        "retrieve_chat_memory_assembly",
+        fake_retrieve,
+    )
+
+    runtime = (
+        cognitive_runtime.create_cognitive_runtime()
+    )
+
+    result = asyncio.run(
+        runtime.retrieve_chat_memory_assembly(
+            user_id="user-1",
+            query_text="hello",
+            conversation_id="conv-1",
+            memory_limit=9,
+            summary_limit=4,
+        )
+    )
+
+    assert result is sentinel
+
+    assert calls == [
+        {
+            "user_id": "user-1",
+            "query_text": "hello",
+            "conversation_id": "conv-1",
+            "memory_limit": 9,
+            "summary_limit": 4,
+        }
+    ]
+
+
+def test_chat_delegates_memory_retrieval_to_runtime() -> None:
+    source = Path(
+        "app/routers/chat.py"
+    ).read_text()
+
+    assert (
+        source.count(
+            "_cognitive_runtime."
+            "retrieve_chat_memory_assembly("
+        )
+        == 1
+    )
+
+    assert (
+        "chat_memory_assembly."
+        "retrieve_chat_memory_assembly("
+        not in source
+    )
+
+
+
+def test_chat_no_longer_imports_chat_memory_assembly() -> None:
+    source = Path(
+        "app/routers/chat.py"
+    ).read_text()
+
+    service_import_start = source.index(
+        "from app.services import ("
+    )
+
+    service_import_end = source.index(
+        "from app.services.user_mood_prompt",
+        service_import_start,
+    )
+
+    imports = source[
+        service_import_start:
+        service_import_end
+    ]
+
+    assert "chat_memory_assembly," not in imports
+
+
+def test_runtime_retrieval_keeps_authoritative_service() -> None:
+    source = Path(
+        "app/services/cognitive_runtime.py"
+    ).read_text()
+
+    assert (
+        "chat_memory_assembly."
+        "retrieve_chat_memory_assembly("
+        in source
+    )
+
+    assert "memory.retrieve_relevant(" not in source
+
+    assert (
+        "conversation_summary."
+        "retrieve_related_summaries("
+        not in source
+    )
+
+    assert "embed_query(" not in source
+    assert "rank_memory_rows(" not in source

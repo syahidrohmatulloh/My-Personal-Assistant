@@ -2,13 +2,18 @@
 
 The runtime is a facade around existing cognitive services.
 
-M31D-1 intentionally does NOT move retrieval, context packing, calendar
-routing, prompt assembly, LLM generation, or persistence out of chat.py.
+M31D established the facade. M31E incrementally moves orchestration
+responsibilities through that facade without changing underlying algorithms.
 
-Initial ownership:
+Current ownership:
 - delegate WorkingMemoryState lifecycle to the existing M31C builder;
 - delegate cognitive trace finalization/emission to the existing M31B service;
-- own trace-sink configuration for one runtime instance.
+- own trace-sink configuration for one runtime instance;
+- delegate memory retrieval/summary fan-in to the existing chat-memory assembly service;
+- delegate memory-context packing to the existing chat-memory assembly service.
+
+Calendar routing, prompt assembly, LLM generation, and persistence remain
+outside CognitiveRuntime at this extraction step.
 
 Dependency direction:
     chat.py -> CognitiveRuntime -> existing services
@@ -22,6 +27,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from app.services import chat_memory_assembly
 from app.services import cognitive_trace
 from app.services import working_memory
 
@@ -50,6 +56,54 @@ class CognitiveRuntime:
 
         return working_memory.build_working_memory_state(
             **kwargs
+        )
+
+    async def retrieve_chat_memory_assembly(
+        self,
+        *,
+        user_id: str,
+        query_text: str,
+        conversation_id: str,
+        memory_limit: int = 12,
+        summary_limit: int = 6,
+    ) -> chat_memory_assembly.ChatMemoryAssembly:
+        """Own the M31E retrieval-orchestration boundary.
+
+        The authoritative retrieval gate, embedding, RPC, ranking, summary
+        retrieval, fan-in, and diagnostics behavior remains in the existing
+        memory and chat_memory_assembly services.
+        """
+
+        return await chat_memory_assembly.retrieve_chat_memory_assembly(
+            user_id=user_id,
+            query_text=query_text,
+            conversation_id=conversation_id,
+            memory_limit=memory_limit,
+            summary_limit=summary_limit,
+        )
+
+    def pack_chat_memory_context(
+        self,
+        *,
+        legacy_memories: list[dict[str, Any]],
+        related_summaries: list[dict[str, Any]],
+        query_text: str,
+        user_id: str,
+        logger: logging.Logger | None = None,
+    ) -> Any:
+        """Own the M31E memory-packing orchestration boundary.
+
+        The authoritative selection, ranking, rendering, and telemetry
+        implementation remains chat_memory_assembly / memory_context_packer.
+        CognitiveRuntime only delegates the already-existing operation.
+        """
+
+        return chat_memory_assembly.pack_chat_memory_context(
+            legacy_memories=legacy_memories,
+            related_summaries=related_summaries,
+            query_text=query_text,
+            user_id=user_id,
+            logger=logger,
         )
 
     def record_chat_observation_fail_open(

@@ -4,8 +4,26 @@ from pathlib import Path
 def test_chat_runtime_delegates_memory_assembly_and_packing() -> None:
     source = Path("app/routers/chat.py").read_text(encoding="utf-8")
 
-    assert "chat_memory_assembly.retrieve_chat_memory_assembly(" in source
-    assert "chat_memory_assembly.pack_chat_memory_context(" in source
+    assert (
+        "_cognitive_runtime.retrieve_chat_memory_assembly("
+        in source
+    )
+
+    assert (
+        "_cognitive_runtime.pack_chat_memory_context("
+        in source
+    )
+
+    assert (
+        "chat_memory_assembly.retrieve_chat_memory_assembly("
+        not in source
+    )
+
+    assert (
+        "chat_memory_assembly.pack_chat_memory_context("
+        not in source
+    )
+
     assert "query_text=body.message" in source
     assert "## Additional notes (unstructured)" not in source
     assert "for m in legacy_memories[:5]" not in source

@@ -43,7 +43,6 @@ from app.services import (
     calendar_candidate_extractor,
     calendar_confirmation_actions,
     calendar_draft_actions,
-    chat_memory_assembly,
     chat_time_helpers,
     chat_style_directive,
     chat_calendar_helpers,
@@ -541,7 +540,7 @@ async def chat(
         _check_ownership(supabase, body.conversation_id, user_id),
         _save_user_message(supabase, body.conversation_id, body.message),
         _safe_life_model_context(user_id, mood_days=14),
-        chat_memory_assembly.retrieve_chat_memory_assembly(
+        _cognitive_runtime.retrieve_chat_memory_assembly(
             user_id=user_id,
             query_text=body.message,
             conversation_id=body.conversation_id,
@@ -1146,7 +1145,7 @@ async def chat(
     if response_texture_block:
         volatile_context += "\n\n" + response_texture_block
 
-    packed_memory_context = chat_memory_assembly.pack_chat_memory_context(
+    packed_memory_context = _cognitive_runtime.pack_chat_memory_context(
         legacy_memories=legacy_memories,
         related_summaries=related_summaries,
         query_text=body.message,
