@@ -629,3 +629,206 @@ def test_runtime_retrieval_keeps_authoritative_service() -> None:
 
     assert "embed_query(" not in source
     assert "rank_memory_rows(" not in source
+
+
+def test_runtime_owns_life_context_retrieval_boundary(
+    monkeypatch,
+) -> None:
+    import asyncio
+
+    from app.services import life_model
+
+    calls = []
+
+    async def fake_get_context(
+        user_id,
+        mood_days=14,
+    ):
+        calls.append(
+            {
+                "user_id": user_id,
+                "mood_days": mood_days,
+            }
+        )
+
+        return {
+            "identity": {
+                "profile": {
+                    "name": "Test",
+                }
+            }
+        }
+
+    monkeypatch.setattr(
+        life_model,
+        "get_context",
+        fake_get_context,
+    )
+
+    runtime = (
+        cognitive_runtime.create_cognitive_runtime()
+    )
+
+    result = asyncio.run(
+        runtime.retrieve_life_context(
+            user_id="user-123456",
+            mood_days=21,
+        )
+    )
+
+    assert result == {
+        "identity": {
+            "profile": {
+                "name": "Test",
+            }
+        }
+    }
+
+    assert calls == [
+        {
+            "user_id": "user-123456",
+            "mood_days": 21,
+        }
+    ]
+
+
+def test_runtime_life_context_preserves_fail_open_semantics(
+    monkeypatch,
+    caplog,
+) -> None:
+    import asyncio
+
+    from app.services import life_model
+
+    async def fake_get_context(
+        _user_id,
+        mood_days=14,
+    ):
+        del mood_days
+        raise RuntimeError(
+            "simulated life-context failure"
+        )
+
+    monkeypatch.setattr(
+        life_model,
+        "get_context",
+        fake_get_context,
+    )
+
+    logger = logging.getLogger(
+        "tests.cognitive_runtime.life_context"
+    )
+
+    runtime = (
+        cognitive_runtime.create_cognitive_runtime(
+            logger=logger,
+        )
+    )
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger=logger.name,
+    ):
+        result = asyncio.run(
+            runtime.retrieve_life_context(
+                user_id="user-123456",
+            )
+        )
+
+    assert result == {}
+
+    assert (
+        "life_model.get_context failed "
+        "user=user-123"
+        in caplog.text
+    )
+
+
+def test_runtime_life_context_rejects_non_dict_result(
+    monkeypatch,
+) -> None:
+    import asyncio
+
+    from app.services import life_model
+
+    async def fake_get_context(
+        _user_id,
+        mood_days=14,
+    ):
+        del mood_days
+        return [
+            "invalid-context-shape",
+        ]
+
+    monkeypatch.setattr(
+        life_model,
+        "get_context",
+        fake_get_context,
+    )
+
+    runtime = (
+        cognitive_runtime.create_cognitive_runtime()
+    )
+
+    result = asyncio.run(
+        runtime.retrieve_life_context(
+            user_id="user-1",
+        )
+    )
+
+    assert result == {}
+
+
+def test_chat_delegates_life_context_to_runtime() -> None:
+    source = Path(
+        "app/routers/chat.py"
+    ).read_text()
+
+    assert (
+        source.count(
+            "_cognitive_runtime."
+            "retrieve_life_context("
+        )
+        == 1
+    )
+
+    assert (
+        "_safe_life_model_context("
+        not in source
+    )
+
+    assert (
+        "life_model.get_context("
+        not in source
+    )
+
+    service_import_start = source.index(
+        "from app.services import ("
+    )
+
+    service_import_end = source.index(
+        "from app.services.user_mood_prompt",
+        service_import_start,
+    )
+
+    imports = source[
+        service_import_start:
+        service_import_end
+    ]
+
+    assert "    life_model," not in imports
+
+
+def test_runtime_life_context_keeps_authoritative_service() -> None:
+    source = Path(
+        "app/services/cognitive_runtime.py"
+    ).read_text()
+
+    assert (
+        "life_model.get_context("
+        in source
+    )
+
+    assert "get_user_context" not in source
+    assert ".rpc(" not in source
+    assert ".table(" not in source

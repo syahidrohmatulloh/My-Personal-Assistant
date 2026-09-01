@@ -9,6 +9,7 @@ Current ownership:
 - delegate WorkingMemoryState lifecycle to the existing M31C builder;
 - delegate cognitive trace finalization/emission to the existing M31B service;
 - own trace-sink configuration for one runtime instance;
+- delegate life-model context retrieval to the existing life-model service;
 - delegate memory retrieval/summary fan-in to the existing chat-memory assembly service;
 - delegate memory-context packing to the existing chat-memory assembly service.
 
@@ -29,6 +30,7 @@ from typing import Any
 
 from app.services import chat_memory_assembly
 from app.services import cognitive_trace
+from app.services import life_model
 from app.services import working_memory
 
 
@@ -56,6 +58,42 @@ class CognitiveRuntime:
 
         return working_memory.build_working_memory_state(
             **kwargs
+        )
+
+    async def retrieve_life_context(
+        self,
+        *,
+        user_id: str,
+        mood_days: int = 14,
+    ) -> dict[str, Any]:
+        """Own the M31E life-context retrieval boundary.
+
+        The authoritative durable-data query remains life_model.get_context().
+        This facade preserves the existing chat-level fail-open behavior:
+        unavailable or invalid context degrades to an empty dictionary.
+        """
+
+        try:
+            context = await life_model.get_context(
+                user_id,
+                mood_days=mood_days,
+            )
+        except Exception as exc:  # noqa: BLE001
+            if self.logger is not None:
+                self.logger.warning(
+                    "life_model.get_context failed user=%s: %s",
+                    user_id[:8],
+                    exc,
+                )
+            return {}
+
+        return (
+            context
+            if isinstance(
+                context,
+                dict,
+            )
+            else {}
         )
 
     async def retrieve_chat_memory_assembly(

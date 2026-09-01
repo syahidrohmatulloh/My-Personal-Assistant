@@ -54,7 +54,6 @@ from app.services import (
     companion_comeback_affect,
     cognitive_runtime,
     companion_mode,
-    life_model,
     memory,
     memory_intelligence,
     proactive_nudges,
@@ -368,15 +367,6 @@ def _render_ui_context(ui_context: dict | None) -> str | None:
     return "\n".join(lines)
 
 
-async def _safe_life_model_context(user_id: str, *, mood_days: int = 14) -> dict:
-    try:
-        context = await life_model.get_context(user_id, mood_days=mood_days)
-        return context if isinstance(context, dict) else {}
-    except Exception as exc:  # noqa: BLE001
-        log.warning("life_model.get_context failed user=%s: %s", user_id[:8], exc)
-        return {}
-
-
 async def _check_ownership(_supabase, conversation_id: str, user_id: str):
     return await asyncio.to_thread(
         lambda: safe_execute(
@@ -539,7 +529,10 @@ async def chat(
     ) = await asyncio.gather(
         _check_ownership(supabase, body.conversation_id, user_id),
         _save_user_message(supabase, body.conversation_id, body.message),
-        _safe_life_model_context(user_id, mood_days=14),
+        _cognitive_runtime.retrieve_life_context(
+            user_id=user_id,
+            mood_days=14,
+        ),
         _cognitive_runtime.retrieve_chat_memory_assembly(
             user_id=user_id,
             query_text=body.message,
