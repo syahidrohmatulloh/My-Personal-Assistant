@@ -53,8 +53,7 @@ from app.services import (
     attachments,
     companion,
     companion_comeback_affect,
-    cognitive_trace,
-    working_memory,
+    cognitive_runtime,
     companion_mode,
     life_model,
     memory,
@@ -517,6 +516,14 @@ async def chat(
     user_id: str = Depends(get_current_user_id),
 ):
     supabase = get_supabase()
+
+    # M31D — one lightweight facade per turn. At this phase it owns only
+    # WorkingMemoryState lifecycle and cognitive-trace delegation.
+    _cognitive_runtime = cognitive_runtime.create_cognitive_runtime(
+        trace_logging_enabled=settings.COGNITIVE_TRACE_LOG,
+        trace_preview_policy=settings.COGNITIVE_TRACE_PREVIEW_POLICY,
+        logger=log,
+    )
 
     # === Parallel phase 1: ownership + save + context + legacy mems + related summaries + attachments + mode + companion settings + mood ===
     (
@@ -1149,11 +1156,7 @@ async def chat(
     if packed_memory_context.text:
         volatile_context += "\n\n" + packed_memory_context.text
 
-    cognitive_trace.record_chat_observation_fail_open(
-        sink=cognitive_trace.get_trace_sink(
-            logging_enabled=settings.COGNITIVE_TRACE_LOG,
-            preview_policy=settings.COGNITIVE_TRACE_PREVIEW_POLICY,
-        ),
+    _cognitive_runtime.record_chat_observation_fail_open(
         turn_ref=user_message_id,
         conversation_ref=body.conversation_id,
         user_ref=user_id,
@@ -1165,7 +1168,6 @@ async def chat(
             memory_assembly.memory_retrieval_diagnostics
         ),
         legacy_memories=legacy_memories,
-        logger=log,
     )
 
     if assistant_mode == "chief_of_staff":
@@ -1270,7 +1272,7 @@ async def chat(
     # current chat runtime has already produced. It is intentionally not
     # consumed by prompt construction, response generation, policy, or
     # persistence in M31C.
-    _working_memory_state = working_memory.build_working_memory_state(
+    _working_memory_state = _cognitive_runtime.build_working_memory(
         user_ref=user_id,
         conversation_ref=body.conversation_id,
         turn_ref=user_message_id,

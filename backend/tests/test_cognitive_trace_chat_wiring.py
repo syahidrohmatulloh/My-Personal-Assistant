@@ -208,18 +208,20 @@ def test_chat_wiring_is_observational() -> None:
         "app/routers/chat.py"
     ).read_text()
 
+    # M31D owns the orchestration boundary while the authoritative
+    # M31B implementation remains cognitive_trace behind the facade.
     assert (
-        "cognitive_trace.record_chat_observation_fail_open("
+        "_cognitive_runtime.record_chat_observation_fail_open("
         in source
     )
 
     assert (
-        "sink=cognitive_trace.get_trace_sink("
-        in source
+        "cognitive_trace.record_chat_observation_fail_open("
+        not in source
     )
 
     hook_start = source.index(
-        "cognitive_trace.record_chat_observation_fail_open("
+        "_cognitive_runtime.record_chat_observation_fail_open("
     )
 
     hook_end = source.index(
@@ -231,8 +233,7 @@ def test_chat_wiring_is_observational() -> None:
         hook_start:hook_end
     ]
 
-    # Raw user content must not be handed to the
-    # M31B observation bridge.
+    # Raw user content still must not enter the observation bridge.
     assert "body.message" not in hook
     assert "user_message=" not in hook
 
@@ -240,11 +241,16 @@ def test_chat_wiring_is_observational() -> None:
         "packed_memory_context=packed_memory_context"
         in hook
     )
+
     assert (
         "comeback_affect_decision="
         "comeback_affect_decision"
         in hook
     )
+
+    # Sink/logger ownership moved to CognitiveRuntime.
+    assert "sink=" not in hook
+    assert "logger=" not in hook
 
 
 def test_explicit_logging_enable_selects_logging_sink() -> None:
@@ -286,11 +292,16 @@ def test_chat_trace_logging_is_explicitly_config_gated() -> None:
     ).read_text()
 
     assert (
-        "logging_enabled=settings.COGNITIVE_TRACE_LOG"
+        "trace_logging_enabled=settings.COGNITIVE_TRACE_LOG"
         in source
     )
 
     assert (
-        "preview_policy=settings.COGNITIVE_TRACE_PREVIEW_POLICY"
+        "trace_preview_policy=settings.COGNITIVE_TRACE_PREVIEW_POLICY"
+        in source
+    )
+
+    assert (
+        "cognitive_runtime.create_cognitive_runtime("
         in source
     )

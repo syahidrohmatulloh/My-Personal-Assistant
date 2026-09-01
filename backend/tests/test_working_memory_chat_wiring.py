@@ -13,12 +13,17 @@ def _chat_source() -> str:
     return CHAT_PATH.read_text()
 
 
-def test_chat_imports_working_memory_service() -> None:
+def test_chat_imports_cognitive_runtime_service() -> None:
     source = _chat_source()
 
     assert (
-        "    working_memory,"
+        "    cognitive_runtime,"
         in source
+    )
+
+    assert (
+        "    working_memory,"
+        not in source
     )
 
 
@@ -28,9 +33,14 @@ def test_chat_builds_one_working_memory_snapshot() -> None:
     assert (
         source.count(
             "_working_memory_state = "
-            "working_memory.build_working_memory_state("
+            "_cognitive_runtime.build_working_memory("
         )
         == 1
+    )
+
+    assert (
+        "working_memory.build_working_memory_state("
+        not in source
     )
 
 
@@ -44,7 +54,7 @@ def test_snapshot_is_built_after_packed_memory() -> None:
 
     snapshot_index = source.index(
         "_working_memory_state = "
-        "working_memory.build_working_memory_state("
+        "_cognitive_runtime.build_working_memory("
     )
 
     assert snapshot_index > pack_index
@@ -59,7 +69,7 @@ def test_snapshot_is_built_after_final_first_message_metadata() -> None:
 
     snapshot_index = source.index(
         "_working_memory_state = "
-        "working_memory.build_working_memory_state("
+        "_cognitive_runtime.build_working_memory("
     )
 
     assert snapshot_index > first_message_index
@@ -68,11 +78,9 @@ def test_snapshot_is_built_after_final_first_message_metadata() -> None:
 def test_snapshot_is_not_used_to_control_response() -> None:
     source = _chat_source()
 
-    # The snapshot variable is assigned exactly once. Do not count the
-    # substring because it also appears inside build_working_memory_state().
     assignment = (
         "_working_memory_state = "
-        "working_memory.build_working_memory_state("
+        "_cognitive_runtime.build_working_memory("
     )
 
     assert (
@@ -82,8 +90,6 @@ def test_snapshot_is_not_used_to_control_response() -> None:
         == 1
     )
 
-    # M31C does not pass the snapshot into streaming, prompt assembly,
-    # policy, tracing, or another runtime component.
     assert (
         "working_memory_state="
         not in source
@@ -100,6 +106,16 @@ def test_snapshot_is_not_used_to_control_response() -> None:
     )
 
     assert (
+        "_working_memory_state."
+        not in source
+    )
+
+    assert (
+        "if _working_memory_state"
+        not in source
+    )
+
+    assert (
         "volatile_context += "
         "working_memory"
         not in source
@@ -111,7 +127,7 @@ def test_snapshot_builder_receives_metadata_not_raw_message() -> None:
 
     start = source.index(
         "_working_memory_state = "
-        "working_memory.build_working_memory_state("
+        "_cognitive_runtime.build_working_memory("
     )
 
     end = source.index(
