@@ -1702,26 +1702,6 @@ function ChatFrame({
           </>
         ) : null}
 
-        <div className="grid gap-3 pt-4">
-          {(isChief
-            ? ["Brief me for today", "Prioritize my next actions", "Find risks and blockers"]
-            : ["Help me reflect", "Write a gentle journal", "Remember this moment"]
-          ).map((item) => (
-            <button
-              key={item}
-              type="button"
-              className={[
-                "flex items-center gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition",
-                isChief
-                  ? "border-teal-100/10 bg-black/12 text-slate-300 hover:bg-white/[0.055]"
-                  : "border-stone-200/70 bg-white/45 text-stone-600 hover:bg-white/65",
-              ].join(" ")}
-            >
-              <CheckCircle2 className={isChief ? "h-4 w-4 text-teal-200/70" : "h-4 w-4 text-stone-400"} />
-              {item}
-            </button>
-          ))}
-        </div>
       </div>
 
       {showJumpToLatest ? (
