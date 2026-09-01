@@ -19,6 +19,7 @@ Current ownership:
 - own deterministic assistant-mode command orchestration;
 - own M31F deterministic metacognitive policy + final trace sequencing;
 - own M31G intrinsic salience + attention overlay before that final trace.
+- own M32 habit-learning operation boundary while transport scheduling stays in chat.py.
 
 HTTP/FastAPI serialization, Claude provider streaming, chat persistence, and
 transport-bound background task scheduling remain outside CognitiveRuntime.
@@ -38,6 +39,7 @@ from typing import Any
 
 from app.services import assistant_mode_commands
 from app.services import attention_salience
+from app.services import habit_learning
 from app.services import chat_memory_assembly
 from app.services import cognitive_calendar_orchestration
 from app.services import cognitive_trace
@@ -336,6 +338,32 @@ class CognitiveRuntime:
         return (
             attention_salience
             .evaluate_attention_salience(
+                **kwargs
+            )
+        )
+
+    def classify_habit_signal(
+        self,
+        user_message: str,
+    ) -> habit_learning.HabitSignal:
+        """Delegate deterministic M32 habit signal classification."""
+
+        return (
+            habit_learning
+            .classify_habit_signal(
+                user_message
+            )
+        )
+
+    async def learn_habits_from_chat(
+        self,
+        **kwargs: Any,
+    ) -> habit_learning.HabitLearningAudit:
+        """Delegate M32 cross-conversation habit learning."""
+
+        return await (
+            habit_learning
+            .learn_from_chat(
                 **kwargs
             )
         )

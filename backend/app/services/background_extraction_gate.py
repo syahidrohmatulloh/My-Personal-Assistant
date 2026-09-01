@@ -82,6 +82,28 @@ _MEMORY_SIGNALS = (
     "consulting style",
     "gaya consulting",
     "jangan hardcode",
+    # M32 explicit routine assertions/corrections remain user-authored
+    # memory evidence. Habit inference itself is handled separately.
+    "setiap ",
+    "tiap ",
+    "biasanya",
+    "sering",
+    "rutin",
+    "kebiasaan",
+    "kali seminggu",
+    "kali sebulan",
+    "usually",
+    "often",
+    "daily",
+    "weekly",
+    "every day",
+    "every week",
+    "times a week",
+    "times per week",
+    "routine",
+    "berhenti ",
+    "no longer ",
+    "anymore",
 )
 
 _CALENDAR_SIGNALS = (

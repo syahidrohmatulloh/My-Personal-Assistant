@@ -854,6 +854,35 @@ async def _stream_claude_response(
             ),
         )
 
+    # M32 habit/routine learning.
+    #
+    # Repeated occurrence learning is inferred background cognition and obeys
+    # the M31F inference hold. Explicit cessation/correction is user-authored
+    # and may supersede only an exact M32-owned inferred habit.
+    habit_signal = (
+        _cognitive_runtime
+        .classify_habit_signal(
+            user_message
+        )
+    )
+
+    should_run_habit_learning = (
+        habit_signal == "explicit_correction"
+        or (
+            metacognitive_allow_background_inference
+            and habit_signal == "occurrence"
+        )
+    )
+
+    if should_run_habit_learning:
+        add_safe_background_task(
+            background_tasks,
+            _cognitive_runtime.learn_habits_from_chat,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            user_message=user_message,
+        )
+
     # Mood-memory feedback — only when debugging/frustration/support-style signal exists.
     if (
         metacognitive_allow_background_inference
