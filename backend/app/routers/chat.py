@@ -54,6 +54,7 @@ from app.services import (
     companion,
     companion_comeback_affect,
     cognitive_trace,
+    working_memory,
     companion_mode,
     life_model,
     memory,
@@ -746,6 +747,8 @@ async def chat(
             background=background_tasks,
         )
 
+    calendar_confirmation_result: dict[str, Any] | None = None
+
     if not is_calendar_draft_action_turn:
         calendar_confirmation_result = (
             await calendar_confirmation_actions.apply_calendar_confirmation_decision(
@@ -1262,6 +1265,57 @@ async def chat(
                 break
 
     is_first_message = len(messages) <= 1  # only the user message we just saved
+
+    # M31C — one immutable, request-scoped snapshot of state that the
+    # current chat runtime has already produced. It is intentionally not
+    # consumed by prompt construction, response generation, policy, or
+    # persistence in M31C.
+    _working_memory_state = working_memory.build_working_memory_state(
+        user_ref=user_id,
+        conversation_ref=body.conversation_id,
+        turn_ref=user_message_id,
+        history_message_count=len(messages),
+        is_first_message=is_first_message,
+        history_load_latency_ms=history_elapsed_ms,
+        assistant_mode=assistant_mode,
+        detected_mode=detected_mode,
+        companion_settings_row=companion_settings_row,
+        current_mood=current_mood,
+        user_mood_context=user_mood_ctx,
+        client_context=body.client_context,
+        memory_assembly=memory_assembly,
+        packed_memory_context=packed_memory_context,
+        calendar_draft_action_turn=is_calendar_draft_action_turn,
+        calendar_candidate_turn=is_calendar_candidate_turn,
+        calendar_action_result=calendar_action_result,
+        calendar_confirmation_result=calendar_confirmation_result,
+        calendar_candidate_result=None,
+        calendar_snapshot_dirty=bool(
+            calendar_action_snapshot_dirty
+            or (
+                calendar_confirmation_result
+                and calendar_confirmation_result.get("executed")
+            )
+        ),
+        attachment_rows=attachment_rows,
+        life_context_keys=(
+            tuple(context.keys())
+            if isinstance(context, dict)
+            else ()
+        ),
+        chronology_context_present=bool(
+            chronology_context
+        ),
+        pending_calendar_context_present=bool(
+            pending_calendar_confirmation_context
+        ),
+        latest_briefing_present=bool(
+            latest_briefing_for_prompt
+        ),
+        volatile_context_chars=len(
+            volatile_context
+        ),
+    )
 
     return StreamingResponse(
         _stream_claude_response(
