@@ -1,86 +1,265 @@
-from app.services.memory_consolidation import build_consolidation_candidates
+from pathlib import Path
+
+from app.services.memory_consolidation import (
+    build_consolidation_candidates,
+)
 
 
 def row(content, **extra):
     return {
-        "id": extra.get("id", content[:8]),
+        "id": extra.get(
+            "id",
+            f"mem-{abs(hash(content))}",
+        ),
         "content": content,
-        "category": extra.get("category", "other"),
-        "structured_field": extra.get("structured_field"),
-        "structured_value": extra.get("structured_value"),
-        "confidence": extra.get("confidence", 0.8),
-        "superseded": extra.get("superseded", False),
+        "kind": extra.get(
+            "kind",
+            "context",
+        ),
+        "category": extra.get(
+            "category",
+            "preferences",
+        ),
+        "structured_field": extra.get(
+            "structured_field",
+        ),
+        "structured_value": extra.get(
+            "structured_value",
+        ),
+        "confidence": extra.get(
+            "confidence",
+            0.90,
+        ),
+        "source": extra.get(
+            "source",
+            "auto",
+        ),
+        "source_priority": extra.get(
+            "source_priority",
+            "explicit_user_statement",
+        ),
+        "evidence": extra.get(
+            "evidence",
+            [],
+        ),
+        "archived": extra.get(
+            "archived",
+            False,
+        ),
+        "superseded": extra.get(
+            "superseded",
+            False,
+        ),
+        "status": extra.get(
+            "status",
+            "active",
+        ),
+        "deleted_at": extra.get(
+            "deleted_at",
+        ),
+        "last_confirmed_at": extra.get(
+            "last_confirmed_at",
+        ),
+        "created_at": extra.get(
+            "created_at",
+            "2026-08-01T00:00:00+00:00",
+        ),
+        "updated_at": extra.get(
+            "updated_at",
+            "2026-08-01T00:00:00+00:00",
+        ),
     }
 
 
-def test_no_consolidation_for_too_few_memories():
+def test_no_consolidation_for_single_memory():
     candidates = build_consolidation_candidates(
         [
-            row("User likes direct answers."),
-            row("User likes UI polish."),
+            row(
+                "User prefers concise technical answers.",
+                id="m1",
+                structured_field="response_preference",
+                structured_value="concise technical answers",
+            ),
         ]
     )
 
     assert candidates == []
 
 
-def test_builds_monthly_development_focus():
+def test_structured_repetition_targets_existing_memory():
     candidates = build_consolidation_candidates(
         [
-            row("User is building Aliyya personal assistant memory system."),
-            row("User added mood context for Aliyya."),
-            row("User is polishing frontend UI and mobile sidebar."),
-            row("User is working on backend deploy and memory reliability."),
-        ],
-        days=30,
+            row(
+                "User prefers concise technical answers.",
+                id="m1",
+                structured_field="response_preference",
+                structured_value="concise technical answers",
+                source_priority="explicit_user_statement",
+                confidence=0.94,
+            ),
+            row(
+                "User prefers concise technical answers.",
+                id="m2",
+                structured_field="response_preference",
+                structured_value="concise technical answers",
+                source_priority="user_answer_in_context",
+                confidence=0.86,
+            ),
+        ]
     )
 
-    fields = {c.structured_field for c in candidates}
-    assert "monthly_focus" in fields
+    assert len(candidates) == 1
+    candidate = candidates[0]
 
-    monthly = next(c for c in candidates if c.structured_field == "monthly_focus")
-    assert monthly.category == "goals"
-    assert monthly.kind == "context"
-    assert "memory reliability" in monthly.content
-    assert monthly.confidence >= 0.8
+    assert candidate.target_memory_ref == "m1"
+    assert (
+        "consolidation.cluster.structured_repeat"
+        in candidate.reason_codes
+    )
+    assert candidate.content == (
+        "User prefers concise technical answers."
+    )
+    assert set(candidate.source_memory_refs) == {
+        "m1",
+        "m2",
+    }
 
 
-def test_builds_interaction_pattern():
+def test_near_duplicate_unstructured_requires_three_rows():
     candidates = build_consolidation_candidates(
         [
-            row("User prefers careful comprehensive patch instead of incremental fixes."),
-            row("User wants root cause debugging help during deploy errors."),
-            row("User asked for full patch implementation support."),
-        ],
-        days=30,
+            row(
+                "User prefers root cause debugging with complete patches.",
+                id="m1",
+            ),
+            row(
+                "User prefers complete root cause debugging patches.",
+                id="m2",
+            ),
+            row(
+                "User prefers root cause debugging and complete patches.",
+                id="m3",
+            ),
+        ]
     )
 
-    fields = {c.structured_field for c in candidates}
-    assert "consolidated_interaction_pattern" in fields
-
-
-def test_builds_ui_design_preference():
-    candidates = build_consolidation_candidates(
-        [
-            row("User appreciates polished UI with glass vibes."),
-            row("User wants theme-aware contrast and smooth mobile behavior."),
-            row("User wants sidebar hover highlight."),
-        ],
-        days=30,
+    assert len(candidates) == 1
+    assert (
+        "consolidation.cluster.near_duplicate"
+        in candidates[0].reason_codes
     )
 
-    fields = {c.structured_field for c in candidates}
-    assert "consolidated_ui_design_preference" in fields
 
-
-def test_ignores_superseded_rows():
+def test_unverified_repeated_pattern_is_not_source_material():
     candidates = build_consolidation_candidates(
         [
-            row("User is building Aliyya memory system."),
-            row("User is building Aliyya mood system.", superseded=True),
-            row("User is polishing frontend UI."),
-        ],
-        days=30,
+            row(
+                "User appears to have a recurring routine involving: golf.",
+                id="m1",
+                category="routines",
+                structured_field="habit_pattern_123",
+                structured_value="golf",
+                source="auto",
+                source_priority="repeated_pattern",
+                confidence=0.54,
+            ),
+            row(
+                "User appears to have a recurring routine involving: golf.",
+                id="m2",
+                category="routines",
+                structured_field="habit_pattern_123",
+                structured_value="golf",
+                source="auto",
+                source_priority="repeated_pattern",
+                confidence=0.54,
+            ),
+        ]
     )
 
     assert candidates == []
+
+
+def test_hidden_rows_do_not_form_cluster():
+    candidates = build_consolidation_candidates(
+        [
+            row(
+                "User prefers concise answers.",
+                id="m1",
+                structured_field="response_style",
+                structured_value="concise",
+            ),
+            row(
+                "User prefers concise answers.",
+                id="m2",
+                structured_field="response_style",
+                structured_value="concise",
+                superseded=True,
+            ),
+        ]
+    )
+
+    assert candidates == []
+
+
+def test_identity_and_sensitive_patterns_are_not_consolidated():
+    identity_rows = [
+        row(
+            "User's name is Example.",
+            id="m1",
+            category="identity",
+            structured_field="name",
+            structured_value="Example",
+        ),
+        row(
+            "User's name is Example.",
+            id="m2",
+            category="identity",
+            structured_field="name",
+            structured_value="Example",
+        ),
+    ]
+
+    sensitive_rows = [
+        row(
+            "User takes prescription medication every morning.",
+            id="m3",
+            category="routines",
+            structured_field="morning_routine",
+            structured_value="prescription medication",
+        ),
+        row(
+            "User takes prescription medication every morning.",
+            id="m4",
+            category="routines",
+            structured_field="morning_routine",
+            structured_value="prescription medication",
+        ),
+    ]
+
+    assert build_consolidation_candidates(
+        identity_rows
+    ) == []
+
+    assert build_consolidation_candidates(
+        sensitive_rows
+    ) == []
+
+
+def test_m33_core_has_no_project_specific_keyword_taxonomy():
+    source = Path(
+        "app/services/memory_consolidation.py"
+    ).read_text(
+        encoding="utf-8"
+    )
+
+    forbidden = [
+        "DEVELOPMENT_TERMS",
+        "UI_TERMS",
+        "CAREFUL_SUPPORT_TERMS",
+        "RELATIONSHIP_TERMS",
+        "monthly_focus",
+        "aliyya development",
+    ]
+
+    for token in forbidden:
+        assert token not in source

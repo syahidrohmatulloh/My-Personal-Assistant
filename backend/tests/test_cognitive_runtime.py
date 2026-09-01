@@ -379,8 +379,6 @@ def test_runtime_does_not_implement_later_phase_logic() -> None:
     forbidden = [
         "packing_score",
         "salience_score",
-        "consolidation",
-        "dream_cycle",
     ]
 
     for token in forbidden:

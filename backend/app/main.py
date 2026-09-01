@@ -21,7 +21,12 @@ from app.routers import (
     calendar_oauth,
     voice,
 )
-from app.services import memory_health_scheduler, rate_limiter, proactive_nudges
+from app.services import (
+    memory_consolidation_scheduler,
+    memory_health_scheduler,
+    proactive_nudges,
+    rate_limiter,
+)
 from app.services.token_crypto import token_encryption_configured
 
 app = FastAPI(
@@ -73,12 +78,14 @@ app.include_router(voice.router)
 @app.on_event("startup")
 async def start_memory_health_scheduler() -> None:
     await memory_health_scheduler.start_memory_health_scheduler()
+    await memory_consolidation_scheduler.start_memory_consolidation_scheduler()
     await proactive_nudges.start_proactive_nudge_scheduler()
 
 
 @app.on_event("shutdown")
 async def stop_memory_health_scheduler() -> None:
     await proactive_nudges.stop_proactive_nudge_scheduler()
+    await memory_consolidation_scheduler.stop_memory_consolidation_scheduler()
     await memory_health_scheduler.stop_memory_health_scheduler()
 
 @app.get("/health", tags=["meta"])

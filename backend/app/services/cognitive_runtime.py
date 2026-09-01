@@ -20,6 +20,7 @@ Current ownership:
 - own M31F deterministic metacognitive policy + final trace sequencing;
 - own M31G intrinsic salience + attention overlay before that final trace.
 - own M32 habit-learning operation boundary while transport scheduling stays in chat.py.
+- own M33 explicit consolidation operation boundary; deferred scheduler remains a service.
 
 HTTP/FastAPI serialization, Claude provider streaming, chat persistence, and
 transport-bound background task scheduling remain outside CognitiveRuntime.
@@ -50,6 +51,7 @@ from app.services import companion_mode
 from app.services import conversation_chronology
 from app.services import life_model
 from app.services import metacognitive_policy
+from app.services import memory_consolidation
 from app.services import user_mood
 from app.services import working_memory
 
@@ -365,6 +367,22 @@ class CognitiveRuntime:
             habit_learning
             .learn_from_chat(
                 **kwargs
+            )
+        )
+
+    async def consolidate_memories(
+        self,
+        *,
+        user_id: str,
+        days: int = 30,
+    ) -> dict[str, Any]:
+        """Delegate deterministic M33 evidence consolidation."""
+
+        return await (
+            memory_consolidation
+            .consolidate_and_persist(
+                user_id=user_id,
+                days=days,
             )
         )
 

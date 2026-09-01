@@ -1,189 +1,432 @@
-"""Reflection / Memory Consolidation v1.
+"""M33 — deterministic evidence consolidation for durable memory.
 
-Creates a small number of high-level, stable memories from existing memories.
+"Dream cycle" is an engineering metaphor for deferred, low-priority memory
+maintenance. M33 does not generate dreams and does not invent new user facts.
 
-Design:
-- Manual-trigger first, no cron.
-- Deterministic/rule-based in v1.
-- Does not mutate companion mood.
-- Does not store temporary user mood.
-- Does not delete existing memories.
-- Upserts by structured_field + structured_value to avoid duplicates.
+Canonical boundaries:
+- consolidate evidence, not semantics;
+- never create a new memory claim during the automatic cycle;
+- never raise confidence or set last_confirmed_at;
+- never auto-archive/delete/supersede source memories;
+- only use active, trusted user-authored source rows;
+- exclude unverified repeated-pattern inference from consolidation;
+- exclude identity / important-date synthesis and sensitive profiling;
+- deterministic only: no LLM, embeddings, or external provider calls;
+- return structured audit data; do not emit a second per-turn cognitive trace.
+
+The existing public functions ``build_consolidation_candidates`` and
+``consolidate_and_persist`` remain available for compatibility.
 """
 
 from __future__ import annotations
 
 import asyncio
-import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from app.services.embeddings import embed_document
+from app.services.memory_lifecycle_governance import assess_memory_lifecycle
 from app.services.supabase_client import safe_execute
 
-log = logging.getLogger(__name__)
 
+CONSOLIDATION_VERSION = "M33-v1"
 
-MAX_SOURCE_MEMORIES = 200
+MAX_SOURCE_MEMORIES = 240
 MAX_CANDIDATES = 4
 MAX_EVIDENCE = 5
 
+STRUCTURED_MIN_CLUSTER_SIZE = 2
+UNSTRUCTURED_MIN_CLUSTER_SIZE = 3
+UNSTRUCTURED_SIMILARITY_THRESHOLD = 0.82
 
-DEVELOPMENT_TERMS = (
-    "aliyya",
-    "assistant",
-    "personal assistant",
-    "memory",
-    "memories",
-    "mood",
-    "relationship",
-    "voice",
-    "ui",
-    "frontend",
-    "backend",
-    "deploy",
-    "sidebar",
-    "mobile",
-)
+_ALLOWED_CATEGORIES = {
+    "preferences",
+    "relationships",
+    "routines",
+    "goals",
+    "constraints",
+    "other",
+}
 
-UI_TERMS = (
-    "ui",
-    "vibes",
-    "glass",
-    "theme-aware",
-    "theme",
-    "dark",
-    "light",
-    "mobile",
-    "smooth",
-    "contrast",
-    "sidebar",
-    "back to chat",
-)
+_EXCLUDED_CATEGORIES = {
+    "identity",
+    "important_dates",
+}
 
-CAREFUL_SUPPORT_TERMS = (
-    "careful",
-    "comprehensive",
-    "hati-hati",
-    "menyeluruh",
-    "incremental",
-    "patch",
-    "debugging",
-    "deploy",
-    "terminal",
-    "root-cause",
-    "root cause",
-)
+_USER_AUTHORED_PRIORITIES = {
+    "explicit_user_statement",
+    "user_answer_in_context",
+    "user_correction",
+}
 
-RELATIONSHIP_TERMS = (
-    "companion",
-    "personal",
-    "generic assistant",
-    "relationship",
-    "aliyya_relationship_style",
-    "aliyya_coding_support_style",
-)
+_USER_AUTHORED_SOURCES = {
+    "manual",
+    "user",
+}
+
+_SENSITIVE_TERMS = {
+    "diagnosis",
+    "diagnosed",
+    "medication",
+    "medicine",
+    "prescription",
+    "insulin",
+    "therapy",
+    "terapi",
+    "obat",
+    "religion",
+    "religious",
+    "muslim",
+    "christian",
+    "hindu",
+    "buddhist",
+    "islam",
+    "church",
+    "mosque",
+    "masjid",
+    "quran",
+    "bible",
+    "politics",
+    "political",
+    "party",
+    "partai",
+    "election",
+    "pemilu",
+    "vote",
+    "sexual",
+    "sex",
+    "porn",
+    "alcohol",
+    "beer",
+    "wine",
+    "whisky",
+    "whiskey",
+    "rokok",
+    "cigarette",
+    "smoking",
+    "vape",
+    "marijuana",
+    "thc",
+}
+
+_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "for", "from", "has", "is",
+    "it", "of", "on", "or", "that", "the", "to", "user", "with",
+    "aku", "dan", "di", "dengan", "dari", "ini", "itu", "ke", "saya", "yang",
+}
 
 
 @dataclass(frozen=True)
 class ConsolidatedMemoryCandidate:
+    """Evidence-merge proposal targeting one existing canonical memory."""
+
     content: str
     kind: str
     category: str
-    structured_field: str
-    structured_value: str
+    structured_field: str | None
+    structured_value: str | None
     confidence: float
     evidence: list[str]
-
-    def as_payload(self, *, user_id: str, embedding: list[float] | None) -> dict[str, Any]:
-        now = datetime.now(timezone.utc).isoformat()
-        payload = {
-            "user_id": user_id,
-            "content": self.content,
-            "kind": self.kind,
-            "category": self.category,
-            "structured_field": self.structured_field,
-            "structured_value": self.structured_value,
-            "confidence": self.confidence,
-            "source_priority": "repeated_pattern",
-            "evidence": self.evidence[:MAX_EVIDENCE],
-            "superseded": False,
-            "last_confirmed_at": now,
-        }
-        if embedding is not None:
-            payload["embedding"] = embedding
-        return payload
+    target_memory_ref: str = ""
+    source_memory_refs: tuple[str, ...] = ()
+    reason_codes: tuple[str, ...] = ()
 
 
-async def consolidate_and_persist(
-    *,
-    user_id: str,
-    days: int = 30,
-) -> dict[str, Any]:
-    """Fetch recent active memories, consolidate stable patterns, and persist."""
-    rows = await fetch_recent_active_memories(user_id=user_id, days=days)
-    candidates = build_consolidation_candidates(rows, days=days)
-
-    if not candidates:
-        return {
-            "ok": True,
-            "saved": 0,
-            "confirmed": 0,
-            "candidates": 0,
-            "source_memories": len(rows),
-            "reason": "no_stable_pattern",
-        }
-
-    saved = 0
-    confirmed = 0
-    failed = 0
-    actions: list[dict[str, Any]] = []
-
-    for candidate in candidates[:MAX_CANDIDATES]:
-        try:
-            result = await _upsert_candidate(user_id=user_id, candidate=candidate)
-            actions.append(result)
-            if result.get("action") == "inserted":
-                saved += 1
-            elif result.get("action") == "confirmed_existing":
-                confirmed += 1
-        except Exception as exc:  # noqa: BLE001
-            failed += 1
-            log.warning("memory_consolidation: failed to persist candidate: %s", exc)
-
-    return {
-        "ok": failed == 0,
-        "saved": saved,
-        "confirmed": confirmed,
-        "failed": failed,
-        "candidates": len(candidates),
-        "source_memories": len(rows),
-        "actions": actions,
-    }
+def _compact(value: Any) -> str:
+    return " ".join(str(value or "").strip().split())
 
 
-async def fetch_recent_active_memories(*, user_id: str, days: int = 30) -> list[dict[str, Any]]:
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+def _fold(value: Any) -> str:
+    return _compact(value).casefold()
 
-    def _query():
-        return safe_execute(
-            lambda sb: sb.table("memories")
-            .select(
-                "id, content, kind, category, structured_field, structured_value, "
-                "confidence, source_priority, evidence, superseded, "
-                "last_confirmed_at, created_at"
-            )
-            .eq("user_id", user_id)
-            .eq("superseded", False)
-            .gte("created_at", cutoff)
-            .order("created_at", desc=True)
-            .limit(MAX_SOURCE_MEMORIES)
-            .execute()
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _is_hidden(row: dict[str, Any]) -> bool:
+    status = _fold(row.get("status"))
+    return bool(
+        row.get("archived")
+        or row.get("superseded")
+        or row.get("deleted_at")
+        or status in {"archived", "superseded", "deleted"}
+    )
+
+
+def _is_sensitive(text: str) -> bool:
+    words = set(
+        re.findall(
+            r"[a-z0-9\u00c0-\u024f]+",
+            text.casefold(),
+        )
+    )
+    return bool(words & _SENSITIVE_TERMS)
+
+
+def _eligible_source(row: dict[str, Any]) -> bool:
+    if not row or not _compact(row.get("content")):
+        return False
+
+    if _is_hidden(row):
+        return False
+
+    assessment = assess_memory_lifecycle(row)
+    if assessment.hidden or assessment.needs_confirmation:
+        return False
+
+    category = _fold(row.get("category")) or "other"
+    if category in _EXCLUDED_CATEGORIES:
+        return False
+    if category not in _ALLOWED_CATEGORIES:
+        return False
+
+    source_priority = _fold(row.get("source_priority"))
+    source = _fold(row.get("source"))
+
+    user_authored = (
+        source_priority in _USER_AUTHORED_PRIORITIES
+        or source in _USER_AUTHORED_SOURCES
+    )
+    if not user_authored:
+        return False
+
+    haystack = " ".join(
+        part
+        for part in (
+            _compact(row.get("content")),
+            _compact(row.get("structured_value")),
+        )
+        if part
+    )
+    if _is_sensitive(haystack):
+        return False
+
+    structured_field = _fold(row.get("structured_field"))
+    if structured_field.startswith("consolidated_pattern_"):
+        return False
+
+    return True
+
+
+def _normalized_value(value: Any) -> str:
+    text = _fold(value)
+    text = re.sub(
+        r"[^a-z0-9\u00c0-\u024f]+",
+        " ",
+        text,
+    )
+    return " ".join(text.split())
+
+
+def _tokens(value: Any) -> frozenset[str]:
+    text = _normalized_value(value)
+    return frozenset(
+        token
+        for token in text.split()
+        if token not in _STOPWORDS
+        and len(token) >= 2
+    )
+
+
+def _similarity(left: Any, right: Any) -> float:
+    left_tokens = _tokens(left)
+    right_tokens = _tokens(right)
+
+    if len(left_tokens) < 2 or len(right_tokens) < 2:
+        return 0.0
+
+    union = len(left_tokens | right_tokens)
+    if union == 0:
+        return 0.0
+
+    return len(left_tokens & right_tokens) / union
+
+
+def _provenance_rank(row: dict[str, Any]) -> int:
+    priority = _fold(row.get("source_priority"))
+
+    if priority == "user_correction":
+        return 5
+    if priority == "explicit_user_statement":
+        return 4
+    if priority == "user_answer_in_context":
+        return 3
+
+    source = _fold(row.get("source"))
+    if source in _USER_AUTHORED_SOURCES:
+        return 2
+
+    return 1
+
+
+def _representative(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    def key(row: dict[str, Any]) -> tuple[Any, ...]:
+        return (
+            _provenance_rank(row),
+            _safe_float(row.get("confidence")),
+            _compact(row.get("updated_at")),
+            _compact(row.get("created_at")),
+            _compact(row.get("id")),
         )
 
-    result = await asyncio.to_thread(_query)
-    return result.data or []
+    return max(rows, key=key)
+
+
+def _evidence(rows: list[dict[str, Any]]) -> list[str]:
+    values: list[str] = []
+    seen: set[str] = set()
+
+    for row in rows:
+        text = _compact(row.get("content"))[:180]
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        values.append(text)
+        if len(values) >= MAX_EVIDENCE:
+            break
+
+    return values
+
+
+def _candidate_from_cluster(
+    rows: list[dict[str, Any]],
+    *,
+    reason_code: str,
+) -> ConsolidatedMemoryCandidate | None:
+    if not rows:
+        return None
+
+    representative = _representative(rows)
+    target_ref = _compact(representative.get("id"))
+    if not target_ref:
+        return None
+
+    source_refs = tuple(
+        ref
+        for ref in (
+            _compact(row.get("id"))
+            for row in rows
+        )
+        if ref
+    )
+
+    return ConsolidatedMemoryCandidate(
+        content=_compact(representative.get("content")),
+        kind=_compact(representative.get("kind")) or "context",
+        category=_fold(representative.get("category")) or "other",
+        structured_field=(
+            _compact(representative.get("structured_field"))
+            or None
+        ),
+        structured_value=(
+            _compact(representative.get("structured_value"))
+            or None
+        ),
+        confidence=_safe_float(
+            representative.get("confidence"),
+            0.0,
+        ),
+        evidence=_evidence(rows),
+        target_memory_ref=target_ref,
+        source_memory_refs=source_refs,
+        reason_codes=(reason_code,),
+    )
+
+
+def _structured_clusters(
+    rows: list[dict[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    groups: dict[
+        tuple[str, str, str],
+        list[dict[str, Any]],
+    ] = {}
+
+    for row in rows:
+        field = _normalized_value(
+            row.get("structured_field")
+        )
+        value = _normalized_value(
+            row.get("structured_value")
+        )
+        category = _fold(row.get("category")) or "other"
+
+        if not field or not value:
+            continue
+
+        key = (category, field, value)
+        groups.setdefault(key, []).append(row)
+
+    return [
+        group
+        for group in groups.values()
+        if len(group) >= STRUCTURED_MIN_CLUSTER_SIZE
+    ]
+
+
+def _unstructured_clusters(
+    rows: list[dict[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    candidates = [
+        row
+        for row in rows
+        if not _compact(row.get("structured_field"))
+        and not _compact(row.get("structured_value"))
+    ]
+
+    clusters: list[list[dict[str, Any]]] = []
+    used: set[str] = set()
+
+    ordered = sorted(
+        candidates,
+        key=lambda row: (
+            _fold(row.get("category")),
+            _compact(row.get("id")),
+        ),
+    )
+
+    for row in ordered:
+        row_ref = _compact(row.get("id"))
+        if not row_ref or row_ref in used:
+            continue
+
+        category = _fold(row.get("category")) or "other"
+        cluster = [row]
+
+        for other in ordered:
+            other_ref = _compact(other.get("id"))
+            if (
+                not other_ref
+                or other_ref == row_ref
+                or other_ref in used
+                or _fold(other.get("category")) != category
+            ):
+                continue
+
+            if (
+                _similarity(
+                    row.get("content"),
+                    other.get("content"),
+                )
+                >= UNSTRUCTURED_SIMILARITY_THRESHOLD
+            ):
+                cluster.append(other)
+
+        if len(cluster) < UNSTRUCTURED_MIN_CLUSTER_SIZE:
+            continue
+
+        for item in cluster:
+            ref = _compact(item.get("id"))
+            if ref:
+                used.add(ref)
+
+        clusters.append(cluster)
+
+    return clusters
 
 
 def build_consolidation_candidates(
@@ -191,224 +434,308 @@ def build_consolidation_candidates(
     *,
     days: int = 30,
 ) -> list[ConsolidatedMemoryCandidate]:
-    """Build high-level stable memories from existing memory rows."""
-    active = [
+    """Build deterministic evidence-merge candidates from trusted memory rows."""
+
+    del days
+
+    eligible = [
         row
         for row in rows
-        if row
-        and not row.get("superseded")
-        and str(row.get("content") or "").strip()
+        if isinstance(row, dict)
+        and _eligible_source(row)
     ]
 
-    if len(active) < 3:
+    if len(eligible) < STRUCTURED_MIN_CLUSTER_SIZE:
         return []
 
     candidates: list[ConsolidatedMemoryCandidate] = []
+    seen_targets: set[str] = set()
 
-    dev_rows = _matching_rows(active, DEVELOPMENT_TERMS)
-    if len(dev_rows) >= 3:
-        candidates.append(
-            ConsolidatedMemoryCandidate(
-                content=(
-                    f"Over the last {days} days, user has been actively developing "
-                    "Aliyya/My Personal Assistant with emphasis on memory reliability, "
-                    "mood context, relationship continuity, UI polish, and mobile usability."
-                ),
-                kind="context",
-                category="goals",
-                structured_field="monthly_focus",
-                structured_value="Aliyya development: memory reliability, mood context, relationship continuity, UI polish, and mobile usability",
-                confidence=_confidence_from_count(len(dev_rows), base=0.74),
-                evidence=_evidence(dev_rows),
-            )
+    for cluster in _structured_clusters(eligible):
+        candidate = _candidate_from_cluster(
+            cluster,
+            reason_code=(
+                "consolidation.cluster.structured_repeat"
+            ),
         )
+        if (
+            candidate is not None
+            and candidate.target_memory_ref
+            not in seen_targets
+        ):
+            seen_targets.add(candidate.target_memory_ref)
+            candidates.append(candidate)
 
-    support_rows = _matching_rows(active, CAREFUL_SUPPORT_TERMS)
-    if len(support_rows) >= 2:
-        candidates.append(
-            ConsolidatedMemoryCandidate(
-                content=(
-                    "A repeated interaction pattern is that user prefers careful, "
-                    "complete, root-cause-oriented implementation help over incremental "
-                    "or speculative fixes, especially during debugging and deployment."
-                ),
-                kind="preference",
-                category="relationships",
-                structured_field="consolidated_interaction_pattern",
-                structured_value="Careful, complete, root-cause implementation support",
-                confidence=_confidence_from_count(len(support_rows), base=0.78),
-                evidence=_evidence(support_rows),
-            )
+    for cluster in _unstructured_clusters(eligible):
+        candidate = _candidate_from_cluster(
+            cluster,
+            reason_code=(
+                "consolidation.cluster.near_duplicate"
+            ),
         )
+        if (
+            candidate is not None
+            and candidate.target_memory_ref
+            not in seen_targets
+        ):
+            seen_targets.add(candidate.target_memory_ref)
+            candidates.append(candidate)
 
-    ui_rows = _matching_rows(active, UI_TERMS)
-    if len(ui_rows) >= 2:
-        candidates.append(
-            ConsolidatedMemoryCandidate(
-                content=(
-                    "A stable design preference is that user appreciates polished, "
-                    "theme-aware UI with glass-like surfaces, good contrast, smooth "
-                    "mobile behavior, and consistent page/sidebar interactions."
-                ),
-                kind="preference",
-                category="preferences",
-                structured_field="consolidated_ui_design_preference",
-                structured_value="Polished, theme-aware UI with glass-like surfaces, good contrast, and smooth mobile behavior",
-                confidence=_confidence_from_count(len(ui_rows), base=0.78),
-                evidence=_evidence(ui_rows),
+    return candidates[:MAX_CANDIDATES]
+
+
+def _merge_evidence(
+    existing: Any,
+    incoming: list[str],
+) -> list[str]:
+    values: list[str] = []
+    seen: set[str] = set()
+
+    existing_values = (
+        existing
+        if isinstance(existing, list)
+        else []
+    )
+
+    for raw in [
+        *existing_values,
+        *incoming,
+    ]:
+        text = _compact(raw)[:180]
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        values.append(text)
+        if len(values) >= MAX_EVIDENCE:
+            break
+
+    return values
+
+
+async def fetch_recent_active_memories(
+    *,
+    user_id: str,
+    days: int = 30,
+) -> list[dict[str, Any]]:
+    cutoff = (
+        datetime.now(timezone.utc)
+        - timedelta(days=max(1, days))
+    ).isoformat()
+
+    result = await asyncio.to_thread(
+        lambda: safe_execute(
+            lambda sb: sb.table("memories")
+            .select(
+                "id,content,kind,category,structured_field,"
+                "structured_value,confidence,source,source_priority,"
+                "source_conversation_id,evidence,archived,superseded,"
+                "status,deleted_at,last_confirmed_at,created_at,updated_at"
             )
+            .eq("user_id", user_id)
+            .gte("created_at", cutoff)
+            .order("created_at", desc=True)
+            .limit(MAX_SOURCE_MEMORIES)
+            .execute()
         )
+    )
 
-    relationship_rows = _matching_rows(active, RELATIONSHIP_TERMS)
-    if len(relationship_rows) >= 2:
-        candidates.append(
-            ConsolidatedMemoryCandidate(
-                content=(
-                    "User wants Aliyya to maintain relationship continuity and feel like "
-                    "a consistent personal assistant/companion, not a generic assistant."
-                ),
-                kind="preference",
-                category="relationships",
-                structured_field="consolidated_aliyya_relationship_preference",
-                structured_value="Consistent personal assistant and companion, not a generic assistant",
-                confidence=_confidence_from_count(len(relationship_rows), base=0.76),
-                evidence=_evidence(relationship_rows),
+    return list(
+        getattr(result, "data", None)
+        or []
+    )
+
+
+async def _load_target_row(
+    *,
+    user_id: str,
+    memory_id: str,
+) -> dict[str, Any] | None:
+    result = await asyncio.to_thread(
+        lambda: safe_execute(
+            lambda sb: sb.table("memories")
+            .select(
+                "id,content,kind,category,structured_field,"
+                "structured_value,confidence,source,source_priority,"
+                "evidence,archived,superseded,status,deleted_at,"
+                "last_confirmed_at,created_at,updated_at"
             )
+            .eq("user_id", user_id)
+            .eq("id", memory_id)
+            .limit(1)
+            .execute()
         )
+    )
 
-    return _dedupe_candidates(candidates)
+    rows = list(
+        getattr(result, "data", None)
+        or []
+    )
+    return rows[0] if rows else None
 
 
-async def _upsert_candidate(
+async def _update_target_evidence(
+    *,
+    user_id: str,
+    memory_id: str,
+    evidence: list[str],
+) -> None:
+    await asyncio.to_thread(
+        lambda: safe_execute(
+            lambda sb: sb.table("memories")
+            .update(
+                {
+                    "evidence": evidence,
+                }
+            )
+            .eq("user_id", user_id)
+            .eq("id", memory_id)
+            .execute()
+        )
+    )
+
+
+async def merge_candidate_evidence(
     *,
     user_id: str,
     candidate: ConsolidatedMemoryCandidate,
 ) -> dict[str, Any]:
-    now = datetime.now(timezone.utc).isoformat()
+    target = await _load_target_row(
+        user_id=user_id,
+        memory_id=candidate.target_memory_ref,
+    )
 
-    def _select_existing():
-        return safe_execute(
-            lambda sb: sb.table("memories")
-            .select("id, confidence")
-            .eq("user_id", user_id)
-            .eq("structured_field", candidate.structured_field)
-            .eq("structured_value", candidate.structured_value)
-            .eq("superseded", False)
-            .limit(1)
-            .execute()
-        )
-
-    existing = await asyncio.to_thread(_select_existing)
-    rows = existing.data or []
-
-    if rows:
-        row = rows[0]
-        memory_id = row.get("id")
-        current_confidence = _safe_float(row.get("confidence"))
-        next_confidence = max(current_confidence, candidate.confidence)
-
-        def _update_existing():
-            return safe_execute(
-                lambda sb: sb.table("memories")
-                .update(
-                    {
-                        "confidence": next_confidence,
-                        "last_confirmed_at": now,
-                    }
-                )
-                .eq("id", memory_id)
-                .eq("user_id", user_id)
-                .execute()
-            )
-
-        await asyncio.to_thread(_update_existing)
+    if target is None or not _eligible_source(target):
         return {
-            "action": "confirmed_existing",
-            "memory_id": memory_id,
-            "structured_field": candidate.structured_field,
+            "action": "target_unavailable",
+            "memory_id": candidate.target_memory_ref,
+            "reason_code": (
+                "consolidation.persistence.target_unavailable"
+            ),
         }
 
-    embedding = None
-    try:
-        embedding = await embed_document(candidate.content)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("memory_consolidation: embedding failed, inserting without embedding: %s", exc)
+    merged = _merge_evidence(
+        target.get("evidence"),
+        candidate.evidence,
+    )
+    existing = _merge_evidence(
+        target.get("evidence"),
+        [],
+    )
 
-    payload = candidate.as_payload(user_id=user_id, embedding=embedding)
+    if merged == existing:
+        return {
+            "action": "unchanged",
+            "memory_id": candidate.target_memory_ref,
+            "reason_code": (
+                "consolidation.persistence.unchanged"
+            ),
+        }
 
-    def _insert_new():
-        return safe_execute(lambda sb: sb.table("memories").insert(payload).execute())
-
-    inserted = await asyncio.to_thread(_insert_new)
-    inserted_rows = inserted.data or []
+    await _update_target_evidence(
+        user_id=user_id,
+        memory_id=candidate.target_memory_ref,
+        evidence=merged,
+    )
 
     return {
-        "action": "inserted",
-        "memory_id": inserted_rows[0].get("id") if inserted_rows else None,
-        "structured_field": candidate.structured_field,
+        "action": "evidence_merged",
+        "memory_id": candidate.target_memory_ref,
+        "evidence_count": len(merged),
+        "source_memory_refs": list(
+            candidate.source_memory_refs
+        ),
+        "reason_code": (
+            "consolidation.persistence.evidence_merged"
+        ),
     }
 
 
-def _matching_rows(rows: list[dict[str, Any]], terms: tuple[str, ...]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for row in rows:
-        haystack = " ".join(
-            str(part or "")
-            for part in (
-                row.get("content"),
-                row.get("category"),
-                row.get("structured_field"),
-                row.get("structured_value"),
-            )
-        ).lower()
-        if any(term.lower() in haystack for term in terms):
-            out.append(row)
-    return out
+async def consolidate_and_persist(
+    *,
+    user_id: str,
+    days: int = 30,
+) -> dict[str, Any]:
+    """Run one fail-open M33 evidence-consolidation cycle for a user."""
 
-
-def _evidence(rows: list[dict[str, Any]]) -> list[str]:
-    evidence: list[str] = []
-    seen: set[str] = set()
-
-    for row in rows[:MAX_EVIDENCE]:
-        text = _truncate(str(row.get("content") or "").strip(), 180)
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        evidence.append(text)
-
-    return evidence
-
-
-def _confidence_from_count(count: int, *, base: float) -> float:
-    return round(min(0.92, base + min(count, 6) * 0.025), 2)
-
-
-def _dedupe_candidates(
-    candidates: list[ConsolidatedMemoryCandidate],
-) -> list[ConsolidatedMemoryCandidate]:
-    seen: set[tuple[str, str]] = set()
-    out: list[ConsolidatedMemoryCandidate] = []
-
-    for candidate in candidates:
-        key = (candidate.structured_field, candidate.structured_value)
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(candidate)
-
-    return out
-
-
-def _truncate(text: str, limit: int) -> str:
-    compact = " ".join(text.split())
-    if len(compact) <= limit:
-        return compact
-    return compact[: limit - 1].rstrip() + "…"
-
-
-def _safe_float(value: Any) -> float:
     try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
+        rows = await fetch_recent_active_memories(
+            user_id=user_id,
+            days=days,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "version": CONSOLIDATION_VERSION,
+            "saved": 0,
+            "confirmed": 0,
+            "merged": 0,
+            "unchanged": 0,
+            "failed": 1,
+            "candidates": 0,
+            "source_memories": 0,
+            "reason": "source_unavailable",
+            "error_type": type(exc).__name__,
+        }
+
+    candidates = build_consolidation_candidates(
+        rows,
+        days=days,
+    )
+
+    if not candidates:
+        return {
+            "ok": True,
+            "version": CONSOLIDATION_VERSION,
+            "saved": 0,
+            "confirmed": 0,
+            "merged": 0,
+            "unchanged": 0,
+            "failed": 0,
+            "candidates": 0,
+            "source_memories": len(rows),
+            "reason": "no_stable_pattern",
+            "actions": [],
+        }
+
+    merged = 0
+    unchanged = 0
+    failed = 0
+    actions: list[dict[str, Any]] = []
+
+    for candidate in candidates[:MAX_CANDIDATES]:
+        try:
+            result = await merge_candidate_evidence(
+                user_id=user_id,
+                candidate=candidate,
+            )
+        except Exception as exc:  # noqa: BLE001
+            result = {
+                "action": "failed",
+                "memory_id": candidate.target_memory_ref,
+                "reason_code": (
+                    "consolidation.persistence.failed"
+                ),
+                "error_type": type(exc).__name__,
+            }
+
+        actions.append(result)
+
+        if result.get("action") == "evidence_merged":
+            merged += 1
+        elif result.get("action") == "unchanged":
+            unchanged += 1
+        else:
+            failed += 1
+
+    return {
+        "ok": failed == 0,
+        "version": CONSOLIDATION_VERSION,
+        "saved": 0,
+        "confirmed": 0,
+        "merged": merged,
+        "unchanged": unchanged,
+        "failed": failed,
+        "candidates": len(candidates),
+        "source_memories": len(rows),
+        "actions": actions,
+    }
