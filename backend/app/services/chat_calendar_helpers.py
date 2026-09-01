@@ -22,6 +22,9 @@ def should_hard_gate_calendar_candidate(user_message: str | None) -> bool:
     lower = raw.casefold()
     compact = " ".join(lower.split())
 
+    if calendar_candidate_extractor.is_calendar_absence_statement(raw):
+        return False
+
     if compact in {
         "iya",
         "ya",

@@ -235,6 +235,145 @@ def is_public_situational_update(text: str | None) -> bool:
     return False
 
 
+
+_CALENDAR_ABSENCE_EVENT_TERMS = (
+    "meeting",
+    "meet",
+    "rapat",
+    "agenda",
+    "jadwal",
+    "acara",
+    "appointment",
+    "janji",
+    "call",
+    "briefing",
+    "interview",
+    "presentasi",
+    "presentation",
+    "session",
+    "seminar",
+    "workshop",
+    "deadline",
+    "event",
+)
+
+
+def is_calendar_absence_statement(
+    text: str | None,
+) -> bool:
+    """Return True when the user says a Calendar event does not exist.
+
+    This guard protects Calendar candidate creation from semantic negation.
+    It intentionally does not treat every negative word as Calendar negation;
+    the negation must be tied directly to an event/schedule concept.
+    """
+
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+
+    event_pattern = (
+        "(?:"
+        + "|".join(
+            re.escape(term)
+            for term in sorted(
+                _CALENDAR_ABSENCE_EVENT_TERMS,
+                key=len,
+                reverse=True,
+            )
+        )
+        + r")(?:s)?"
+    )
+
+    negation = (
+        r"(?:"
+        r"nggak|ngga|enggak|engga|"
+        r"gak|ga|gk|"
+        r"tidak|tdk|tak|belum"
+        r")"
+    )
+
+    indonesian_patterns = (
+        (
+            rf"\b{negation}\s+"
+            rf"(?:ada|punya|memiliki)\s+"
+            rf"(?:(?:lagi|rencana|sebuah|suatu)\s+)?"
+            rf"{event_pattern}\b"
+        ),
+        (
+            rf"\b{negation}\s+"
+            rf"(?:mau|akan|bakal|jadi)\s+"
+            rf"{event_pattern}\b"
+        ),
+        (
+            rf"\b(?:aku|saya|gue|gw|gua|kita|kami)\s+"
+            rf"{negation}\s+"
+            rf"(?:akan\s+|bakal\s+)?"
+            rf"{event_pattern}\b"
+        ),
+        (
+            rf"\b{event_pattern}\b"
+            rf"(?:\s+\S+){{0,4}}\s+"
+            rf"{negation}\s+"
+            rf"(?:jadi|ada)\b"
+        ),
+        (
+            rf"\b{event_pattern}\b"
+            rf"(?:\s+\S+){{0,4}}\s+"
+            rf"(?:batal|dibatalkan)\b"
+        ),
+        (
+            rf"\b(?:batal|batalkan)\s+"
+            rf"{event_pattern}\b"
+        ),
+        (
+            r"\b(?:jadwal|agenda|kalender|calendar)\b"
+            r"(?:\s+\S+){0,4}\s+"
+            r"(?:kosong|empty|clear)\b"
+        ),
+    )
+
+    if any(
+        re.search(pattern, normalized)
+        for pattern in indonesian_patterns
+    ):
+        return True
+
+    english_patterns = (
+        (
+            rf"\bno\s+(?:more\s+)?"
+            rf"{event_pattern}\b"
+        ),
+        (
+            rf"\bthere(?:'s|\s+is|\s+are)\s+"
+            rf"no\s+(?:more\s+)?"
+            rf"{event_pattern}\b"
+        ),
+        (
+            rf"\b(?:i|we)\s+"
+            rf"(?:do\s+not|don't|dont)\s+"
+            rf"have\s+"
+            rf"(?:(?:a|an|any)\s+)?"
+            rf"{event_pattern}\b"
+        ),
+        (
+            rf"\b(?:i|we)\s+have\s+no\s+"
+            rf"{event_pattern}\b"
+        ),
+        (
+            rf"\b{event_pattern}\b"
+            rf"(?:\s+\S+){{0,4}}\s+"
+            rf"(?:is\s+)?"
+            rf"(?:cancelled|canceled)\b"
+        ),
+    )
+
+    return any(
+        re.search(pattern, normalized)
+        for pattern in english_patterns
+    )
+
+
 @dataclass(frozen=True)
 class CalendarCandidate:
     title: str
@@ -256,6 +395,9 @@ def has_calendar_signal(text: str | None) -> bool:
         return False
 
     if is_public_situational_update(normalized):
+        return False
+
+    if is_calendar_absence_statement(normalized):
         return False
 
     has_event_keyword = any(keyword in normalized for keyword in _EVENT_KEYWORDS)
@@ -481,6 +623,9 @@ def should_attempt_calendar_candidate_extraction(text: str | None) -> bool:
     if not normalized:
         return False
 
+    if is_calendar_absence_statement(normalized):
+        return False
+
     if has_calendar_signal(normalized):
         return True
 
@@ -610,6 +755,13 @@ async def extract_and_persist(
     client_context: dict[str, Any] | None = None,
     recent_messages: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    if is_calendar_absence_statement(user_message):
+        return {
+            "candidate": False,
+            "saved": False,
+            "reason": "calendar_absence_statement",
+        }
+
     base_date = _base_date_from_client_context(client_context)
     tz_offset = _timezone_offset_from_client_context(client_context)
 
