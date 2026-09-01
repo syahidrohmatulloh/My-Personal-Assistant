@@ -54,15 +54,27 @@ def _trace(
 
 
 def test_reason_registry_matches_locked_taxonomy() -> None:
-    # M31F adds 19 canonical metacognitive reason codes
-    # while M31G salience remains out of scope.
-    assert len(REASON_CODES) == 99
+    # M31G adds 16 canonical salience/attention reason codes
+    # to the 99-code M31F registry.
+    assert len(REASON_CODES) == 115
 
     assert (
         "affect.warm_comeback.suppressed.serious_work_task"
         in REASON_CODES
     )
 
+    assert (
+        "attention.salience.level.high"
+        in REASON_CODES
+    )
+
+    assert (
+        "attention.focus.suppressed_unverified"
+        in REASON_CODES
+    )
+
+    # M31G uses the canonical attention.salience.* taxonomy
+    # rather than the rejected placeholder naming.
     assert (
         "memory.selected.high_salience"
         not in REASON_CODES
@@ -118,7 +130,7 @@ def test_unknown_reason_code_is_rejected() -> None:
         )
 
 
-def test_m31b_salience_must_remain_none() -> None:
+def test_m31g_salience_score_is_supported_when_bounded() -> None:
     trace = _trace(
         memory=MemoryTrace(
             retrieval_attempted=True,
@@ -131,9 +143,36 @@ def test_m31b_salience_must_remain_none() -> None:
         )
     )
 
+    validate_trace(
+        trace
+    )
+
+
+@pytest.mark.parametrize(
+    "score",
+    [
+        -0.01,
+        1.01,
+    ],
+)
+def test_m31g_salience_score_rejects_out_of_range(
+    score: float,
+) -> None:
+    trace = _trace(
+        memory=MemoryTrace(
+            retrieval_attempted=True,
+            candidates=[
+                MemoryCandidateTrace(
+                    memory_ref="m1",
+                    salience_score=score,
+                )
+            ],
+        )
+    )
+
     with pytest.raises(
         ValueError,
-        match="salience_score must remain None",
+        match="salience_score must be between",
     ):
         validate_trace(
             trace

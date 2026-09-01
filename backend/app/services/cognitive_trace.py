@@ -115,6 +115,22 @@ REASON_CODES = frozenset(
         "metacognition.background_inference.held",
         "metacognition.rephrase.detected",
         "metacognition.fallback.safe_default",
+        "attention.salience.level.normal",
+        "attention.salience.level.elevated",
+        "attention.salience.level.high",
+        "attention.salience.category.critical",
+        "attention.salience.category.core",
+        "attention.salience.category.durable",
+        "attention.salience.category.context",
+        "attention.salience.structured.core_field",
+        "attention.salience.structured.other_field",
+        "attention.salience.tier.low",
+        "attention.salience.tier.medium",
+        "attention.salience.tier.high",
+        "attention.focus.selected",
+        "attention.focus.suppressed_unverified",
+        "attention.focus.suppressed_clarify",
+        "attention.salience.fallback.safe_default",
         "action.detected.calendar",
         "action.detected.reminder",
         "action.detected.memory_encoding",
@@ -227,6 +243,10 @@ class AttentionTrace:
     dropped_summary_count: int = 0
     packed_context_chars: int | None = None
     packed_context_budget_chars: int | None = None
+    attention_level: str | None = None
+    salient_memory_refs: list[str] = field(default_factory=list)
+    attended_memory_refs: list[str] = field(default_factory=list)
+    suppressed_memory_refs: list[str] = field(default_factory=list)
     reason_codes: list[str] = field(default_factory=list)
 
 
@@ -529,10 +549,73 @@ def validate_trace(
             )
 
         for candidate in trace.memory.candidates:
-            if candidate.salience_score is not None:
-                raise ValueError(
-                    "M31B salience_score must remain None until M31G"
+            if (
+                candidate.salience_score is not None
+                and not (
+                    0.0
+                    <= candidate.salience_score
+                    <= 1.0
                 )
+            ):
+                raise ValueError(
+                    "M31G salience_score must be between 0 and 1"
+                )
+
+    if trace.attention:
+        if (
+            trace.attention.attention_level
+            is not None
+            and trace.attention.attention_level
+            not in {
+                "normal",
+                "elevated",
+                "high",
+            }
+        ):
+            raise ValueError(
+                "Invalid M31G attention_level"
+            )
+
+        selected_refs = set(
+            trace.attention
+            .selected_memory_refs
+        )
+        salient_refs = set(
+            trace.attention
+            .salient_memory_refs
+        )
+        attended_refs = set(
+            trace.attention
+            .attended_memory_refs
+        )
+        suppressed_refs = set(
+            trace.attention
+            .suppressed_memory_refs
+        )
+
+        if not salient_refs.issubset(
+            selected_refs
+        ):
+            raise ValueError(
+                "M31G salient refs must be selected"
+            )
+
+        if (
+            not attended_refs.issubset(
+                salient_refs
+            )
+            or not suppressed_refs.issubset(
+                salient_refs
+            )
+        ):
+            raise ValueError(
+                "M31G attended/suppressed refs must be salient"
+            )
+
+        if attended_refs & suppressed_refs:
+            raise ValueError(
+                "M31G attended/suppressed refs must be disjoint"
+            )
 
     if trace.policy:
         if (
@@ -1228,6 +1311,7 @@ def _build_memory_observation(
     diagnostics: Any,
     legacy_memories: list[dict[str, Any]] | None,
     selected_memory_refs: list[str],
+    attention_decision: Any = None,
 ) -> tuple[
     MemoryTrace | None,
     SubsystemHealth | None,
@@ -1287,6 +1371,33 @@ def _build_memory_observation(
         selected_memory_refs
     )
 
+    attention_candidates = {
+        str(
+            getattr(
+                candidate,
+                "memory_ref",
+                "",
+            )
+            or ""
+        ): candidate
+        for candidate in (
+            getattr(
+                attention_decision,
+                "candidates",
+                (),
+            )
+            or ()
+        )
+        if str(
+            getattr(
+                candidate,
+                "memory_ref",
+                "",
+            )
+            or ""
+        )
+    }
+
     candidates: list[
         MemoryCandidateTrace
     ] = []
@@ -1344,6 +1455,33 @@ def _build_memory_observation(
                 "memory.selected.packed"
             )
 
+        attention_candidate = (
+            attention_candidates.get(
+                memory_ref
+            )
+        )
+
+        if attention_candidate is not None:
+            for code in (
+                getattr(
+                    attention_candidate,
+                    "reason_codes",
+                    (),
+                )
+                or ()
+            ):
+                code_text = str(
+                    code
+                )
+                if (
+                    code_text
+                    and code_text
+                    not in reason_codes
+                ):
+                    reason_codes.append(
+                        code_text
+                    )
+
         candidates.append(
             MemoryCandidateTrace(
                 memory_ref=memory_ref,
@@ -1387,9 +1525,18 @@ def _build_memory_observation(
                 # Packing score is private to the current
                 # packer and is NOT recomputed by M31B.
                 packing_score=None,
-                # Salience does not exist canonically
-                # until M31G.
-                salience_score=None,
+                salience_score=(
+                    _optional_float(
+                        getattr(
+                            attention_candidate,
+                            "score",
+                            None,
+                        )
+                    )
+                    if attention_candidate
+                    is not None
+                    else None
+                ),
                 selected_for_prompt=(
                     selected_for_prompt
                 ),
@@ -1528,15 +1675,17 @@ def build_chat_observation_trace(
     memory_retrieval_diagnostics: Any = None,
     legacy_memories: list[dict[str, Any]] | None = None,
     metacognitive_decision: Any = None,
+    attention_decision: Any = None,
     now: datetime | None = None,
 ) -> CognitiveDecisionTrace:
     """Mirror chat decisions already made by the current runtime.
 
-    Important M31B boundaries:
+    Important boundaries:
     - no raw user message is accepted;
     - no retrieval/packing decision is recomputed;
     - no private packer score is recomputed;
-    - no salience is inferred;
+    - M31G salience is supplied by the deterministic attention service,
+      never recomputed by the trace;
     - MemoryTrace stays absent until retrieval diagnostics are
       exposed directly by the retrieval subsystem.
     """
@@ -1594,6 +1743,38 @@ def build_chat_observation_trace(
         )
     ]
 
+    attention_reason_codes = (
+        _attention_reason_codes(
+            (
+                str(
+                    packing_intent
+                )
+                if packing_intent is not None
+                else None
+            )
+        )
+    )
+
+    for code in (
+        getattr(
+            attention_decision,
+            "reason_codes",
+            (),
+        )
+        or ()
+    ):
+        code_text = str(
+            code
+        )
+        if (
+            code_text
+            and code_text
+            not in attention_reason_codes
+        ):
+            attention_reason_codes.append(
+                code_text
+            )
+
     attention = AttentionTrace(
         packing_intent=(
             str(
@@ -1629,15 +1810,51 @@ def build_chat_observation_trace(
             or 0
         ),
         packed_context_budget_chars=None,
-        reason_codes=_attention_reason_codes(
-            (
-                str(
-                    packing_intent
+        attention_level=(
+            str(
+                getattr(
+                    attention_decision,
+                    "level",
+                    "",
                 )
-                if packing_intent is not None
-                else None
+                or ""
             )
+            or None
         ),
+        salient_memory_refs=[
+            str(value)
+            for value in (
+                getattr(
+                    attention_decision,
+                    "salient_memory_refs",
+                    (),
+                )
+                or ()
+            )
+        ],
+        attended_memory_refs=[
+            str(value)
+            for value in (
+                getattr(
+                    attention_decision,
+                    "attended_memory_refs",
+                    (),
+                )
+                or ()
+            )
+        ],
+        suppressed_memory_refs=[
+            str(value)
+            for value in (
+                getattr(
+                    attention_decision,
+                    "suppressed_memory_refs",
+                    (),
+                )
+                or ()
+            )
+        ],
+        reason_codes=attention_reason_codes,
     )
 
     policy = PolicyTrace(
@@ -1698,6 +1915,7 @@ def build_chat_observation_trace(
             diagnostics=memory_retrieval_diagnostics,
             legacy_memories=legacy_memories,
             selected_memory_refs=selected_memory_refs,
+            attention_decision=attention_decision,
         )
     )
 
@@ -1738,6 +1956,7 @@ def record_chat_observation_fail_open(
     memory_retrieval_diagnostics: Any = None,
     legacy_memories: list[dict[str, Any]] | None = None,
     metacognitive_decision: Any = None,
+    attention_decision: Any = None,
     logger: logging.Logger | None = None,
 ) -> bool:
     """Build + emit one partial M31B trace without risking chat."""
@@ -1761,6 +1980,7 @@ def record_chat_observation_fail_open(
             memory_retrieval_diagnostics=memory_retrieval_diagnostics,
             legacy_memories=legacy_memories,
             metacognitive_decision=metacognitive_decision,
+            attention_decision=attention_decision,
         )
 
     except Exception as exc:

@@ -597,17 +597,18 @@ async def chat(
         )
     )
 
-    if _metacognitive_finalization.prompt_directive:
-        system_blocks = [
-            *system_blocks,
-            {
-                "type": "text",
-                "text": (
-                    _metacognitive_finalization
-                    .prompt_directive
-                ),
-            },
-        ]
+    for _runtime_directive in (
+        _metacognitive_finalization.prompt_directive,
+        _metacognitive_finalization.attention_prompt_directive,
+    ):
+        if _runtime_directive:
+            system_blocks = [
+                *system_blocks,
+                {
+                    "type": "text",
+                    "text": _runtime_directive,
+                },
+            ]
 
     return StreamingResponse(
         _stream_claude_response(

@@ -17,7 +17,8 @@ Current ownership:
 - delegate complete per-turn cognitive context assembly and model-input preparation;
 - delegate foreground executive Calendar routing to existing Calendar services;
 - own deterministic assistant-mode command orchestration;
-- own M31F deterministic metacognitive policy + final trace sequencing.
+- own M31F deterministic metacognitive policy + final trace sequencing;
+- own M31G intrinsic salience + attention overlay before that final trace.
 
 HTTP/FastAPI serialization, Claude provider streaming, chat persistence, and
 transport-bound background task scheduling remain outside CognitiveRuntime.
@@ -36,6 +37,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.services import assistant_mode_commands
+from app.services import attention_salience
 from app.services import chat_memory_assembly
 from app.services import cognitive_calendar_orchestration
 from app.services import cognitive_trace
@@ -74,6 +76,9 @@ class AssistantModeExecution:
 class MetacognitiveTurnFinalization:
     decision: metacognitive_policy.MetacognitiveDecision
     prompt_directive: str | None
+    attention_decision: attention_salience.AttentionDecision
+    attention_prompt_directive: str | None
+    working_state: working_memory.WorkingMemoryState
     trace_recorded: bool
 
 
@@ -322,6 +327,19 @@ class CognitiveRuntime:
             )
         )
 
+    def evaluate_attention_salience(
+        self,
+        **kwargs: Any,
+    ) -> attention_salience.AttentionDecision:
+        """Delegate deterministic M31G intrinsic salience evaluation."""
+
+        return (
+            attention_salience
+            .evaluate_attention_salience(
+                **kwargs
+            )
+        )
+
     def finalize_metacognitive_turn(
         self,
         *,
@@ -373,6 +391,73 @@ class CognitiveRuntime:
             )
         )
 
+        try:
+            attention_decision = (
+                self.evaluate_attention_salience(
+                    working_state=working_state,
+                    legacy_memories=legacy_memories,
+                    unverified_memory_refs=(
+                        decision
+                        .unverified_memory_refs
+                    ),
+                    response_posture=(
+                        decision
+                        .response_posture
+                    ),
+                )
+            )
+
+            attention_working_state = (
+                working_memory
+                .with_attention_state(
+                    working_state,
+                    level=(
+                        attention_decision
+                        .level
+                    ),
+                    salient_memory_refs=(
+                        attention_decision
+                        .salient_memory_refs
+                    ),
+                    attended_memory_refs=(
+                        attention_decision
+                        .attended_memory_refs
+                    ),
+                    suppressed_memory_refs=(
+                        attention_decision
+                        .suppressed_memory_refs
+                    ),
+                )
+            )
+
+            attention_prompt_directive = (
+                attention_salience
+                .render_prompt_directive(
+                    attention_decision,
+                    legacy_memories=(
+                        legacy_memories
+                    ),
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            if self.logger is not None:
+                try:
+                    self.logger.warning(
+                        "attention salience failed open: %s",
+                        type(exc).__name__,
+                    )
+                except Exception:
+                    pass
+
+            attention_decision = (
+                attention_salience
+                .safe_default_decision()
+            )
+            attention_working_state = (
+                working_state
+            )
+            attention_prompt_directive = None
+
         trace_recorded = (
             self.record_chat_observation_fail_open(
                 turn_ref=turn_ref,
@@ -393,12 +478,24 @@ class CognitiveRuntime:
                 ),
                 legacy_memories=legacy_memories,
                 metacognitive_decision=decision,
+                attention_decision=(
+                    attention_decision
+                ),
             )
         )
 
         return MetacognitiveTurnFinalization(
             decision=decision,
             prompt_directive=prompt_directive,
+            attention_decision=(
+                attention_decision
+            ),
+            attention_prompt_directive=(
+                attention_prompt_directive
+            ),
+            working_state=(
+                attention_working_state
+            ),
             trace_recorded=trace_recorded,
         )
 

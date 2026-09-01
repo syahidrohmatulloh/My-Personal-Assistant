@@ -21,7 +21,7 @@ message, memory, attachment, or calendar content.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -51,6 +51,12 @@ _RETRIEVAL_STATUSES = {
     "degraded",
     "failed",
     "not_applicable",
+}
+
+_ATTENTION_LEVELS = {
+    "normal",
+    "elevated",
+    "high",
 }
 
 
@@ -132,6 +138,16 @@ class MemoryWorkingState:
 
 
 @dataclass(frozen=True)
+class AttentionWorkingState:
+    """M31G metadata-only attention state for the current turn."""
+
+    level: str = "normal"
+    salient_memory_refs: tuple[str, ...] = ()
+    attended_memory_refs: tuple[str, ...] = ()
+    suppressed_memory_refs: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class CalendarWorkingState:
     """Minimal current-turn calendar/action state.
 
@@ -203,6 +219,10 @@ class WorkingMemoryState:
 
     memory: MemoryWorkingState = field(
         default_factory=MemoryWorkingState
+    )
+
+    attention: AttentionWorkingState = field(
+        default_factory=AttentionWorkingState
     )
 
     calendar: CalendarWorkingState = field(
@@ -825,6 +845,8 @@ def build_working_memory_state(
             ),
         ),
 
+        attention=AttentionWorkingState(),
+
         calendar=CalendarWorkingState(
             draft_action_turn=bool(
                 calendar_draft_action_turn
@@ -933,6 +955,51 @@ def validate_working_memory_state(
             "Invalid retrieval_status"
         )
 
+    if (
+        state.attention.level
+        not in _ATTENTION_LEVELS
+    ):
+        raise ValueError(
+            "Invalid attention level"
+        )
+
+    selected_refs = set(
+        state.memory.selected_memory_refs
+    )
+    salient_refs = set(
+        state.attention.salient_memory_refs
+    )
+    attended_refs = set(
+        state.attention.attended_memory_refs
+    )
+    suppressed_refs = set(
+        state.attention.suppressed_memory_refs
+    )
+
+    if not salient_refs.issubset(
+        selected_refs
+    ):
+        raise ValueError(
+            "Attention refs must be selected memory refs"
+        )
+
+    if (
+        not attended_refs.issubset(
+            salient_refs
+        )
+        or not suppressed_refs.issubset(
+            salient_refs
+        )
+    ):
+        raise ValueError(
+            "Attended/suppressed refs must be salient memory refs"
+        )
+
+    if attended_refs & suppressed_refs:
+        raise ValueError(
+            "Attended and suppressed attention refs must be disjoint"
+        )
+
     nonnegative_values = (
         state.history.message_count,
         state.memory.dropped_memory_count,
@@ -949,6 +1016,45 @@ def validate_working_memory_state(
         raise ValueError(
             "Working-memory counts must be nonnegative"
         )
+
+
+def with_attention_state(
+    state: WorkingMemoryState,
+    *,
+    level: str,
+    salient_memory_refs: Sequence[str] = (),
+    attended_memory_refs: Sequence[str] = (),
+    suppressed_memory_refs: Sequence[str] = (),
+) -> WorkingMemoryState:
+    """Return a new frozen state enriched with M31G attention metadata."""
+
+    validate_working_memory_state(
+        state
+    )
+
+    updated = replace(
+        state,
+        attention=AttentionWorkingState(
+            level=_as_text(
+                level
+            ) or "normal",
+            salient_memory_refs=_unique_refs(
+                salient_memory_refs
+            ),
+            attended_memory_refs=_unique_refs(
+                attended_memory_refs
+            ),
+            suppressed_memory_refs=_unique_refs(
+                suppressed_memory_refs
+            ),
+        ),
+    )
+
+    validate_working_memory_state(
+        updated
+    )
+
+    return updated
 
 
 def working_memory_metadata_dict(
