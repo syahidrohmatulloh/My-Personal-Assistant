@@ -150,8 +150,15 @@ def convert_row_to_goal_reference(row: dict[str, Any], decision: GoalReferenceDe
     converted["category"] = "goals"
     converted["structured_field"] = "active_goal_reference"
     converted["structured_value"] = " | ".join(value_parts)[:300]
-    converted["confidence"] = max(float(converted.get("confidence") or 0.0), min(0.90, 0.60 + decision.score / 3))
-    converted["source_priority"] = "explicit_user_statement"
+
+    # M35c2a1:
+    # Goal matching is a projection/normalization decision, not new evidence.
+    # Preserve the incoming epistemic metadata exactly. In particular, an
+    # assistant-originated plan must not be upgraded to an explicit user
+    # statement merely because it matched an existing Goals record.
+    #
+    # Projection match != evidence strength.
+    # Transformation != provenance upgrade.
     return converted
 
 
