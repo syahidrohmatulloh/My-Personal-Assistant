@@ -16,9 +16,12 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any
 
+from app.services.memory_intelligence import (
+    MAX_SYSTEM_INFERENCE_CONFIDENCE,
+    SYSTEM_INFERENCE_PRIORITY,
+)
 from app.services.supabase_client import safe_execute
 
 log = logging.getLogger(__name__)
@@ -98,7 +101,8 @@ class RelationshipMemoryCandidate:
             "source_priority": self.source_priority,
             "evidence": self.evidence,
             "superseded": False,
-            "last_confirmed_at": datetime.now(timezone.utc).isoformat(),
+            # Explicit NULL overrides the legacy DB default now().
+            "last_confirmed_at": None,
         }
 
 
@@ -161,8 +165,8 @@ def build_relationship_memory_candidates(
                 category="relationships",
                 structured_field="aliyya_coding_support_style",
                 structured_value="careful_comprehensive_fixes_not_incremental_guessing",
-                confidence=0.86,
-                source_priority="explicit_user_statement",
+                confidence=MAX_SYSTEM_INFERENCE_CONFIDENCE,
+                source_priority=SYSTEM_INFERENCE_PRIORITY,
                 evidence=_evidence(user_message, response_text),
             )
         )
@@ -182,8 +186,8 @@ def build_relationship_memory_candidates(
                 category="preferences",
                 structured_field="ui_design_taste",
                 structured_value="Polished, glassy, theme-aware UI with smooth mobile behavior",
-                confidence=0.82,
-                source_priority="explicit_user_statement",
+                confidence=MAX_SYSTEM_INFERENCE_CONFIDENCE,
+                source_priority=SYSTEM_INFERENCE_PRIORITY,
                 evidence=_evidence(user_message, response_text),
             )
         )
@@ -201,8 +205,8 @@ def build_relationship_memory_candidates(
                 category="relationships",
                 structured_field="aliyya_relationship_style",
                 structured_value="consistent_personal_companion_not_generic_assistant",
-                confidence=0.80,
-                source_priority="explicit_user_statement",
+                confidence=MAX_SYSTEM_INFERENCE_CONFIDENCE,
+                source_priority=SYSTEM_INFERENCE_PRIORITY,
                 evidence=_evidence(user_message, response_text),
             )
         )
@@ -215,8 +219,6 @@ async def _upsert_candidate(
     user_id: str,
     candidate: RelationshipMemoryCandidate,
 ) -> dict[str, Any]:
-    now = datetime.now(timezone.utc).isoformat()
-
     def _select_existing():
         return safe_execute(
             lambda sb: sb.table("memories")
@@ -244,7 +246,6 @@ async def _upsert_candidate(
                 .update(
                     {
                         "confidence": next_confidence,
-                        "last_confirmed_at": now,
                     }
                 )
                 .eq("id", memory_id)

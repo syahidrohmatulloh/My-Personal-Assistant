@@ -27,8 +27,8 @@ def test_candidate_for_careful_comprehensive_patch_preference():
         candidate.structured_value
         == "careful_comprehensive_fixes_not_incremental_guessing"
     )
-    assert candidate.source_priority == "explicit_user_statement"
-    assert candidate.confidence >= 0.85
+    assert candidate.source_priority == "system_inference"
+    assert candidate.confidence == 0.54
 
 
 def test_candidate_for_ui_design_taste():
@@ -90,3 +90,18 @@ def test_relationship_memory_ux_still_matches_as_whole_word():
 
     assert len(candidates) == 1
     assert candidates[0].structured_field == "ui_design_taste"
+
+
+def test_rule_inference_payload_is_unconfirmed():
+    candidates = build_relationship_memory_candidates(
+        user_message=(
+            "tolong patch final yang lebih teliti dan menyeluruh, "
+            "jangan nebak kalau ada error build"
+        ),
+        assistant_response="",
+    )
+    assert candidates
+    payload = candidates[0].as_memory_payload("user-1")
+    assert payload["source_priority"] == "system_inference"
+    assert payload["confidence"] == 0.54
+    assert payload["last_confirmed_at"] is None

@@ -28,8 +28,8 @@ def test_candidate_for_frustrating_debugging_context():
     assert candidate.category == "preferences"
     assert candidate.structured_field == "debugging_support_style_under_frustration"
     assert candidate.structured_value == "paste_ready_commands_root_cause_first_minimal_theory"
-    assert candidate.source_priority == "repeated_pattern"
-    assert candidate.confidence >= 0.8
+    assert candidate.source_priority == "system_inference"
+    assert candidate.confidence == 0.54
     assert "paste-ready terminal commands" in candidate.content
 
 
@@ -49,6 +49,8 @@ def test_payload_shape_is_memory_compatible():
     assert payload["kind"] == "preference"
     assert payload["category"] == "preferences"
     assert payload["structured_field"] == "debugging_support_style_under_frustration"
+    assert payload["source_priority"] == candidate.source_priority
+    assert payload["last_confirmed_at"] is None
     assert payload["superseded"] is False
     assert isinstance(payload["evidence"], list)
 

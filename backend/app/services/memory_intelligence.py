@@ -78,7 +78,12 @@ SourcePriority = Literal[
     "user_correction",
     "repeated_pattern",
     "assistant_confirmation",
+    "system_inference",
 ]
+
+SYSTEM_INFERENCE_PRIORITY: SourcePriority = "system_inference"
+SYSTEM_INFERENCE_SAVE_THRESHOLD = 0.50
+MAX_SYSTEM_INFERENCE_CONFIDENCE = 0.54
 
 # Save thresholds. Tuned conservatively — better to miss than store noise.
 _SAVE_THRESHOLDS: dict[str, float] = {
@@ -87,6 +92,7 @@ _SAVE_THRESHOLDS: dict[str, float] = {
     "user_correction": 0.70,    # lower because the correction itself is high signal
     "repeated_pattern": 0.80,
     "assistant_confirmation": 0.95,  # almost never save these — they're weak
+    "system_inference": SYSTEM_INFERENCE_SAVE_THRESHOLD,
 }
 
 # Cosine similarity at which we treat a new memory as a duplicate of an old one
@@ -352,6 +358,7 @@ async def extract_and_persist(
             in {
                 "repeated_pattern",
                 "assistant_confirmation",
+                SYSTEM_INFERENCE_PRIORITY,
             }
         ):
             audit["skipped"] += 1
@@ -361,6 +368,14 @@ async def extract_and_persist(
                 cand.source_priority,
             )
             continue
+
+        if (
+            cand.source_priority == SYSTEM_INFERENCE_PRIORITY
+            and cand.confidence > MAX_SYSTEM_INFERENCE_CONFIDENCE
+        ):
+            cand = cand.model_copy(
+                update={"confidence": MAX_SYSTEM_INFERENCE_CONFIDENCE}
+            )
 
         threshold = _SAVE_THRESHOLDS.get(cand.source_priority, 0.95)
         if cand.confidence < threshold:

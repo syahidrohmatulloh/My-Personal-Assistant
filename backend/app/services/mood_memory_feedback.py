@@ -15,9 +15,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any
 
+from app.services.memory_intelligence import (
+    MAX_SYSTEM_INFERENCE_CONFIDENCE,
+    SYSTEM_INFERENCE_PRIORITY,
+)
 from app.services.supabase_client import safe_execute
 
 log = logging.getLogger(__name__)
@@ -93,7 +96,8 @@ class BehavioralMemoryCandidate:
             "source_priority": self.source_priority,
             "evidence": self.evidence,
             "superseded": False,
-            "last_confirmed_at": datetime.now(timezone.utc).isoformat(),
+            # Explicit NULL overrides the legacy DB default now().
+            "last_confirmed_at": None,
         }
 
 
@@ -159,7 +163,10 @@ def build_behavioral_memory_candidate(
         confidence += 0.08
     if has_command_response:
         confidence += 0.05
-    confidence = min(confidence, 0.85)
+    confidence = min(
+        confidence,
+        MAX_SYSTEM_INFERENCE_CONFIDENCE,
+    )
 
     evidence = [_truncate(user_message, 180)]
     if mood_hint:
@@ -178,7 +185,7 @@ def build_behavioral_memory_candidate(
         structured_field="debugging_support_style_under_frustration",
         structured_value="paste_ready_commands_root_cause_first_minimal_theory",
         confidence=round(confidence, 2),
-        source_priority="repeated_pattern",
+        source_priority=SYSTEM_INFERENCE_PRIORITY,
         evidence=evidence,
     )
 
@@ -189,8 +196,6 @@ async def _upsert_candidate(
     candidate: BehavioralMemoryCandidate,
 ) -> dict[str, Any]:
     """Multi-user-safe dedupe by structured_field + structured_value."""
-    now = datetime.now(timezone.utc).isoformat()
-
     def _select_existing():
         return safe_execute(
             lambda sb: sb.table("memories")
@@ -218,7 +223,6 @@ async def _upsert_candidate(
                 .update(
                     {
                         "confidence": next_confidence,
-                        "last_confirmed_at": now,
                     }
                 )
                 .eq("id", memory_id)
