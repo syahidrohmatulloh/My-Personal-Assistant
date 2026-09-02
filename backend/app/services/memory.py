@@ -376,6 +376,13 @@ SOURCE_PRIORITY = {
     "assistant_confirmation": -0.04,
 }
 
+# M35c1:
+# The retrieval RPC now projects source_priority so downstream governance can
+# inspect provenance. Historical provenance has not yet been repaired, however,
+# so merely making the field visible must not activate a new ranking/trust
+# advantage. M35c2 may deliberately re-enable this after historical repair.
+SOURCE_PRIORITY_RANKING_ENABLED = False
+
 KIND_PRIORITY = {
     "preference": 0.05,
     "fact": 0.04,
@@ -453,10 +460,16 @@ def _mi_metadata_priority(row: dict) -> float:
     source_priority = str(row.get("source_priority") or "").strip().lower()
     kind = str(row.get("kind") or "").strip().lower()
 
+    source_priority_score = (
+        SOURCE_PRIORITY.get(source_priority, 0.0)
+        if SOURCE_PRIORITY_RANKING_ENABLED
+        else 0.0
+    )
+
     return (
         CATEGORY_PRIORITY.get(category, 0.0)
         + HIGH_PRIORITY_STRUCTURED_FIELDS.get(structured_field, 0.0)
-        + SOURCE_PRIORITY.get(source_priority, 0.0)
+        + source_priority_score
         + _mi_memory_governance_trust_bonus(row)
         + KIND_PRIORITY.get(kind, 0.0)
     )
@@ -486,7 +499,8 @@ def _mi_memory_governance_trust_bonus(row: dict) -> float:
     if row.get("last_confirmed_at"):
         return 0.045
     if (
-        source == "auto"
+        SOURCE_PRIORITY_RANKING_ENABLED
+        and source == "auto"
         and confidence >= 0.90
         and source_priority in {"explicit_user_statement", "user_correction"}
     ):
