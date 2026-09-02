@@ -62,6 +62,38 @@ class ExtractedMemory(BaseModel):
     confidence: float = Field(default=0.72, ge=0.0, le=1.0)
 
 
+# M35c2a:
+# Legacy extraction can persist assistant-authored plans. Those plans must not
+# masquerade as direct user statements merely because the user accepted or
+# requested the plan.
+LEGACY_ASSISTANT_PLAN_CONFIDENCE_CAP = 0.54
+
+
+def _legacy_epistemic_fields(mem: ExtractedMemory) -> dict:
+    """Return honest provenance for the legacy extraction writer.
+
+    New inserts never synthesize confirmation timestamps. Provenance records
+    where the durable statement came from; last_confirmed_at is reserved for
+    later direct user evidence supporting an already-existing memory.
+    """
+
+    if mem.kind == "plan":
+        return {
+            "confidence": min(
+                mem.confidence,
+                LEGACY_ASSISTANT_PLAN_CONFIDENCE_CAP,
+            ),
+            "source_priority": "assistant_confirmation",
+            "last_confirmed_at": None,
+        }
+
+    return {
+        "confidence": mem.confidence,
+        "source_priority": "explicit_user_statement",
+        "last_confirmed_at": None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Extraction
 # ---------------------------------------------------------------------------
@@ -232,11 +264,10 @@ async def extract_and_save(
                 "category": mem.category,
                 "structured_field": mem.memory_key,
                 "structured_value": mem.memory_value,
-                "confidence": mem.confidence,
                 "embedding": embedding,
                 "source": "auto",
-                "source_priority": "explicit_user_statement",
                 "source_conversation_id": conversation_id,
+                **_legacy_epistemic_fields(mem),
             }
         )
 

@@ -134,6 +134,25 @@ class CandidateMemory(BaseModel):
     is_correction: bool = False
 
 
+# M35c2a:
+# Only fresh direct user evidence may refresh an existing memory's
+# confirmation timestamp. Repetition, assistant-originated material, and
+# deterministic/system inference are not confirmation.
+_DIRECT_CONFIRMATION_PRIORITIES: frozenset[str] = frozenset(
+    {
+        "explicit_user_statement",
+        "user_answer_in_context",
+        "user_correction",
+    }
+)
+
+
+def _candidate_can_refresh_confirmation(
+    cand: CandidateMemory,
+) -> bool:
+    return cand.source_priority in _DIRECT_CONFIRMATION_PRIORITIES
+
+
 # ---------------------------------------------------------------------------
 # Extraction prompt
 # ---------------------------------------------------------------------------
@@ -770,23 +789,43 @@ async def _persist_candidate(
             memory_id=superseded_id,
         )
         if existing_value == cand.structured_value:
-            await _bump_last_confirmed(superseded_id)
+            if _candidate_can_refresh_confirmation(cand):
+                await _bump_last_confirmed(superseded_id)
+                log.info(
+                    "memory_intelligence: direct user evidence refreshed "
+                    "existing structured memory %s",
+                    superseded_id,
+                )
+                return {"saved": False, "confirmed": True}
+
             log.info(
-                "memory_intelligence: confirmed existing structured memory %s (no new row)",
+                "memory_intelligence: matching non-confirming evidence "
+                "did not refresh structured memory %s source=%s",
                 superseded_id,
+                cand.source_priority,
             )
-            return {"saved": False, "confirmed": True}
+            return {"saved": False, "confirmed": False}
 
     # 4b. If existing very-similar memory found AND not a correction, treat as
     #     "still true" — bump last_confirmed_at on the existing row, don't insert
     #     duplicate.
     if superseded_id and not cand.is_correction and not cand.structured_field:
-        await _bump_last_confirmed(superseded_id)
+        if _candidate_can_refresh_confirmation(cand):
+            await _bump_last_confirmed(superseded_id)
+            log.info(
+                "memory_intelligence: direct user evidence refreshed "
+                "existing memory %s",
+                superseded_id,
+            )
+            return {"saved": False, "confirmed": True}
+
         log.info(
-            "memory_intelligence: confirmed existing memory %s (no new row)",
+            "memory_intelligence: matching non-confirming evidence "
+            "did not refresh memory %s source=%s",
             superseded_id,
+            cand.source_priority,
         )
-        return {"saved": False, "confirmed": True}
+        return {"saved": False, "confirmed": False}
 
     # 5. Insert new row.
     row = {
@@ -799,6 +838,10 @@ async def _persist_candidate(
         "source_conversation_id": conversation_id,
         "confidence": cand.confidence,
         "source_priority": cand.source_priority,
+        # New insertion is evidence creation, not a later confirmation event.
+        # Explicit NULL also protects deployments where an older DB default
+        # may still exist until the M35c2a migration is applied.
+        "last_confirmed_at": None,
         "evidence": cand.evidence,
         "category": cand.category,
         # Structured identity field — written here so supersede lookups can
