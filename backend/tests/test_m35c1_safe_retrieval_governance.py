@@ -120,8 +120,8 @@ def test_python_defense_in_depth_still_rejects_hidden_rows():
     assert [row["id"] for row in ranked] == ["active"]
 
 
-def test_projected_historical_provenance_does_not_gain_rank_authority():
-    assert memory.SOURCE_PRIORITY_RANKING_ENABLED is False
+def test_m35c2c_repaired_provenance_has_controlled_rank_authority():
+    assert memory.SOURCE_PRIORITY_RANKING_ENABLED is True
 
     base = _active_row(
         id="base",
@@ -142,10 +142,16 @@ def test_projected_historical_provenance_does_not_gain_rank_authority():
         "id": "repeated",
         "source_priority": "repeated_pattern",
     }
+    legacy_unknown = {
+        **base,
+        "id": "legacy",
+        "source_priority": "legacy_unknown",
+    }
 
     assert (
         memory.memory_retrieval_score(explicit)
-        == memory.memory_retrieval_score(repeated)
+        > memory.memory_retrieval_score(repeated)
+        > memory.memory_retrieval_score(legacy_unknown)
     )
 
 

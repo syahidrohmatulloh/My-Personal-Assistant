@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from app.services import memory_epistemic_governance
+
 
 DEFAULT_STALE_AFTER_DAYS = 365
 LOW_CONFIDENCE_THRESHOLD = 0.55
@@ -139,12 +141,23 @@ def assess_memory_lifecycle(
     stale = bool(age is not None and age >= stale_after_days and not confirmed)
 
     confidence = _as_float(row.get("confidence"), 1.0)
+
+    provenance_unverified = bool(
+        not hidden
+        and not confirmed
+        and memory_epistemic_governance.provenance_requires_confirmation(
+            row
+        )
+    )
+
     needs_confirmation = bool(
         not hidden
         and (
             stale
+            or provenance_unverified
             or confidence < LOW_CONFIDENCE_THRESHOLD
-            or _as_text(row.get("status")).casefold() in {"needs_review", "pending_review"}
+            or _as_text(row.get("status")).casefold()
+            in {"needs_review", "pending_review"}
         )
     )
 
@@ -152,6 +165,8 @@ def assess_memory_lifecycle(
         reason = state
     elif stale:
         reason = "stale"
+    elif provenance_unverified:
+        reason = "provenance_unverified"
     elif needs_confirmation:
         reason = "needs_confirmation"
     elif confirmed:

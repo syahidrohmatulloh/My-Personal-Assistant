@@ -347,9 +347,24 @@ def _mi_prompt_label(row: dict) -> str:
     if structured_field:
         parts.append(str(structured_field))
     if confidence is not None:
-        parts.append(f"confidence={_mi_as_float(confidence, 0.0):.2f}")
+        parts.append(
+            f"confidence={_mi_as_float(confidence, 0.0):.2f}"
+        )
     if retrieval_score is not None:
-        parts.append(f"score={_mi_as_float(retrieval_score, 0.0):.2f}")
+        parts.append(
+            f"score={_mi_as_float(retrieval_score, 0.0):.2f}"
+        )
+
+    # The model may render cautiously, but deterministic lifecycle policy is
+    # authoritative about whether a retrieved memory is verified.
+    from app.services import memory_lifecycle_governance
+
+    lifecycle = (
+        memory_lifecycle_governance
+        .assess_memory_lifecycle(row)
+    )
+    if lifecycle.needs_confirmation:
+        parts.append("verification=unverified")
 
     return " | ".join(parts)
 
@@ -372,6 +387,8 @@ def _legacy_format_for_prompt_simple(memories: list[dict]) -> str:
 from datetime import datetime, timezone
 from math import exp
 from typing import Any
+
+from app.services import memory_epistemic_governance
 
 
 HIGH_PRIORITY_STRUCTURED_FIELDS = {
@@ -405,14 +422,16 @@ SOURCE_PRIORITY = {
     "user_answer_in_context": 0.08,
     "repeated_pattern": 0.04,
     "assistant_confirmation": -0.04,
+    "system_inference": -0.06,
+    "legacy_unknown": -0.08,
 }
 
-# M35c1:
-# The retrieval RPC now projects source_priority so downstream governance can
-# inspect provenance. Historical provenance has not yet been repaired, however,
-# so merely making the field visible must not activate a new ranking/trust
-# advantage. M35c2 may deliberately re-enable this after historical repair.
-SOURCE_PRIORITY_RANKING_ENABLED = False
+# M35c2c:
+# Historical provenance is repaired/quarantined before this code is deployed.
+# Direct user provenance may again influence close retrieval ties.
+# Unverified provenance receives negative authority and its effective confidence
+# is capped independently below.
+SOURCE_PRIORITY_RANKING_ENABLED = True
 
 KIND_PRIORITY = {
     "preference": 0.05,
@@ -468,9 +487,14 @@ def _mi_recency_score(row: dict) -> float:
 
 
 def _mi_confidence_score(row: dict) -> float:
-    # Legacy rows may not have confidence. Treat them as medium confidence, not zero.
-    confidence = _mi_as_float(row.get("confidence"), 0.68)
-    confidence = max(0.0, min(1.0, confidence))
+    # M35c2c: raw historical confidence cannot bypass provenance governance.
+    confidence = (
+        memory_epistemic_governance
+        .effective_confidence(
+            row,
+            default=0.68,
+        )
+    )
     return 0.14 * confidence
 
 
