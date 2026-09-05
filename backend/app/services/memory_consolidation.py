@@ -6,7 +6,7 @@ maintenance. M33 does not generate dreams and does not invent new user facts.
 Canonical boundaries:
 - consolidate evidence, not semantics;
 - never create a new memory claim during the automatic cycle;
-- never raise confidence or set last_confirmed_at;
+- never raise confidence or manufacture confirmation timestamps;
 - never auto-archive/delete/supersede source memories;
 - only use active, trusted user-authored source rows;
 - exclude unverified repeated-pattern inference from consolidation;
@@ -529,7 +529,8 @@ async def fetch_recent_active_memories(
                 "id,content,kind,category,structured_field,"
                 "structured_value,confidence,source,source_priority,"
                 "source_conversation_id,evidence,archived,superseded,"
-                "status,deleted_at,last_confirmed_at,created_at,updated_at"
+                "status,deleted_at,last_user_confirmed_at,"
+                "created_at,updated_at"
             )
             .eq("user_id", user_id)
             .gte("created_at", cutoff)
@@ -557,7 +558,7 @@ async def _load_target_row(
                 "id,content,kind,category,structured_field,"
                 "structured_value,confidence,source,source_priority,"
                 "evidence,archived,superseded,status,deleted_at,"
-                "last_confirmed_at,created_at,updated_at"
+                "last_user_confirmed_at,created_at,updated_at"
             )
             .eq("user_id", user_id)
             .eq("id", memory_id)

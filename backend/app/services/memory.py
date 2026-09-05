@@ -34,7 +34,10 @@ from app.services.embeddings import embed_document, embed_query
 from app.services.supabase_client import get_supabase
 from app.services.memory_hygiene import sanitize_memory_rows
 from app.services.goal_source_rules import convert_goal_duplicate_rows
-from app.services.memory_supersession import apply_memory_supersession
+from app.services.memory_supersession import (
+    apply_memory_supersession,
+    finalize_memory_supersession,
+)
 
 log = logging.getLogger(__name__)
 
@@ -85,12 +88,14 @@ def _legacy_epistemic_fields(mem: ExtractedMemory) -> dict:
             ),
             "source_priority": "assistant_confirmation",
             "last_confirmed_at": None,
+            "last_user_confirmed_at": None,
         }
 
     return {
         "confidence": mem.confidence,
         "source_priority": "explicit_user_statement",
         "last_confirmed_at": None,
+        "last_user_confirmed_at": None,
     }
 
 
@@ -278,8 +283,43 @@ async def extract_and_save(
     if not rows:
         return 0
 
-    supabase.table("memories").insert(rows).execute()
-    log.info("memory extraction: saved %d memories", len(rows))
+    insert_result = (
+        supabase.table("memories")
+        .insert(rows)
+        .execute()
+    )
+
+    inserted_db_rows = list(
+        insert_result.data or []
+    )
+
+    if inserted_db_rows:
+        finalized_rows: list[dict] = []
+
+        for index, inserted in enumerate(
+            inserted_db_rows
+        ):
+            original = (
+                rows[index]
+                if index < len(rows)
+                else {}
+            )
+            finalized_rows.append(
+                {
+                    **original,
+                    **inserted,
+                }
+            )
+
+        finalize_memory_supersession(
+            user_id=user_id,
+            inserted_rows=finalized_rows,
+        )
+
+    log.info(
+        "memory extraction: saved %d memories",
+        len(rows),
+    )
     return len(rows)
 
 
@@ -472,7 +512,11 @@ def _mi_parse_dt(value: Any) -> datetime | None:
 
 
 def _mi_age_days(row: dict) -> float | None:
-    created = _mi_parse_dt(row.get("last_confirmed_at") or row.get("created_at"))
+    created = _mi_parse_dt(
+        row.get("last_user_confirmed_at")
+        or row.get("updated_at")
+        or row.get("created_at")
+    )
     if not created:
         return None
     return max(0.0, (datetime.now(timezone.utc) - created).total_seconds() / 86400.0)
@@ -551,7 +595,7 @@ def _mi_memory_governance_trust_bonus(row: dict) -> float:
 
     if source in {"manual", "manual_review"}:
         return 0.060
-    if row.get("last_confirmed_at"):
+    if row.get("last_user_confirmed_at"):
         return 0.045
     if (
         SOURCE_PRIORITY_RANKING_ENABLED
@@ -580,7 +624,6 @@ def memory_retrieval_score(row: dict) -> float:
         + _mi_metadata_priority(row)
         + _mi_recency_score(row)
         + _mi_salience_score(row)
-        + _mi_memory_governance_trust_bonus(row)
     )
 
     return round(score, 6)
@@ -605,7 +648,7 @@ def rank_memory_rows(rows: list[dict], *, min_similarity: float = MIN_SIMILARITY
             _mi_as_float(r.get("retrieval_score"), 0.0),
             _mi_as_float(r.get("similarity"), 0.0),
             _mi_as_float(r.get("confidence"), 0.0),
-            str(r.get("last_confirmed_at") or ""),
+            str(r.get("last_user_confirmed_at") or ""),
             str(r.get("created_at") or ""),
         ),
         reverse=True,

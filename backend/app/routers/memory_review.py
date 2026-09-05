@@ -3,10 +3,11 @@
 A safe control surface for reviewing and managing Aliyya's memories.
 
 Design:
-- Read grouped active + archived/superseded memories.
-- Confirm memory by bumping last_confirmed_at.
-- Forget memory by marking superseded=true, never delete.
-- Edit memory by creating a new corrected version and superseding the old row.
+- Read grouped active + user-archived memories.
+- Genuine confirmation is separate from historical support metadata.
+- Forget means reversible archive, not supersession.
+- Edit creates a corrected version and supersedes the old row.
+- Memory mutations require the Memory PIN.
 
 This router does not touch companion mood, user mood, journal, or prompt logic.
 """
@@ -44,7 +45,9 @@ MEMORY_GRAPH_VIEW_SELECT = (
     "structured_field,structured_value,superseded,superseded_by,archived,deleted_at,"
     "lifecycle_type,due_date,expires_at,calendar_candidate,calendar_event_status,"
     "calendar_event_title,calendar_event_date,calendar_event_start_at,calendar_event_end_at,"
-    "calendar_event_location,created_at,updated_at,last_confirmed_at"
+    "calendar_event_location,created_at,updated_at,last_confirmed_at,"
+    "last_user_confirmed_at,last_user_confirmation_source,"
+    "last_user_confirmation_evidence"
 )
 
 
@@ -248,8 +251,10 @@ async def list_memory_review(
         .select(
             "id, content, kind, category, structured_field, structured_value, "
             "confidence, source_priority, evidence, superseded, superseded_by, "
-            "superseded_at, last_confirmed_at, created_at, "
-            "source, source_conversation_id"
+            "superseded_at, archived, archived_by, archived_at, status, deleted_at, "
+            "last_confirmed_at, last_user_confirmed_at, "
+            "last_user_confirmation_source, last_user_confirmation_evidence, "
+            "created_at, updated_at, source, source_conversation_id"
         )
         .eq("user_id", user_id)
         .order("created_at", desc=True)
@@ -257,7 +262,12 @@ async def list_memory_review(
     )
 
     if not include_archived:
-        query = query.eq("superseded", False)
+        query = (
+            query
+            .eq("superseded", False)
+            .eq("archived", False)
+            .is_("deleted_at", "null")
+        )
 
     try:
         result = safe_execute(lambda _sb: query.execute())
@@ -1294,6 +1304,7 @@ async def resolve_memory_quality(
                         "archived": True,
                         "archived_by": archive_reason,
                         "archived_at": now,
+                        "status": "archived",
                         "updated_at": now,
                     }
                 )
@@ -1310,7 +1321,14 @@ async def resolve_memory_quality(
                 .update(
                     {
                         "archived": False,
-                        "last_confirmed_at": now,
+                        "archived_by": None,
+                        "archived_at": None,
+                        "status": "active",
+                        "last_user_confirmed_at": now,
+                        "last_user_confirmation_source": "quality_resolution",
+                        "last_user_confirmation_evidence": {
+                            "action": "keep_one",
+                        },
                         "updated_at": now,
                     }
                 )
@@ -1329,19 +1347,109 @@ async def resolve_memory_quality(
     }
 
 
+@router.post("/manual", response_model=MemoryActionOut)
+async def add_manual_memory(
+    body: MemoryManualIn,
+    user_id: str = Depends(get_current_user_id),
+) -> MemoryActionOut:
+    """Add a user-authored memory without treating insertion as confirmation."""
+    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
+
+    content = body.content.strip()
+
+    try:
+        embedding = await embed_document(content)
+    except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "memory review: embed manual memory failed user=%s",
+            user_id[:8],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process manual memory",
+        ) from exc
+
+    row = {
+        "user_id": user_id,
+        "content": content,
+        "kind": _category_to_kind(body.category),
+        "embedding": embedding,
+        "source": "manual",
+        "source_conversation_id": None,
+        "confidence": 1.0,
+        "source_priority": "explicit_user_statement",
+        "evidence": ["Added manually by user in Memory Review"],
+        "category": body.category,
+        "structured_field": (
+            _clean_optional(body.structured_field) or "manual_memory"
+        ),
+        "structured_value": (
+            _clean_optional(body.structured_value) or content[:300]
+        ),
+        "superseded": False,
+        "archived": False,
+        "status": "active",
+        "last_confirmed_at": None,
+        "last_user_confirmed_at": None,
+    }
+
+    try:
+        inserted = safe_execute(
+            lambda sb: sb.table("memories").insert(row).execute()
+        )
+        rows = inserted.data or []
+        if not rows:
+            raise RuntimeError("insert returned no rows")
+
+        memory_id = str(rows[0]["id"])
+    except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "memory review: manual memory insert failed user=%s",
+            user_id[:8],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to add memory",
+        ) from exc
+
+    return MemoryActionOut(
+        ok=True,
+        action="added",
+        memory_id=memory_id,
+        new_memory_id=memory_id,
+    )
+
+
 @router.post("/{memory_id}/confirm", response_model=MemoryActionOut)
 async def confirm_memory(
     memory_id: str,
+    body: MemoryPinIn,
     user_id: str = Depends(get_current_user_id),
 ) -> MemoryActionOut:
-    """Mark an active memory as still true."""
-    await _assert_memory_owner(memory_id=memory_id, user_id=user_id)
+    """Explicitly confirm that an active memory is still true."""
+    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
+
+    row = await _assert_memory_owner(
+        memory_id=memory_id,
+        user_id=user_id,
+    )
+    _require_active_memory(row)
 
     now = _now_iso()
+
     try:
         safe_execute(
             lambda sb: sb.table("memories")
-            .update({"last_confirmed_at": now})
+            .update(
+                {
+                    "last_user_confirmed_at": now,
+                    "last_user_confirmation_source": "memory_review",
+                    "last_user_confirmation_evidence": {
+                        "action": "explicit_confirm",
+                    },
+                    "updated_at": now,
+                }
+            )
             .eq("id", memory_id)
             .eq("user_id", user_id)
             .execute()
@@ -1357,7 +1465,11 @@ async def confirm_memory(
             detail="Failed to confirm memory",
         ) from exc
 
-    return MemoryActionOut(ok=True, action="confirmed", memory_id=memory_id)
+    return MemoryActionOut(
+        ok=True,
+        action="confirmed",
+        memory_id=memory_id,
+    )
 
 
 @router.post("/{memory_id}/forget", response_model=MemoryActionOut)
@@ -1366,22 +1478,27 @@ async def forget_memory(
     body: MemoryPinIn,
     user_id: str = Depends(get_current_user_id),
 ) -> MemoryActionOut:
-    """Archive/forget a memory by marking it superseded.
+    """Reversibly archive a memory without changing correction history."""
+    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
 
-    We do not delete rows so audit trail and supersede chain remain safe.
-    """
-    await _assert_memory_owner(memory_id=memory_id, user_id=user_id)
+    row = await _assert_memory_owner(
+        memory_id=memory_id,
+        user_id=user_id,
+    )
+    _require_active_memory(row)
 
     now = _now_iso()
-    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
 
     try:
         safe_execute(
             lambda sb: sb.table("memories")
             .update(
                 {
-                    "superseded": True,
-                    "superseded_at": now,
+                    "archived": True,
+                    "archived_by": "memory_review_forget",
+                    "archived_at": now,
+                    "status": "archived",
+                    "updated_at": now,
                 }
             )
             .eq("id", memory_id)
@@ -1399,7 +1516,75 @@ async def forget_memory(
             detail="Failed to forget memory",
         ) from exc
 
-    return MemoryActionOut(ok=True, action="forgotten", memory_id=memory_id)
+    return MemoryActionOut(
+        ok=True,
+        action="forgotten",
+        memory_id=memory_id,
+    )
+
+
+@router.post("/{memory_id}/restore", response_model=MemoryActionOut)
+async def restore_memory(
+    memory_id: str,
+    body: MemoryPinIn,
+    user_id: str = Depends(get_current_user_id),
+) -> MemoryActionOut:
+    """Restore an archived memory without confirming its truth."""
+    await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
+
+    row = await _assert_memory_owner(
+        memory_id=memory_id,
+        user_id=user_id,
+    )
+
+    archived, superseded, deleted = _memory_hidden_flags(row)
+
+    if deleted or superseded:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Superseded or deleted memories cannot be restored",
+        )
+
+    if not archived:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Memory is not archived",
+        )
+
+    now = _now_iso()
+
+    try:
+        safe_execute(
+            lambda sb: sb.table("memories")
+            .update(
+                {
+                    "archived": False,
+                    "archived_by": None,
+                    "archived_at": None,
+                    "status": "active",
+                    "updated_at": now,
+                }
+            )
+            .eq("id", memory_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "memory review: restore memory failed user=%s memory=%s",
+            user_id[:8],
+            memory_id[:8],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to restore memory",
+        ) from exc
+
+    return MemoryActionOut(
+        ok=True,
+        action="restored",
+        memory_id=memory_id,
+    )
 
 
 @router.patch("/{memory_id}", response_model=MemoryActionOut)
@@ -1415,7 +1600,11 @@ async def edit_memory(
     """
     await memory_pin.require_valid_pin(user_id=user_id, pin=body.pin)
 
-    old = await _assert_memory_owner(memory_id=memory_id, user_id=user_id)
+    old = await _assert_memory_owner(
+        memory_id=memory_id,
+        user_id=user_id,
+    )
+    _require_active_memory(old)
 
     category = body.category or old.get("category") or "other"
     kind = _category_to_kind(category)
@@ -1442,8 +1631,8 @@ async def edit_memory(
         "source": "manual_review",
         "source_conversation_id": old.get("source_conversation_id"),
         "confidence": 1.0,
-        "source_priority": "explicit_user_statement",
-        "evidence": ["Edited by user in Memory Review"],
+        "source_priority": "user_correction",
+        "evidence": ["Corrected by user in Memory Review"],
         "category": category,
         "structured_field": _clean_optional(body.structured_field)
         if body.structured_field is not None
@@ -1452,7 +1641,10 @@ async def edit_memory(
         if body.structured_value is not None
         else old.get("structured_value"),
         "superseded": False,
-        "last_confirmed_at": now,
+        "archived": False,
+        "status": "active",
+        "last_confirmed_at": None,
+        "last_user_confirmed_at": None,
     }
 
     try:
@@ -1472,6 +1664,8 @@ async def edit_memory(
                     "superseded": True,
                     "superseded_by": new_id,
                     "superseded_at": now,
+                    "status": "superseded",
+                    "updated_at": now,
                 }
             )
             .eq("id", memory_id)
@@ -1507,7 +1701,8 @@ async def _assert_memory_owner(*, memory_id: str, user_id: str) -> dict[str, Any
                 "calendar_event_title, calendar_event_date, calendar_event_start_at, "
                 "calendar_event_end_at, calendar_event_all_day, calendar_event_location, google_calendar_event_id, "
                 "google_calendar_event_link, "
-                "source_conversation_id, superseded"
+                "source_conversation_id, superseded, archived, archived_by, "
+                "archived_at, status, deleted_at"
             )
             .eq("id", memory_id)
             .eq("user_id", user_id)
@@ -1535,23 +1730,69 @@ async def _assert_memory_owner(*, memory_id: str, user_id: str) -> dict[str, Any
     return rows[0]
 
 
+def _memory_hidden_flags(
+    row: dict[str, Any],
+) -> tuple[bool, bool, bool]:
+    status_value = str(
+        row.get("status") or "active"
+    ).strip().lower()
+
+    deleted = bool(row.get("deleted_at")) or status_value == "deleted"
+    superseded = (
+        bool(row.get("superseded"))
+        or status_value == "superseded"
+    )
+    archived = (
+        bool(row.get("archived"))
+        or status_value == "archived"
+    )
+
+    return archived, superseded, deleted
+
+
+def _require_active_memory(row: dict[str, Any]) -> None:
+    archived, superseded, deleted = _memory_hidden_flags(row)
+
+    if archived or superseded or deleted:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Memory is not active",
+        )
+
+
 def _build_review_payload(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    active: dict[str, list[dict[str, Any]]] = {name: [] for name in GROUP_ORDER}
-    archived: dict[str, list[dict[str, Any]]] = {name: [] for name in GROUP_ORDER}
+    active: dict[str, list[dict[str, Any]]] = {
+        name: [] for name in GROUP_ORDER
+    }
+    archived: dict[str, list[dict[str, Any]]] = {
+        name: [] for name in GROUP_ORDER
+    }
 
     for row in rows:
         item = _normalize_memory_row(row)
+        is_archived, is_superseded, is_deleted = (
+            _memory_hidden_flags(item)
+        )
+
+        # Correction/deletion history remains available for audit in storage
+        # but is not a reversible Archived-memory UI item.
+        if is_superseded or is_deleted:
+            continue
+
         group = _group_for_memory(item)
-        target = archived if item.get("superseded") else active
+        target = archived if is_archived else active
         target.setdefault(group, []).append(item)
+
+    active_count = sum(len(v) for v in active.values())
+    archived_count = sum(len(v) for v in archived.values())
 
     return {
         "active": _drop_empty_groups(active),
         "archived": _drop_empty_groups(archived),
         "counts": {
-            "active": sum(len(v) for v in active.values()),
-            "archived": sum(len(v) for v in archived.values()),
-            "total": len(rows),
+            "active": active_count,
+            "archived": archived_count,
+            "total": active_count + archived_count,
         },
     }
 
@@ -1690,8 +1931,21 @@ def _normalize_memory_row(row: dict[str, Any]) -> dict[str, Any]:
         "superseded": bool(row.get("superseded")),
         "superseded_by": row.get("superseded_by"),
         "superseded_at": row.get("superseded_at"),
+        "archived": bool(row.get("archived")),
+        "archived_by": row.get("archived_by"),
+        "archived_at": row.get("archived_at"),
+        "status": row.get("status"),
+        "deleted_at": row.get("deleted_at"),
         "last_confirmed_at": row.get("last_confirmed_at"),
+        "last_user_confirmed_at": row.get("last_user_confirmed_at"),
+        "last_user_confirmation_source": row.get(
+            "last_user_confirmation_source"
+        ),
+        "last_user_confirmation_evidence": row.get(
+            "last_user_confirmation_evidence"
+        ),
         "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
         "source": row.get("source"),
         "source_conversation_id": row.get("source_conversation_id"),
     }

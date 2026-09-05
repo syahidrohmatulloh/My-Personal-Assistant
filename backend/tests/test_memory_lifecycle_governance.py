@@ -45,7 +45,7 @@ def test_confirmed_memory_is_not_stale_even_when_old() -> None:
     row = {
         "status": "active",
         "created_at": old,
-        "last_confirmed_at": old,
+        "last_user_confirmed_at": old,
         "confidence": 0.95,
     }
 
@@ -55,6 +55,24 @@ def test_confirmed_memory_is_not_stale_even_when_old() -> None:
     assert assessed.stale is False
     assert assessed.needs_confirmation is False
     assert assessed.reason == "confirmed"
+
+
+def test_legacy_last_confirmed_at_does_not_create_authority() -> None:
+    row = {
+        "status": "active",
+        "created_at": NOW.isoformat(),
+        "last_confirmed_at": NOW.isoformat(),
+        "last_user_confirmed_at": None,
+        "confidence": 0.95,
+        "source": "auto",
+        "source_priority": "legacy_unknown",
+    }
+
+    assessed = assess_memory_lifecycle(row, now=NOW)
+
+    assert assessed.confirmed is False
+    assert assessed.needs_confirmation is True
+    assert assessed.reason == "provenance_unverified"
 
 
 def test_low_confidence_active_memory_needs_confirmation() -> None:
@@ -81,7 +99,7 @@ def test_lifecycle_aggregate_and_diagnostics_are_content_free() -> None:
         {"status": "archived", "content": "SECRET hidden memory content"},
         {
             "status": "active",
-            "last_confirmed_at": NOW.isoformat(),
+            "last_user_confirmed_at": NOW.isoformat(),
             "content": "SECRET confirmed memory content",
         },
     ]

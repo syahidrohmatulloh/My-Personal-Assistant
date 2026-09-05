@@ -14,6 +14,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
+from app.services import memory_epistemic_governance
 from app.services.memory_quality import assess_memory_quality
 from app.services.supabase_client import safe_execute
 
@@ -27,6 +28,57 @@ _LAST_ERROR: str | None = None
 _LAST_SUMMARY_BY_USER: dict[str, dict[str, Any]] = {}
 _LAST_TOTAL_USERS = 0
 _LAST_TOTAL_MEMORIES = 0
+
+_DIRECT_USER_PRIORITIES = frozenset(
+    {
+        "explicit_user_statement",
+        "user_answer_in_context",
+        "user_correction",
+    }
+)
+
+
+def _row_is_active_for_health(
+    row: dict[str, Any],
+) -> bool:
+    status_value = str(
+        row.get("status") or ""
+    ).strip().lower()
+
+    return not bool(
+        row.get("archived")
+        or row.get("superseded")
+        or row.get("deleted_at")
+        or status_value in {
+            "archived",
+            "superseded",
+            "deleted",
+        }
+    )
+
+
+def _row_is_direct_user_memory(
+    row: dict[str, Any],
+) -> bool:
+    return (
+        str(
+            row.get("source_priority")
+            or ""
+        )
+        .strip()
+        .lower()
+        in _DIRECT_USER_PRIORITIES
+    )
+
+
+def _row_is_authoritative_memory(
+    row: dict[str, Any],
+) -> bool:
+    return bool(
+        _row_is_direct_user_memory(row)
+        or memory_epistemic_governance
+        .has_confirmation(row)
+    )
 
 
 def scheduler_enabled() -> bool:
@@ -160,15 +212,102 @@ def build_user_memory_health_summaries(
     out: dict[str, dict[str, Any]] = {}
 
     for user_id, rows in by_user.items():
-        assessment = assess_memory_quality(rows)
-        summary = assessment.get("summary") or {}
+        assessment = assess_memory_quality(
+            rows
+        )
+        summary = (
+            assessment.get("summary")
+            or {}
+        )
+
+        active_rows = [
+            row
+            for row in rows
+            if _row_is_active_for_health(
+                row
+            )
+        ]
+
+        direct_user_memories = sum(
+            1
+            for row in active_rows
+            if _row_is_direct_user_memory(
+                row
+            )
+        )
+
+        canonically_confirmed_memories = sum(
+            1
+            for row in active_rows
+            if (
+                memory_epistemic_governance
+                .has_confirmation(row)
+            )
+        )
+
+        authoritative_memories = sum(
+            1
+            for row in active_rows
+            if _row_is_authoritative_memory(
+                row
+            )
+        )
+
+        unverified_memories = max(
+            0,
+            len(active_rows)
+            - authoritative_memories,
+        )
+
         out[user_id] = {
-            "active_memories": int(summary.get("active_memories") or 0),
-            "duplicate_groups": int(summary.get("duplicate_groups") or 0),
-            "conflict_groups": int(summary.get("conflict_groups") or 0),
-            "low_quality_memories": int(summary.get("low_quality_memories") or 0),
-            "stale_memories": int(summary.get("stale_memories") or 0),
-            "needs_review": int(summary.get("needs_review") or 0),
+            "active_memories": int(
+                summary.get(
+                    "active_memories"
+                )
+                or 0
+            ),
+            "duplicate_groups": int(
+                summary.get(
+                    "duplicate_groups"
+                )
+                or 0
+            ),
+            "conflict_groups": int(
+                summary.get(
+                    "conflict_groups"
+                )
+                or 0
+            ),
+            "low_quality_memories": int(
+                summary.get(
+                    "low_quality_memories"
+                )
+                or 0
+            ),
+            "stale_memories": int(
+                summary.get(
+                    "stale_memories"
+                )
+                or 0
+            ),
+            "needs_review": int(
+                summary.get(
+                    "needs_review"
+                )
+                or 0
+            ),
+            "authoritative_memories": (
+                authoritative_memories
+            ),
+            "unverified_memories": (
+                unverified_memories
+            ),
+            "canonically_confirmed_memories": (
+                canonically_confirmed_memories
+            ),
+            "direct_user_memories": (
+                direct_user_memories
+            ),
         }
 
     return out
@@ -230,8 +369,11 @@ async def _load_memory_rows() -> list[dict[str, Any]]:
             lambda sb: sb.table("memories")
             .select(
                 "id,user_id,content,kind,category,structured_field,"
-                "structured_value,archived,superseded,status,deleted_at,"
-                "created_at,updated_at,last_confirmed_at"
+                "structured_value,source,source_priority,confidence,"
+                "archived,superseded,status,deleted_at,created_at,updated_at,"
+                "last_confirmed_at,last_user_confirmed_at,"
+                "last_user_confirmation_source,"
+                "last_user_confirmation_evidence"
             )
             .limit(limit)
             .execute()

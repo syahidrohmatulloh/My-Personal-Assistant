@@ -134,7 +134,7 @@ def test_stale_memory_is_unverified() -> None:
     assert decision.response_posture == "caution"
 
 
-def test_confirmed_old_memory_remains_trusted() -> None:
+def test_canonically_confirmed_old_memory_remains_trusted() -> None:
     old = (NOW - timedelta(days=700)).isoformat()
 
     decision = metacognitive_policy.evaluate_metacognitive_policy(
@@ -147,7 +147,7 @@ def test_confirmed_old_memory_remains_trusted() -> None:
                 "id": "confirmed",
                 "status": "active",
                 "created_at": old,
-                "last_confirmed_at": old,
+                "last_user_confirmed_at": old,
                 "confidence": 0.95,
             }
         ],

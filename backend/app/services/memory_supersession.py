@@ -4,8 +4,8 @@ Some memory fields are single-value by nature. If a newer memory says the
 user's sleep pattern changed, the old sleep pattern should not remain active
 and conflict with it.
 
-This module archives older active memories for single-value structured fields
-when a new memory with the same structured_field is inserted.
+This module plans supersession before insertion and finalizes older active
+single-value memories only after the replacement row has been inserted.
 
 It is intentionally generic:
 - no user-specific hardcoding
@@ -112,78 +112,289 @@ def decide_supersession(old_value: str | None, new_value: str | None) -> Superse
     return SupersessionDecision(True, "single_value_field_replaced")
 
 
-def apply_memory_supersession(*, user_id: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Archive existing conflicting memories before inserting new rows.
+DIRECT_USER_PRIORITIES = frozenset(
+    {
+        "explicit_user_statement",
+        "user_answer_in_context",
+        "user_correction",
+    }
+)
 
-    Best effort: failures are logged and rows are returned unchanged so chat
-    never fails because of memory maintenance.
+
+def _row_is_hidden(row: dict[str, Any]) -> bool:
+    status_value = str(
+        row.get("status") or ""
+    ).strip().lower()
+
+    return bool(
+        row.get("archived")
+        or row.get("superseded")
+        or row.get("deleted_at")
+        or status_value in {
+            "archived",
+            "superseded",
+            "deleted",
+        }
+    )
+
+
+def _row_is_authoritative(row: dict[str, Any]) -> bool:
+    priority = str(
+        row.get("source_priority") or ""
+    ).strip().lower()
+
+    return bool(
+        priority in DIRECT_USER_PRIORITIES
+        or row.get("last_user_confirmed_at")
+    )
+
+
+def _hidden_equivalent_exists(
+    *,
+    supabase: Any,
+    user_id: str,
+    row: dict[str, Any],
+) -> bool:
+    field = _norm_key(
+        row.get("structured_field")
+    )
+    value = _norm_value(
+        row.get("structured_value")
+    )
+
+    if not field or not value:
+        return False
+
+    result = (
+        supabase.table("memories")
+        .select(
+            "id, structured_value, archived, superseded, "
+            "status, deleted_at"
+        )
+        .eq("user_id", user_id)
+        .eq("structured_field", field)
+        .limit(50)
+        .execute()
+    )
+
+    for existing in result.data or []:
+        if (
+            _row_is_hidden(existing)
+            and _norm_value(
+                existing.get("structured_value")
+            )
+            == value
+        ):
+            return True
+
+    return False
+
+
+def apply_memory_supersession(
+    *,
+    user_id: str,
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Plan incoming rows without mutating existing truth.
+
+    This phase may deduplicate the incoming batch and suppress inferred rows
+    that would recreate a hidden memory. Existing database rows are NEVER
+    mutated here.
     """
     if not rows:
         return rows
 
-    candidates = [row for row in rows if _row_is_candidate(row)]
-    if not candidates:
-        return rows
+    deduped = _dedupe_incoming_single_value_rows(
+        rows
+    )
+
+    weak_rows = [
+        row
+        for row in deduped
+        if not _row_is_authoritative(row)
+    ]
+
+    if not weak_rows:
+        return deduped
 
     try:
         supabase = get_supabase()
-        for row in candidates:
-            _supersede_existing_for_row(supabase=supabase, user_id=user_id, row=row)
     except Exception as exc:  # noqa: BLE001
-        log.warning("memory supersession failed: %s", exc)
+        log.warning(
+            "memory resurrection guard unavailable: %s",
+            exc,
+        )
+        # Fail closed for non-authoritative automatic rows. Direct user
+        # evidence is allowed to proceed.
+        return [
+            row
+            for row in deduped
+            if _row_is_authoritative(row)
+        ]
 
-    return _dedupe_incoming_single_value_rows(rows)
+    guarded: list[dict[str, Any]] = []
+
+    for row in deduped:
+        if _row_is_authoritative(row):
+            guarded.append(row)
+            continue
+
+        try:
+            if _hidden_equivalent_exists(
+                supabase=supabase,
+                user_id=user_id,
+                row=row,
+            ):
+                log.info(
+                    "memory resurrection suppressed user=%s field=%s",
+                    user_id[:8],
+                    _norm_key(
+                        row.get("structured_field")
+                    ),
+                )
+                continue
+        except Exception as exc:  # noqa: BLE001
+            # Lifecycle state could not be established. Do not let machine
+            # inference recreate unknown hidden state.
+            log.warning(
+                "memory resurrection check failed; "
+                "suppressing inferred row: %s",
+                exc,
+            )
+            continue
+
+        guarded.append(row)
+
+    return guarded
 
 
-def _supersede_existing_for_row(*, supabase: Any, user_id: str, row: dict[str, Any]) -> None:
-    field = _norm_key(row.get("structured_field"))
-    new_value = str(row.get("structured_value") or "").strip()
+def finalize_memory_supersession(
+    *,
+    user_id: str,
+    inserted_rows: list[dict[str, Any]],
+) -> None:
+    """Supersede replaced active truth only after replacement insert succeeds."""
 
-    if not field or not new_value:
+    if not inserted_rows:
+        return
+
+    candidates = [
+        row
+        for row in inserted_rows
+        if _row_is_candidate(row)
+        and row.get("id")
+    ]
+
+    if not candidates:
+        return
+
+    try:
+        supabase = get_supabase()
+
+        for row in candidates:
+            _finalize_existing_for_row(
+                supabase=supabase,
+                user_id=user_id,
+                row=row,
+            )
+    except Exception as exc:  # noqa: BLE001
+        # Safe failure mode: two active values are preferable to deleting the
+        # old truth before its replacement exists.
+        log.warning(
+            "memory supersession finalize failed: %s",
+            exc,
+        )
+
+
+def _finalize_existing_for_row(
+    *,
+    supabase: Any,
+    user_id: str,
+    row: dict[str, Any],
+) -> None:
+    field = _norm_key(
+        row.get("structured_field")
+    )
+    new_value = str(
+        row.get("structured_value") or ""
+    ).strip()
+    new_id = str(
+        row.get("id") or ""
+    ).strip()
+
+    if not field or not new_value or not new_id:
         return
 
     result = (
         supabase.table("memories")
-        .select("id, structured_value, content")
+        .select(
+            "id, structured_value, source_priority, "
+            "last_user_confirmed_at, archived, superseded, "
+            "status, deleted_at"
+        )
         .eq("user_id", user_id)
-        .eq("archived", False)
         .eq("structured_field", field)
-        .limit(25)
+        .limit(50)
         .execute()
     )
 
-    existing = result.data or []
-    to_archive: list[str] = []
+    to_supersede: list[str] = []
 
-    for old in existing:
-        decision = decide_supersession(old.get("structured_value"), new_value)
+    for old in result.data or []:
+        old_id = str(
+            old.get("id") or ""
+        ).strip()
+
+        if (
+            not old_id
+            or old_id == new_id
+            or _row_is_hidden(old)
+        ):
+            continue
+
+        # Weak automatic inference must never overwrite direct or explicitly
+        # confirmed existing truth.
+        if (
+            _row_is_authoritative(old)
+            and not _row_is_authoritative(row)
+        ):
+            continue
+
+        decision = decide_supersession(
+            old.get("structured_value"),
+            new_value,
+        )
+
         if decision.should_supersede:
-            memory_id = str(old.get("id") or "").strip()
-            if memory_id:
-                to_archive.append(memory_id)
+            to_supersede.append(old_id)
 
-    if not to_archive:
+    if not to_supersede:
         return
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(
+        timezone.utc
+    ).isoformat()
+
     (
         supabase.table("memories")
         .update(
             {
-                "archived": True,
                 "superseded": True,
-                "archived_by": f"memory_supersession:{field}",
-                "archived_at": now,
+                "superseded_by": new_id,
+                "superseded_at": now,
+                "status": "superseded",
                 "updated_at": now,
             }
         )
-        .in_("id", to_archive)
+        .in_("id", to_supersede)
+        .eq("user_id", user_id)
         .execute()
     )
 
     log.info(
-        "memory supersession: archived %d old memories for user=%s field=%s",
-        len(to_archive),
+        "memory supersession: finalized %d old memories "
+        "for user=%s field=%s",
+        len(to_supersede),
         user_id[:8],
         field,
     )

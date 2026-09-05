@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from app.services import memory_epistemic_governance
 from app.services.supabase_client import safe_execute
 
 
@@ -28,6 +29,14 @@ INTERACTION_STRUCTURED_FIELDS = (
 
 MAX_PREFERENCES = 5
 MAX_CONTENT_CHARS = 220
+
+_DIRECT_USER_PRIORITIES = frozenset(
+    {
+        "explicit_user_statement",
+        "user_answer_in_context",
+        "user_correction",
+    }
+)
 
 
 async def get_interaction_preferences_block(*, user_id: str) -> str | None:
@@ -46,7 +55,9 @@ async def fetch_interaction_preferences(*, user_id: str) -> list[dict[str, Any]]
             lambda sb: sb.table("memories")
             .select(
                 "id, content, category, kind, structured_field, structured_value, "
-                "confidence, source_priority, last_confirmed_at, created_at"
+                "confidence, source_priority, archived, superseded, "
+                "status, deleted_at, last_user_confirmed_at, "
+                "created_at, updated_at"
             )
             .eq("user_id", user_id)
             .eq("superseded", False)
@@ -86,12 +97,45 @@ def render_interaction_preferences_block(rows: list[dict[str, Any]]) -> str | No
     return "\n".join(lines) if len(lines) > 4 else None
 
 
+def _is_hidden_preference(row: dict[str, Any]) -> bool:
+    status = str(
+        row.get("status") or ""
+    ).strip().lower()
+
+    return bool(
+        row.get("archived")
+        or row.get("superseded")
+        or row.get("deleted_at")
+        or status in {
+            "archived",
+            "superseded",
+            "deleted",
+        }
+    )
+
+
+def _is_authoritative_preference(
+    row: dict[str, Any],
+) -> bool:
+    source_priority = str(
+        row.get("source_priority") or ""
+    ).strip().lower()
+
+    if source_priority in _DIRECT_USER_PRIORITIES:
+        return True
+
+    return memory_epistemic_governance.has_confirmation(
+        row
+    )
+
+
 def _rank_interaction_preferences(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     active = [
         row
         for row in rows
         if row
-        and not row.get("superseded")
+        and not _is_hidden_preference(row)
+        and _is_authoritative_preference(row)
         and str(row.get("structured_field") or "") in INTERACTION_STRUCTURED_FIELDS
         and str(row.get("content") or "").strip()
     ]
@@ -101,7 +145,12 @@ def _rank_interaction_preferences(rows: list[dict[str, Any]]) -> list[dict[str, 
         key=lambda row: (
             _field_priority(str(row.get("structured_field") or "")),
             _safe_float(row.get("confidence")),
-            str(row.get("last_confirmed_at") or row.get("created_at") or ""),
+            str(
+                row.get("last_user_confirmed_at")
+                or row.get("updated_at")
+                or row.get("created_at")
+                or ""
+            ),
         ),
         reverse=True,
     )

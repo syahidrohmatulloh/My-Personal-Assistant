@@ -64,6 +64,7 @@ def test_legacy_direct_user_memory_has_no_synthetic_confirmation():
     )
     assert fields["confidence"] == 0.92
     assert fields["last_confirmed_at"] is None
+    assert fields["last_user_confirmed_at"] is None
 
 
 def test_legacy_assistant_plan_is_low_confidence_and_unverified():
@@ -80,6 +81,7 @@ def test_legacy_assistant_plan_is_low_confidence_and_unverified():
     )
     assert fields["confidence"] == 0.54
     assert fields["last_confirmed_at"] is None
+    assert fields["last_user_confirmed_at"] is None
 
     lifecycle = (
         memory_lifecycle_governance
@@ -128,6 +130,7 @@ def test_new_memory_intelligence_insert_explicitly_writes_null_confirmation():
     )
 
     assert '"last_confirmed_at": None' in source
+    assert '"last_user_confirmed_at": None' in source
 
 
 def test_repeated_pattern_duplicate_does_not_bump_confirmation(
@@ -153,7 +156,7 @@ def test_repeated_pattern_duplicate_does_not_bump_confirmation(
     )
     monkeypatch.setattr(
         memory_intelligence,
-        "_bump_last_confirmed",
+        "_bump_last_user_confirmed",
         fake_bump,
     )
 
@@ -197,7 +200,7 @@ def test_explicit_user_duplicate_may_refresh_confirmation(
     )
     monkeypatch.setattr(
         memory_intelligence,
-        "_bump_last_confirmed",
+        "_bump_last_user_confirmed",
         fake_bump,
     )
 

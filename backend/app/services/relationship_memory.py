@@ -101,8 +101,9 @@ class RelationshipMemoryCandidate:
             "source_priority": self.source_priority,
             "evidence": self.evidence,
             "superseded": False,
-            # Explicit NULL overrides the legacy DB default now().
+            # Automatic inference is never confirmation.
             "last_confirmed_at": None,
+            "last_user_confirmed_at": None,
         }
 
 
@@ -121,21 +122,35 @@ async def extract_and_persist(
         return {"saved": 0, "reason": "no_candidate"}
 
     saved = 0
-    confirmed = 0
+    refreshed = 0
+    hidden_preserved = 0
     failed = 0
 
     for candidate in candidates:
         try:
-            result = await _upsert_candidate(user_id=user_id, candidate=candidate)
+            result = await _upsert_candidate(
+                user_id=user_id,
+                candidate=candidate,
+            )
             if result.get("action") == "inserted":
                 saved += 1
-            elif result.get("action") == "confirmed_existing":
-                confirmed += 1
+            elif result.get("action") == "refreshed_existing":
+                refreshed += 1
+            elif result.get("action") == "hidden_existing_preserved":
+                hidden_preserved += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1
-            log.warning("relationship_memory: persist failed: %s", exc)
+            log.warning(
+                "relationship_memory: persist failed: %s",
+                exc,
+            )
 
-    return {"saved": saved, "confirmed": confirmed, "failed": failed}
+    return {
+        "saved": saved,
+        "refreshed": refreshed,
+        "hidden_preserved": hidden_preserved,
+        "failed": failed,
+    }
 
 
 def build_relationship_memory_candidates(
@@ -214,31 +229,75 @@ def build_relationship_memory_candidates(
     return candidates
 
 
+def _memory_row_hidden(row: dict[str, Any]) -> bool:
+    status_value = str(row.get("status") or "").strip().lower()
+    return bool(
+        row.get("archived")
+        or row.get("superseded")
+        or row.get("deleted_at")
+        or status_value in {"archived", "superseded", "deleted"}
+    )
+
+
 async def _upsert_candidate(
     *,
     user_id: str,
     candidate: RelationshipMemoryCandidate,
 ) -> dict[str, Any]:
+    """Refresh active inference only; never resurrect hidden memory."""
+
     def _select_existing():
         return safe_execute(
             lambda sb: sb.table("memories")
-            .select("id, confidence")
+            .select(
+                "id, confidence, structured_value, archived, "
+                "superseded, status, deleted_at"
+            )
             .eq("user_id", user_id)
-            .eq("structured_field", candidate.structured_field)
-            .eq("structured_value", candidate.structured_value)
-            .eq("superseded", False)
-            .limit(1)
+            .eq(
+                "structured_field",
+                candidate.structured_field,
+            )
+            .limit(20)
             .execute()
         )
 
     result = await asyncio.to_thread(_select_existing)
-    rows = result.data or []
+    rows = list(result.data or [])
 
-    if rows:
-        existing = rows[0]
-        memory_id = existing.get("id")
-        existing_confidence = _to_float(existing.get("confidence")) or 0.0
-        next_confidence = max(existing_confidence, candidate.confidence)
+    active_rows = [
+        row
+        for row in rows
+        if not _memory_row_hidden(row)
+    ]
+    hidden_rows = [
+        row
+        for row in rows
+        if _memory_row_hidden(row)
+    ]
+
+    exact_active = next(
+        (
+            row
+            for row in active_rows
+            if str(
+                row.get("structured_value") or ""
+            ).strip()
+            == candidate.structured_value
+        ),
+        None,
+    )
+
+    if exact_active:
+        memory_id = exact_active.get("id")
+        existing_confidence = (
+            _to_float(exact_active.get("confidence"))
+            or 0.0
+        )
+        next_confidence = max(
+            existing_confidence,
+            candidate.confidence,
+        )
 
         def _update_existing():
             return safe_execute(
@@ -254,17 +313,42 @@ async def _upsert_candidate(
             )
 
         await asyncio.to_thread(_update_existing)
+
         return {
             "saved": True,
-            "action": "confirmed_existing",
+            "action": "refreshed_existing",
             "memory_id": memory_id,
+            "structured_field": candidate.structured_field,
+        }
+
+    # A user-hidden memory is an explicit lifecycle boundary. Automatic
+    # inference must not recreate it as a new active row.
+    if hidden_rows:
+        return {
+            "saved": False,
+            "action": "hidden_existing_preserved",
+            "memory_id": hidden_rows[0].get("id"),
+            "structured_field": candidate.structured_field,
+        }
+
+    # Do not let machine inference create a conflicting second value for
+    # an already-active relationship preference.
+    if active_rows:
+        return {
+            "saved": False,
+            "action": "active_existing_preserved",
+            "memory_id": active_rows[0].get("id"),
             "structured_field": candidate.structured_field,
         }
 
     payload = candidate.as_memory_payload(user_id)
 
     def _insert_new():
-        return safe_execute(lambda sb: sb.table("memories").insert(payload).execute())
+        return safe_execute(
+            lambda sb: sb.table("memories")
+            .insert(payload)
+            .execute()
+        )
 
     inserted = await asyncio.to_thread(_insert_new)
     inserted_rows = inserted.data or []
@@ -272,7 +356,11 @@ async def _upsert_candidate(
     return {
         "saved": True,
         "action": "inserted",
-        "memory_id": inserted_rows[0].get("id") if inserted_rows else None,
+        "memory_id": (
+            inserted_rows[0].get("id")
+            if inserted_rows
+            else None
+        ),
         "structured_field": candidate.structured_field,
     }
 

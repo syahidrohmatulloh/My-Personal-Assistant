@@ -1,7 +1,8 @@
-"""CRUD endpoints for memories.
+"""Legacy read-only memory compatibility API.
 
-The user-facing /memories page calls these to view, manually add, and delete
-the facts Claude has remembered.
+M35C3 retires all legacy mutation endpoints. Memory Review is the sole
+user-facing mutation surface so PIN, confirmation provenance, archive
+semantics, and correction history cannot be bypassed.
 """
 
 from datetime import datetime
@@ -11,7 +12,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.core.auth import get_current_user_id
-from app.services.embeddings import embed_document
 from app.services.supabase_client import get_supabase
 
 router = APIRouter(prefix="/memories", tags=["memories"])
@@ -40,6 +40,16 @@ class CreateMemoryIn(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _legacy_mutation_retired() -> None:
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=(
+            "Legacy memory mutation endpoint retired; "
+            "use /memory-review"
+        ),
+    )
+
+
 @router.get("", response_model=list[MemoryOut])
 async def list_memories(user_id: str = Depends(get_current_user_id)):
     """Return every memory for the current user, newest first."""
@@ -49,6 +59,8 @@ async def list_memories(user_id: str = Depends(get_current_user_id)):
         .select("id, content, kind, source, created_at")
         .eq("user_id", user_id)
         .eq("superseded", False)
+        .or_("archived.is.false,archived.is.null")
+        .is_("deleted_at", "null")
         .order("created_at", desc=True)
         .execute()
     )
@@ -60,32 +72,8 @@ async def create_memory(
     body: CreateMemoryIn,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Manually add a memory. The user types something they want remembered."""
-    supabase = get_supabase()
-
-    try:
-        embedding = await embed_document(body.content)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, f"Embedding failed: {exc}"
-        ) from exc
-
-    result = (
-        supabase.table("memories")
-        .insert(
-            {
-                "user_id": user_id,
-                "content": body.content,
-                "kind": body.kind,
-                "embedding": embedding,
-                "source": "manual",
-            }
-        )
-        .execute()
-    )
-    if not result.data:
-        raise HTTPException(500, "Failed to create memory")
-    return result.data[0]
+    """Retired: use PIN-gated Memory Review manual add."""
+    _legacy_mutation_retired()
 
 
 @router.delete("/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -93,15 +81,11 @@ async def delete_memory(
     memory_id: str,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Delete a single memory."""
-    supabase = get_supabase()
-    supabase.table("memories").delete().eq("id", memory_id).eq(
-        "user_id", user_id
-    ).execute()
+    """Retired: use PIN-gated Memory Review archive."""
+    _legacy_mutation_retired()
 
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_all_memories(user_id: str = Depends(get_current_user_id)):
-    """Nuke all memories for this user. Use with care."""
-    supabase = get_supabase()
-    supabase.table("memories").delete().eq("user_id", user_id).execute()
+    """Retired: bulk hard-delete is no longer an allowed mutation path."""
+    _legacy_mutation_retired()

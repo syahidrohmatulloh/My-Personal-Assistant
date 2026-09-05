@@ -69,6 +69,7 @@ HABIT_REASON_CODES = frozenset(
         "habit.persistence.inserted_inferred",
         "habit.persistence.refreshed_inferred",
         "habit.persistence.explicit_existing_preserved",
+        "habit.persistence.hidden_existing_preserved",
         "habit.persistence.superseded_by_user_correction",
         "habit.persistence.no_matching_inferred_pattern",
         "habit.persistence.embedding_failed",
@@ -641,10 +642,10 @@ def _fetch_existing_routine_rows(
         .select(
             "id, source, source_priority, category, "
             "structured_field, structured_value, confidence, "
-            "evidence, superseded, last_confirmed_at"
+            "evidence, archived, superseded, status, deleted_at, "
+            "last_confirmed_at, last_user_confirmed_at"
         )
         .eq("user_id", user_id)
-        .eq("superseded", False)
         .eq("category", "routines")
         .limit(120)
         .execute()
@@ -656,6 +657,25 @@ def _fetch_existing_routine_rows(
             None,
         )
         or []
+    )
+
+
+def _memory_row_hidden(
+    row: dict[str, Any],
+) -> bool:
+    status_value = str(
+        row.get("status") or ""
+    ).strip().lower()
+
+    return bool(
+        row.get("archived")
+        or row.get("superseded")
+        or row.get("deleted_at")
+        or status_value in {
+            "archived",
+            "superseded",
+            "deleted",
+        }
     )
 
 
@@ -742,8 +762,19 @@ async def persist_habit_candidate(
         user_id=user_id,
     )
 
-    # Exact M32 pattern match comes first.
-    for row in existing_rows:
+    active_rows = [
+        row
+        for row in existing_rows
+        if not _memory_row_hidden(row)
+    ]
+    hidden_rows = [
+        row
+        for row in existing_rows
+        if _memory_row_hidden(row)
+    ]
+
+    # Exact active M32 pattern match comes first.
+    for row in active_rows:
         if (
             str(
                 row.get(
@@ -801,7 +832,7 @@ async def persist_habit_candidate(
             existing_confidence = 0.0
 
         if (
-            row.get("last_confirmed_at")
+            row.get("last_user_confirmed_at")
             or existing_confidence >= 0.55
         ):
             # A previously confirmed/raised memory is no longer treated as
@@ -837,9 +868,9 @@ async def persist_habit_candidate(
             memory_id,
         )
 
-    # Preserve exact user-authored routine assertions if structured_value
-    # already carries the same normalized activity.
-    for row in existing_rows:
+    # Preserve exact active user-authored routine assertions if
+    # structured_value already carries the same normalized activity.
+    for row in active_rows:
         if (
             str(
                 row.get(
@@ -867,6 +898,38 @@ async def persist_habit_candidate(
                 )
                 or None,
             )
+
+    # A forgotten/corrected machine habit must not come back solely because
+    # repeated-pattern inference sees it again. A future direct user assertion
+    # is handled by memory_intelligence and may create new active truth.
+    hidden_match = next(
+        (
+            row
+            for row in hidden_rows
+            if (
+                str(
+                    row.get("structured_field")
+                    or ""
+                )
+                == candidate.structured_field
+                or _normalize_activity(
+                    row.get("structured_value")
+                )
+                == candidate.signature
+            )
+        ),
+        None,
+    )
+
+    if hidden_match is not None:
+        return (
+            "hidden_existing_preserved",
+            str(
+                hidden_match.get("id")
+                or ""
+            )
+            or None,
+        )
 
     try:
         embedding = await embed_document(
@@ -903,6 +966,11 @@ async def persist_habit_candidate(
             candidate.evidence
         ),
         "embedding": embedding,
+        "archived": False,
+        "superseded": False,
+        "status": "active",
+        "last_confirmed_at": None,
+        "last_user_confirmed_at": None,
     }
 
     memory_id = await asyncio.to_thread(
@@ -962,6 +1030,7 @@ async def supersede_inferred_habit(
                     or ""
                 )
                 == "auto"
+                and not _memory_row_hidden(row)
             )
         ),
         None,
@@ -984,26 +1053,19 @@ async def supersede_inferred_habit(
             None,
         )
 
+    now = datetime.now(
+        timezone.utc
+    ).isoformat()
+
     await asyncio.to_thread(
         _update_memory_row,
         user_id=user_id,
         memory_id=memory_id,
         payload={
-            "archived": True,
             "superseded": True,
-            "archived_by": (
-                "habit_learning:user_correction"
-            ),
-            "archived_at": (
-                datetime.now(
-                    timezone.utc
-                ).isoformat()
-            ),
-            "updated_at": (
-                datetime.now(
-                    timezone.utc
-                ).isoformat()
-            ),
+            "status": "superseded",
+            "superseded_at": now,
+            "updated_at": now,
         },
     )
 
@@ -1194,6 +1256,8 @@ async def learn_from_chat(
                 "habit.persistence.refreshed_inferred",
             "explicit_existing_preserved":
                 "habit.persistence.explicit_existing_preserved",
+            "hidden_existing_preserved":
+                "habit.persistence.hidden_existing_preserved",
             "embedding_failed":
                 "habit.persistence.embedding_failed",
             "failed":

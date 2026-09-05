@@ -68,7 +68,13 @@ def source_priority(row: dict[str, Any]) -> str:
 
 
 def has_confirmation(row: dict[str, Any]) -> bool:
-    return bool(row.get("last_confirmed_at"))
+    """Return whether genuine user confirmation exists.
+
+    Historical ``last_confirmed_at`` is deliberately not authoritative.
+    M35C2 established that legacy values may represent synthetic or rolling
+    support signals rather than an explicit user confirmation event.
+    """
+    return bool(row.get("last_user_confirmed_at"))
 
 
 def provenance_requires_confirmation(

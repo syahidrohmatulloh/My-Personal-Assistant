@@ -231,7 +231,8 @@ def test_detects_stale_memory_needing_confirmation(monkeypatch):
                 "category": "preferences",
                 "structured_field": "purchase_consideration",
                 "structured_value": "specific car",
-                "last_confirmed_at": "2024-01-01T00:00:00+00:00",
+                "created_at": "2024-01-01T00:00:00+00:00",
+                "last_confirmed_at": "2026-09-01T00:00:00+00:00",
             }
         ]
     )
@@ -257,7 +258,7 @@ def test_recent_memory_is_not_flagged_as_stale(monkeypatch):
                 "category": "preferences",
                 "structured_field": "communication_preference",
                 "structured_value": "careful complete code patches",
-                "last_confirmed_at": datetime.now(timezone.utc).isoformat(),
+                "last_user_confirmed_at": datetime.now(timezone.utc).isoformat(),
             }
         ]
     )

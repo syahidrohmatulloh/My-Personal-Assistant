@@ -57,8 +57,8 @@ def row(content, **extra):
         "deleted_at": extra.get(
             "deleted_at",
         ),
-        "last_confirmed_at": extra.get(
-            "last_confirmed_at",
+        "last_user_confirmed_at": extra.get(
+            "last_user_confirmed_at",
         ),
         "created_at": extra.get(
             "created_at",
@@ -263,3 +263,47 @@ def test_m33_core_has_no_project_specific_keyword_taxonomy():
 
     for token in forbidden:
         assert token not in source
+
+
+def test_old_canonically_confirmed_rows_remain_eligible():
+    old = "2024-01-01T00:00:00+00:00"
+
+    candidates = build_consolidation_candidates(
+        [
+            row(
+                "User prefers concise technical answers.",
+                id="old-1",
+                structured_field="response_preference",
+                structured_value="concise technical answers",
+                source_priority="explicit_user_statement",
+                confidence=0.90,
+                created_at=old,
+                updated_at=old,
+                last_user_confirmed_at=old,
+            ),
+            row(
+                "User prefers concise technical answers.",
+                id="old-2",
+                structured_field="response_preference",
+                structured_value="concise technical answers",
+                source_priority="user_answer_in_context",
+                confidence=0.90,
+                created_at=old,
+                updated_at=old,
+                last_user_confirmed_at=old,
+            ),
+        ]
+    )
+
+    assert len(candidates) == 1
+
+
+def test_consolidation_db_reads_use_canonical_confirmation_field():
+    source = Path(
+        "app/services/memory_consolidation.py"
+    ).read_text(
+        encoding="utf-8"
+    )
+
+    assert "last_user_confirmed_at" in source
+    assert "last_confirmed_at" not in source

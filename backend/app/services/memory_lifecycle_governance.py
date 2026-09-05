@@ -97,7 +97,7 @@ def _parse_dt(value: Any) -> datetime | None:
 
 def _age_days(row: dict[str, Any], *, now: datetime) -> int | None:
     anchor = (
-        _parse_dt(row.get("last_confirmed_at"))
+        _parse_dt(row.get("last_user_confirmed_at"))
         or _parse_dt(row.get("updated_at"))
         or _parse_dt(row.get("created_at"))
     )
@@ -135,7 +135,7 @@ def assess_memory_lifecycle(
     now = now or datetime.now(timezone.utc)
     state = lifecycle_state(row)
     hidden = state in _HIDDEN_STATUSES
-    confirmed = bool(row.get("last_confirmed_at"))
+    confirmed = memory_epistemic_governance.has_confirmation(row)
 
     age = None if hidden else _age_days(row, now=now)
     stale = bool(age is not None and age >= stale_after_days and not confirmed)

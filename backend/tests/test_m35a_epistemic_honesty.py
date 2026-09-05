@@ -98,12 +98,13 @@ def test_mood_rule_inference_is_unverified_end_to_end():
     assert refs == ("m1",)
 
 
-def test_explicit_user_memory_remains_trusted():
+def test_explicit_user_memory_remains_trusted_without_canonical_confirmation():
     row = {
         "id": "e1",
         "content": "User explicitly prefers concise answers.",
         "confidence": 0.90,
         "source_priority": "explicit_user_statement",
+        # Historical metadata must not become canonical confirmation.
         "last_confirmed_at": (
             datetime.now(timezone.utc).isoformat()
         ),
@@ -111,8 +112,11 @@ def test_explicit_user_memory_remains_trusted():
     }
 
     life = memory_lifecycle_governance.assess_memory_lifecycle(row)
+
+    # Direct-user provenance is already strong enough to trust, while
+    # confirmation remains a separate canonical user action/state.
     assert life.needs_confirmation is False
-    assert life.confirmed is True
+    assert life.confirmed is False
 
     trust, refs = _trust(row)
     assert trust == "trusted"

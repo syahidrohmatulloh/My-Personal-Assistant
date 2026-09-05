@@ -53,6 +53,9 @@ type MemoryItem = {
   archived_by?: string | null
   archived_at?: string | null
   last_confirmed_at?: string | null
+  last_user_confirmed_at?: string | null
+  last_user_confirmation_source?: string | null
+  last_user_confirmation_evidence?: Record<string, unknown> | null
   created_at?: string | null
   updated_at?: string | null
   source?: string | null
@@ -125,7 +128,7 @@ const SOURCE_LABELS: Record<string, string> = {
   user_answer_in_context: "Learned from your answer",
   user_correction: "Corrected by you",
   repeated_pattern: "Repeated pattern",
-  assistant_confirmation: "Confirmed in chat",
+  assistant_confirmation: "Assistant-originated signal",
   manual_review: "Added manually",
 }
 
@@ -196,8 +199,8 @@ function memoryWhyItMatters(memory: MemoryItem) {
 function memoryTrustSummary(memory: MemoryItem) {
   const strength = strengthLabel(memory.confidence)
   const source = sourceLabel(memory.source_priority)
-  const confirmed = memory.last_confirmed_at
-    ? `Confirmed ${formatDate(memory.last_confirmed_at)}`
+  const confirmed = memory.last_user_confirmed_at
+    ? `Confirmed ${formatDate(memory.last_user_confirmed_at)}`
     : memory.created_at
       ? `Learned ${formatDate(memory.created_at)}`
       : "No date available"
@@ -726,8 +729,8 @@ export default function MemoriesPage() {
     try {
       const res = await fetch(`/api/memory-review/${memory.id}/${actionName}`, {
         method: "POST",
-        headers: actionName === "confirm" ? undefined : { "Content-Type": "application/json" },
-        body: actionName === "confirm" ? undefined : JSON.stringify({ pin }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin }),
       })
 
       if (!res.ok) {
@@ -937,11 +940,6 @@ export default function MemoriesPage() {
           : `Archived ${archivedCount} memor${archivedCount === 1 ? "y" : "ies"} from review.`,
       )
 
-      if (issueKey) {
-        setResolvedQualityIssueKeys((prev) => ({ ...prev, [issueKey]: true }))
-      }
-
-      setMemoryActionNotice("Confirmed this memory is still true.")
       await load()
       await loadQuality()
     } catch (err) {
@@ -951,13 +949,19 @@ export default function MemoriesPage() {
     }
   }
 
-  async function confirmMemoryFreshness(memoryId: string, issueKey?: string) {
+  async function confirmMemoryFreshness(
+    memoryId: string,
+    issueKey: string | undefined,
+    pin: string,
+  ) {
     setSavingId(memoryId)
     setError(null)
 
     try {
       const res = await fetch(`/api/memory-review/${memoryId}/confirm`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin }),
       })
 
       if (!res.ok) {
@@ -1184,7 +1188,19 @@ export default function MemoriesPage() {
             loading={loading}
             saving={savingId === "quality-resolve"}
             resolvedIssueKeys={resolvedQualityIssueKeys}
-            onConfirmMemory={(memoryId, issueKey) => void confirmMemoryFreshness(memoryId, issueKey)}
+            onConfirmMemory={(memoryId, issueKey) =>
+              requireMemoryPin(
+                "Confirm memory",
+                "Enter your 6-digit Memory PIN to confirm this memory is still true.",
+                async (pin) => {
+                  await confirmMemoryFreshness(
+                    memoryId,
+                    issueKey,
+                    pin,
+                  )
+                },
+              )
+            }
             onResolve={(params) =>
               requireMemoryPin(
                 "Resolve memory issue",
@@ -1240,7 +1256,15 @@ export default function MemoriesPage() {
                           memory={memory}
                           tab={tab}
                           saving={savingId === memory.id}
-                          onConfirm={() => void action(memory, "confirm")}
+                          onConfirm={() =>
+                            requireMemoryPin(
+                              "Confirm memory",
+                              "Enter your 6-digit Memory PIN to confirm this memory is still true.",
+                              async (pin) => {
+                                await action(memory, "confirm", pin)
+                              },
+                            )
+                          }
                           onForget={() =>
                             requireMemoryPin(
                               "Forget memory",

@@ -323,7 +323,7 @@ def _find_stale_memories(memories: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 def _memory_age_days(memory: dict[str, Any], now: datetime) -> int | None:
     timestamp = (
-        memory.get("last_confirmed_at")
+        memory.get("last_user_confirmed_at")
         or memory.get("updated_at")
         or memory.get("created_at")
     )

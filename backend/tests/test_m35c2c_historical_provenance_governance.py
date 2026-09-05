@@ -26,6 +26,7 @@ def _row(**overrides):
         "similarity": 0.90,
         "created_at": "2026-09-01T00:00:00+00:00",
         "last_confirmed_at": None,
+        "last_user_confirmed_at": None,
         "status": "active",
         "archived": False,
         "superseded": False,
@@ -63,9 +64,24 @@ def test_high_confidence_legacy_unknown_is_unverified():
     assert assessment.reason == "provenance_unverified"
 
 
-def test_real_confirmation_can_override_weak_origin_on_full_row():
+def test_legacy_confirmation_timestamp_cannot_override_weak_origin():
     row = _row(
         last_confirmed_at="2026-09-03T00:00:00+00:00"
+    )
+
+    assessment = (
+        memory_lifecycle_governance
+        .assess_memory_lifecycle(row)
+    )
+
+    assert assessment.confirmed is False
+    assert assessment.needs_confirmation is True
+
+
+def test_real_user_confirmation_can_override_weak_origin_on_full_row():
+    row = _row(
+        last_confirmed_at="2026-09-03T00:00:00+00:00",
+        last_user_confirmed_at="2026-09-04T00:00:00+00:00",
     )
 
     assessment = (

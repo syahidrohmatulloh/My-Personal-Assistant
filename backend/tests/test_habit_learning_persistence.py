@@ -82,7 +82,8 @@ def test_inserted_habit_payload_is_qualified_inferred_memory(
     )
     assert "appears to have" in payload["content"]
     assert payload["evidence"]
-    assert "last_confirmed_at" not in payload
+    assert payload["last_confirmed_at"] is None
+    assert payload["last_user_confirmed_at"] is None
 
 
 def test_existing_m32_inference_is_refreshed_without_confirmation(
@@ -354,12 +355,20 @@ def test_explicit_correction_supersedes_only_m32_inference(
         is True
     )
     assert (
-        updates[0]["payload"]["archived"]
-        is True
+        updates[0]["payload"]["status"]
+        == "superseded"
     )
     assert (
-        updates[0]["payload"]["archived_by"]
-        == "habit_learning:user_correction"
+        "superseded_at"
+        in updates[0]["payload"]
+    )
+    assert (
+        "archived"
+        not in updates[0]["payload"]
+    )
+    assert (
+        "archived_by"
+        not in updates[0]["payload"]
     )
 
 
@@ -469,7 +478,8 @@ def test_confirmed_repeated_pattern_is_never_downgraded(
                 "structured_field": candidate.structured_field,
                 "structured_value": candidate.activity,
                 "confidence": 0.82,
-                "last_confirmed_at": "2026-08-20T00:00:00Z",
+                "last_confirmed_at": "2026-08-01T00:00:00Z",
+                "last_user_confirmed_at": "2026-08-20T00:00:00Z",
             }
         ],
     )

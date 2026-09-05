@@ -45,7 +45,9 @@ def test_build_review_payload_splits_active_and_archived():
             "category": "important_dates",
             "structured_field": "birthday",
             "structured_value": "7 Januari",
-            "superseded": True,
+            "superseded": False,
+            "archived": True,
+            "status": "archived",
             "evidence": ["old"],
         },
         {
@@ -55,6 +57,15 @@ def test_build_review_payload_splits_active_and_archived():
             "structured_field": "debugging_support_style_under_frustration",
             "superseded": False,
             "evidence": ["debugging chat"],
+        },
+        {
+            "id": "m4",
+            "content": "Superseded correction history",
+            "category": "preferences",
+            "structured_field": "communication_preference",
+            "superseded": True,
+            "status": "superseded",
+            "evidence": ["old corrected value"],
         },
     ]
 

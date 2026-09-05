@@ -51,6 +51,7 @@ def test_payload_shape_is_memory_compatible():
     assert payload["structured_field"] == "debugging_support_style_under_frustration"
     assert payload["source_priority"] == candidate.source_priority
     assert payload["last_confirmed_at"] is None
+    assert payload["last_user_confirmed_at"] is None
     assert payload["superseded"] is False
     assert isinstance(payload["evidence"], list)
 

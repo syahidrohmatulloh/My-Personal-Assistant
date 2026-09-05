@@ -10,11 +10,13 @@ This is intentionally read-only:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any
 
 from app.config import settings
+from app.services import memory_epistemic_governance
 from app.services.claude import get_claude
 from app.services.memory_quality import assess_memory_quality
 from app.services.supabase_client import safe_execute
@@ -22,9 +24,34 @@ from app.services.supabase_client import safe_execute
 
 _MEMORY_SELECT = (
     "id, content, kind, category, structured_field, structured_value, "
-    "confidence, source_priority, evidence, last_confirmed_at, created_at, "
-    "archived, superseded"
+    "confidence, source, source_priority, evidence, last_confirmed_at, "
+    "last_user_confirmed_at, last_user_confirmation_source, "
+    "created_at, updated_at, archived, superseded"
 )
+
+NARRATIVE_GOVERNANCE_VERSION = "m35c3-v1"
+
+_DIRECT_USER_PRIORITIES = frozenset(
+    {
+        "explicit_user_statement",
+        "user_answer_in_context",
+        "user_correction",
+    }
+)
+
+# Compact token persisted in the existing `source` column so we can
+# invalidate pre-M35C3 summaries without another schema migration.
+_PERSISTED_GOVERNANCE_TOKEN = "g1"
+
+_PERSISTED_SOURCE_CODES = {
+    "deterministic": "d",
+    "llm": "l",
+}
+
+_PERSISTED_SOURCE_NAMES = {
+    value: key
+    for key, value in _PERSISTED_SOURCE_CODES.items()
+}
 
 _CATEGORY_LABELS = {
     "identity": "Identity",
@@ -62,6 +89,198 @@ _INTERNAL_MEMORY_VALUES = {
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _is_authoritative_memory(
+    row: dict[str, Any],
+) -> bool:
+    """Return whether a row may support reliable user biography."""
+
+    source_priority = str(
+        row.get("source_priority") or ""
+    ).strip().lower()
+
+    if source_priority in _DIRECT_USER_PRIORITIES:
+        return True
+
+    # Canonical confirmation can upgrade otherwise weak provenance.
+    # Legacy last_confirmed_at is intentionally ignored here.
+    return (
+        memory_epistemic_governance
+        .has_confirmation(row)
+    )
+
+
+def _authoritative_rows(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in rows
+        if _is_authoritative_memory(row)
+    ]
+
+
+def _authoritative_source_hash(
+    rows: list[dict[str, Any]],
+) -> str:
+    """Stable fingerprint of authoritative narrative evidence."""
+
+    canonical: list[dict[str, Any]] = []
+
+    for row in _authoritative_rows(rows):
+        canonical.append(
+            {
+                "id": str(
+                    row.get("id") or ""
+                ),
+                "content": str(
+                    row.get("content") or ""
+                ),
+                "kind": str(
+                    row.get("kind") or ""
+                ),
+                "category": str(
+                    row.get("category") or ""
+                ),
+                "structured_field": str(
+                    row.get("structured_field")
+                    or ""
+                ),
+                "structured_value": str(
+                    row.get("structured_value")
+                    or ""
+                ),
+                "source_priority": str(
+                    row.get("source_priority")
+                    or ""
+                ),
+                "last_user_confirmed_at": str(
+                    row.get(
+                        "last_user_confirmed_at"
+                    )
+                    or ""
+                ),
+                "updated_at": str(
+                    row.get("updated_at")
+                    or row.get("created_at")
+                    or ""
+                ),
+            }
+        )
+
+    canonical.sort(
+        key=lambda item: (
+            item["id"],
+            item["structured_field"],
+            item["structured_value"],
+            item["content"],
+        )
+    )
+
+    encoded = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+    # 64 bits is ample for personal-scale cache invalidation while keeping
+    # the existing source-column token compact.
+    return hashlib.sha256(
+        encoded.encode("utf-8")
+    ).hexdigest()[:16]
+
+
+def _latest_authoritative_changed_at(
+    rows: list[dict[str, Any]],
+) -> str | None:
+    values: list[str] = []
+
+    for row in _authoritative_rows(rows):
+        for key in (
+            "updated_at",
+            "last_user_confirmed_at",
+            "created_at",
+        ):
+            value = str(
+                row.get(key) or ""
+            ).strip()
+            if value:
+                values.append(value)
+
+    return max(values) if values else None
+
+
+def _encode_persisted_source(
+    source: str,
+    source_hash: str,
+) -> str:
+    source_name = str(
+        source or "deterministic"
+    ).strip().lower()
+
+    code = _PERSISTED_SOURCE_CODES.get(
+        source_name,
+        "d",
+    )
+
+    fingerprint = str(
+        source_hash or ""
+    ).strip()[:16]
+
+    if not fingerprint:
+        raise ValueError(
+            "source_hash is required for governed "
+            "narrative persistence"
+        )
+
+    return (
+        f"{code}|"
+        f"{_PERSISTED_GOVERNANCE_TOKEN}|"
+        f"{fingerprint}"
+    )
+
+
+def _decode_persisted_source(
+    value: Any,
+) -> dict[str, str] | None:
+    parts = str(
+        value or ""
+    ).strip().split("|")
+
+    if len(parts) != 3:
+        # Plain old values such as `deterministic` or `llm` are pre-M35C3
+        # and must never be reused as authoritative biography.
+        return None
+
+    source_code, governance_token, source_hash = parts
+
+    if (
+        governance_token
+        != _PERSISTED_GOVERNANCE_TOKEN
+    ):
+        return None
+
+    source_name = _PERSISTED_SOURCE_NAMES.get(
+        source_code
+    )
+
+    if source_name is None:
+        return None
+
+    source_hash = source_hash.strip()
+
+    if len(source_hash) != 16:
+        return None
+
+    return {
+        "source": source_name,
+        "governance_version": (
+            NARRATIVE_GOVERNANCE_VERSION
+        ),
+        "source_hash": source_hash,
+    }
 
 
 async def _latest_memory_changed_at(user_id: str) -> str | None:
@@ -239,16 +458,33 @@ def _natural_theme_sentence(counts: list[tuple[str, int]]) -> str:
     )
 
 
-def _deterministic_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Safe editorial fallback.
+def _deterministic_summary(
+    rows: list[dict[str, Any]],
+    *,
+    source_hash: str | None = None,
+) -> dict[str, Any]:
+    """Safe editorial fallback over authoritative biography only."""
 
-    This does NOT list raw memories. It describes the shape of Aliyya's
-    understanding in natural language.
-    """
-    safe_rows = _safe_rows(rows)
-    memory_count = len(rows)
+    authoritative_rows = _authoritative_rows(
+        rows
+    )
+    safe_rows = _safe_rows(
+        authoritative_rows
+    )
+    memory_count = len(
+        authoritative_rows
+    )
     safe_count = len(safe_rows)
-    quality = assess_memory_quality(rows)
+    quality = assess_memory_quality(
+        authoritative_rows
+    )
+
+    if source_hash is None:
+        source_hash = (
+            _authoritative_source_hash(
+                authoritative_rows
+            )
+        )
     counts = _category_counts(safe_rows)
     themes = [label for label, _count in counts if label != "Other"][:8]
     needs_review = int(quality.get("summary", {}).get("needs_review") or 0)
@@ -260,14 +496,14 @@ def _deterministic_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         )
     elif safe_count <= 3:
         summary = (
-            f"Aliyya has started building a memory base about you, but the current understanding is still early. She has {memory_count} active memories, although only a small portion is clean enough to summarize confidently.\n\n"
+            f"Aliyya has started building a memory base about you, but the current understanding is still early. She has {memory_count} reliable memories, although only a small portion is clean enough to summarize confidently.\n\n"
             "At this stage, treat the summary as a rough orientation rather than a complete profile. Reviewing noisy or outdated memories will help Aliyya become more accurate."
         )
     else:
         theme_sentence = _natural_theme_sentence(counts)
 
         summary = (
-            f"Aliyya currently has {memory_count} active memories about you. {theme_sentence} These memories help her keep continuity across conversations, so she can respond with more context instead of starting from zero each time.\n\n"
+            f"Aliyya currently has {memory_count} reliable memories about you. {theme_sentence} These memories help her keep continuity across conversations, so she can respond with more context instead of starting from zero each time.\n\n"
             "From the available memory base, Aliyya is trying to understand your identity and working context, the preferences that should shape her suggestions, the goals or routines you return to, important people or relationships, and constraints she should respect.\n\n"
             "This is not meant to be a permanent biography. It is a living understanding that should be corrected whenever something is outdated, duplicated, too vague, or no longer useful."
         )
@@ -281,7 +517,7 @@ def _deterministic_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "summary": summary,
         "themes": themes,
         "confidence_notes": [
-            f"This summary is based on {memory_count} active memories.",
+            f"This summary is based on {memory_count} authoritative memories.",
             "Raw scheduler fields, internal UI settings, and unclear technical fragments are intentionally excluded from the narrative.",
         ],
         "needs_review_notes": [
@@ -292,11 +528,22 @@ def _deterministic_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "memory_count": memory_count,
         "generated_at": _now_iso(),
         "source": "deterministic",
+        "governance_version": (
+            NARRATIVE_GOVERNANCE_VERSION
+        ),
+        "source_hash": source_hash,
     }
 
 
-def _memory_brief_for_prompt(rows: list[dict[str, Any]]) -> str:
-    grouped = _group_memories(_safe_rows(rows))
+def _memory_brief_for_prompt(
+    rows: list[dict[str, Any]],
+) -> str:
+    authoritative_rows = (
+        _authoritative_rows(rows)
+    )
+    grouped = _group_memories(
+        _safe_rows(authoritative_rows)
+    )
     lines: list[str] = []
 
     for label, items in grouped.items():
@@ -317,7 +564,7 @@ def _memory_brief_for_prompt(rows: list[dict[str, Any]]) -> str:
 
 _SYSTEM_PROMPT = """You are summarizing what a personal AI assistant currently understands about its user.
 
-Input: active memories extracted from past chats.
+Input: authoritative memories grounded in direct user evidence or explicit user confirmation.
 Output STRICT JSON:
 {
   "summary": "4-7 short, warm paragraphs in second person or natural assistant voice. Do not invent facts. Mention uncertainty when needed.",
@@ -327,7 +574,8 @@ Output STRICT JSON:
 }
 
 Rules:
-- Use ONLY the provided memories.
+- Use ONLY the provided authoritative memories.
+- Never promote unverified inference into user biography.
 - Do not expose raw database language.
 - Do not say the user has an attribute unless the memory directly supports it.
 - Keep it concise, warm, and useful.
@@ -341,7 +589,12 @@ Rules:
 """
 
 
-def _coerce_summary_payload(parsed: Any, fallback: dict[str, Any], memory_count: int) -> dict[str, Any]:
+def _coerce_summary_payload(
+    parsed: Any,
+    fallback: dict[str, Any],
+    memory_count: int,
+    source_hash: str,
+) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         return fallback
 
@@ -362,10 +615,18 @@ def _coerce_summary_payload(parsed: Any, fallback: dict[str, Any], memory_count:
         "memory_count": memory_count,
         "generated_at": _now_iso(),
         "source": "llm",
+        "governance_version": (
+            NARRATIVE_GOVERNANCE_VERSION
+        ),
+        "source_hash": source_hash,
     }
 
 
-async def _load_latest_persisted_summary(user_id: str) -> dict[str, Any] | None:
+async def _load_latest_persisted_summary(
+    user_id: str,
+    *,
+    expected_source_hash: str,
+) -> dict[str, Any] | None:
     try:
         result = await asyncio.to_thread(
             lambda: safe_execute(
@@ -395,6 +656,20 @@ async def _load_latest_persisted_summary(user_id: str) -> dict[str, Any] | None:
     if _summary_looks_raw(summary):
         return None
 
+    source_meta = _decode_persisted_source(
+        row.get("source")
+    )
+
+    if source_meta is None:
+        return None
+
+    if (
+        source_meta["source_hash"]
+        != expected_source_hash
+    ):
+        # Memory authority/content changed since this summary was created.
+        return None
+
     def list_value(value: Any) -> list[str]:
         if isinstance(value, list):
             return [str(item).strip() for item in value if str(item).strip()]
@@ -405,13 +680,48 @@ async def _load_latest_persisted_summary(user_id: str) -> dict[str, Any] | None:
         "themes": list_value(row.get("themes")),
         "confidence_notes": list_value(row.get("confidence_notes")),
         "needs_review_notes": list_value(row.get("needs_review_notes")),
-        "memory_count": int(row.get("memory_count") or 0),
-        "generated_at": str(row.get("generated_at") or _now_iso()),
-        "source": str(row.get("source") or "persisted"),
+        "memory_count": int(
+            row.get("memory_count") or 0
+        ),
+        "generated_at": str(
+            row.get("generated_at")
+            or _now_iso()
+        ),
+        "source": source_meta["source"],
+        "governance_version": (
+            source_meta[
+                "governance_version"
+            ]
+        ),
+        "source_hash": (
+            source_meta["source_hash"]
+        ),
     }
 
 
-async def _persist_summary(user_id: str, payload: dict[str, Any]) -> None:
+async def _persist_summary(
+    user_id: str,
+    payload: dict[str, Any],
+) -> None:
+    source_hash = str(
+        payload.get("source_hash") or ""
+    ).strip()
+
+    if not source_hash:
+        # Never create a persisted summary that cannot later prove which
+        # authoritative evidence set produced it.
+        return
+
+    governed_source = (
+        _encode_persisted_source(
+            str(
+                payload.get("source")
+                or "deterministic"
+            ),
+            source_hash,
+        )
+    )
+
     try:
         await asyncio.to_thread(
             lambda: safe_execute(
@@ -424,7 +734,7 @@ async def _persist_summary(user_id: str, payload: dict[str, Any]) -> None:
                         "confidence_notes": payload.get("confidence_notes") or [],
                         "needs_review_notes": payload.get("needs_review_notes") or [],
                         "memory_count": int(payload.get("memory_count") or 0),
-                        "source": payload.get("source") or "deterministic",
+                        "source": governed_source,
                         "generated_at": payload.get("generated_at") or _now_iso(),
                     }
                 )
@@ -441,22 +751,64 @@ async def get_memory_narrative_summary(
     user_id: str,
     use_llm: bool = False,
 ) -> dict[str, Any]:
-    latest_changed_at = await _latest_memory_changed_at(user_id)
+    # Load current memory state BEFORE considering persisted narrative reuse.
+    # The persisted summary is valid only if its governed source hash matches
+    # the current authoritative evidence set.
+    rows = await _load_active_memories(
+        user_id
+    )
+    authoritative_rows = (
+        _authoritative_rows(rows)
+    )
+
+    source_hash = (
+        _authoritative_source_hash(
+            authoritative_rows
+        )
+    )
+    latest_changed_at = (
+        _latest_authoritative_changed_at(
+            authoritative_rows
+        )
+    )
 
     if not use_llm:
-        persisted = await _load_latest_persisted_summary(user_id)
+        persisted = (
+            await _load_latest_persisted_summary(
+                user_id,
+                expected_source_hash=(
+                    source_hash
+                ),
+            )
+        )
         if persisted:
-            return _with_freshness(persisted, latest_changed_at)
+            return _with_freshness(
+                persisted,
+                latest_changed_at,
+            )
 
-    rows = await _load_active_memories(user_id)
-    fallback = _deterministic_summary(rows)
+    fallback = _deterministic_summary(
+        authoritative_rows,
+        source_hash=source_hash,
+    )
 
-    if not use_llm or not rows:
+    if (
+        not use_llm
+        or not authoritative_rows
+    ):
         if not use_llm:
-            await _persist_summary(user_id, fallback)
-        return _with_freshness(fallback, latest_changed_at)
+            await _persist_summary(
+                user_id,
+                fallback,
+            )
+        return _with_freshness(
+            fallback,
+            latest_changed_at,
+        )
 
-    brief = _memory_brief_for_prompt(rows)
+    brief = _memory_brief_for_prompt(
+        authoritative_rows
+    )
 
     try:
         claude = get_claude()
@@ -468,25 +820,62 @@ async def get_memory_narrative_summary(
                 {
                     "role": "user",
                     "content": (
-                        "Create the user's current memory narrative summary from these active memories:\n\n"
+                        "Create the user's current memory narrative summary "
+                        "from these authoritative memories:\n\n"
                         + brief[:12000]
                     ),
                 }
             ],
         )
 
-        text_block = next((block for block in response.content if block.type == "text"), None)
+        text_block = next(
+            (
+                block
+                for block in response.content
+                if block.type == "text"
+            ),
+            None,
+        )
+
         if not text_block:
-            return fallback
+            return _with_freshness(
+                fallback,
+                latest_changed_at,
+            )
 
         raw = text_block.text.strip()
+
         if raw.startswith("```"):
-            raw = raw.strip("`").lstrip("json").strip()
+            raw = (
+                raw.strip("`")
+                .lstrip("json")
+                .strip()
+            )
 
         parsed = json.loads(raw)
-        payload = _coerce_summary_payload(parsed, fallback, len(rows))
-        await _persist_summary(user_id, payload)
-        return _with_freshness(payload, latest_changed_at)
+
+        payload = _coerce_summary_payload(
+            parsed,
+            fallback,
+            len(authoritative_rows),
+            source_hash,
+        )
+
+        await _persist_summary(
+            user_id,
+            payload,
+        )
+
+        return _with_freshness(
+            payload,
+            latest_changed_at,
+        )
     except Exception:
-        await _persist_summary(user_id, fallback)
-        return _with_freshness(fallback, latest_changed_at)
+        await _persist_summary(
+            user_id,
+            fallback,
+        )
+        return _with_freshness(
+            fallback,
+            latest_changed_at,
+        )

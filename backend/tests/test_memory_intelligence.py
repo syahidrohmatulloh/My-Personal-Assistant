@@ -116,6 +116,18 @@ def _stub_extract_pipeline(
                     self._eq_args.append((k, v))
                     return self
 
+                def is_(self, k, v):
+                    # Supabase/PostgREST lifecycle filters such as
+                    # deleted_at IS NULL. The fake only needs to preserve
+                    # chainability; seeded rows are controlled by each test.
+                    self._eq_args.append(
+                        (
+                            k,
+                            None if v == "null" else v,
+                        )
+                    )
+                    return self
+
                 def ilike(self, k, v):
                     self._ilike = (k, v)
                     return self
@@ -628,8 +640,33 @@ def test_same_structured_birthday_value_bumps_without_insert():
     assert result["saved"] == 0, result
     assert result["superseded"] == 0, result
     assert setup["insert_capture"] == []
-    bump_updates = [u for u in setup["update_capture"] if "last_confirmed_at" in u["payload"]]
+    bump_updates = [
+        update
+        for update in setup["update_capture"]
+        if "last_user_confirmed_at" in update["payload"]
+    ]
     assert bump_updates, setup["update_capture"]
+
+    confirmation_payload = bump_updates[0]["payload"]
+
+    assert (
+        confirmation_payload[
+            "last_user_confirmation_source"
+        ]
+        == "chat_restatement"
+    )
+    assert (
+        confirmation_payload[
+            "last_user_confirmation_evidence"
+        ]
+        == {
+            "kind": "direct_user_restatement",
+        }
+    )
+    assert (
+        "last_confirmed_at"
+        not in confirmation_payload
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -724,6 +724,8 @@ def _get_active_structured_value(
             .eq("user_id", user_id)
             .eq("id", memory_id)
             .eq("superseded", False)
+            .eq("archived", False)
+            .is_("deleted_at", "null")
             .limit(1)
             .execute()
         )
@@ -780,9 +782,9 @@ async def _persist_candidate(
         is_correction=cand.is_correction,
     )
 
-    # 4. If an active structured memory already has the same value, treat it as
-    #    still true and only bump last_confirmed_at. If the value differs, insert
-    #    a new row and supersede the old one below.
+    # 4. If an active structured memory already has the same value, direct
+    #    user evidence may record a genuine confirmation event. Repetition and
+    #    inference must never obtain confirmation authority.
     if superseded_id and cand.structured_field:
         existing_value = _get_active_structured_value(
             user_id=user_id,
@@ -790,7 +792,7 @@ async def _persist_candidate(
         )
         if existing_value == cand.structured_value:
             if _candidate_can_refresh_confirmation(cand):
-                await _bump_last_confirmed(superseded_id)
+                await _bump_last_user_confirmed(superseded_id)
                 log.info(
                     "memory_intelligence: direct user evidence refreshed "
                     "existing structured memory %s",
@@ -807,11 +809,12 @@ async def _persist_candidate(
             return {"saved": False, "confirmed": False}
 
     # 4b. If existing very-similar memory found AND not a correction, treat as
-    #     "still true" — bump last_confirmed_at on the existing row, don't insert
+    #     "still true" — record canonical user confirmation on the existing row,
+    #     don't insert a duplicate.
     #     duplicate.
     if superseded_id and not cand.is_correction and not cand.structured_field:
         if _candidate_can_refresh_confirmation(cand):
-            await _bump_last_confirmed(superseded_id)
+            await _bump_last_user_confirmed(superseded_id)
             log.info(
                 "memory_intelligence: direct user evidence refreshed "
                 "existing memory %s",
@@ -842,6 +845,7 @@ async def _persist_candidate(
         # Explicit NULL also protects deployments where an older DB default
         # may still exist until the M35c2a migration is applied.
         "last_confirmed_at": None,
+        "last_user_confirmed_at": None,
         "evidence": cand.evidence,
         "category": cand.category,
         # Structured identity field — written here so supersede lookups can
@@ -919,6 +923,8 @@ def _find_superseded(
                 .select("id, content")
                 .eq("user_id", user_id)
                 .eq("superseded", False)
+                .eq("archived", False)
+                .is_("deleted_at", "null")
                 .eq("structured_field", structured_field)
                 .order("created_at", desc=True)
                 .limit(1)
@@ -954,16 +960,31 @@ def _find_superseded(
         return None
 
 
-async def _bump_last_confirmed(memory_id: str) -> None:
+async def _bump_last_user_confirmed(memory_id: str) -> None:
+    """Record genuine direct-user evidence supporting an existing memory."""
+    now = datetime.now(timezone.utc).isoformat()
+
     try:
         safe_execute(
             lambda sb: sb.table("memories")
-            .update({"last_confirmed_at": datetime.now(timezone.utc).isoformat()})
+            .update(
+                {
+                    "last_user_confirmed_at": now,
+                    "last_user_confirmation_source": "chat_restatement",
+                    "last_user_confirmation_evidence": {
+                        "kind": "direct_user_restatement",
+                    },
+                    "updated_at": now,
+                }
+            )
             .eq("id", memory_id)
             .execute()
         )
     except Exception as exc:  # noqa: BLE001
-        log.warning("memory_intelligence: bump last_confirmed failed: %s", exc)
+        log.warning(
+            "memory_intelligence: bump last_user_confirmed failed: %s",
+            exc,
+        )
 
 
 def _category_to_legacy_kind(category: str) -> str:

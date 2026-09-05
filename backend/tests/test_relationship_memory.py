@@ -105,3 +105,4 @@ def test_rule_inference_payload_is_unconfirmed():
     assert payload["source_priority"] == "system_inference"
     assert payload["confidence"] == 0.54
     assert payload["last_confirmed_at"] is None
+    assert payload["last_user_confirmed_at"] is None
