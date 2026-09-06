@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routers import (
+    agent_core,
     attachments,
     briefing,
     chat,
@@ -57,6 +58,7 @@ app.add_middleware(
 )
 
 app.include_router(chat.router)
+app.include_router(agent_core.router)
 app.include_router(companion.router)
 app.include_router(companion_mood.router)
 app.include_router(conversations.router)

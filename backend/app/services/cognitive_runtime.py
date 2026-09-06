@@ -39,6 +39,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from app.services import agent_core
+from app.services import agent_core_intelligence
 from app.services import assistant_mode_commands
 from app.services import attention_salience
 from app.services import habit_learning
@@ -69,6 +71,7 @@ class CognitiveTurnSources:
     current_mood: dict[str, Any] | None
     user_mood_context: Any
     latest_briefing_for_prompt: dict[str, Any] | None
+    agent_core_snapshot: tuple[dict[str, Any], ...]
 
 
 @dataclass(frozen=True)
@@ -127,6 +130,7 @@ class CognitiveRuntime:
             current_mood,
             user_mood_context,
             latest_briefing_for_prompt,
+            agent_core_snapshot,
         ) = await asyncio.gather(
             self.retrieve_life_context(
                 user_id=user_id,
@@ -151,6 +155,9 @@ class CognitiveRuntime:
                 current_message=user_message,
             ),
             briefing_awaitable,
+            self.retrieve_agent_core_snapshot(
+                user_id=user_id,
+            ),
         )
 
         return CognitiveTurnSources(
@@ -168,6 +175,40 @@ class CognitiveRuntime:
             latest_briefing_for_prompt=(
                 latest_briefing_for_prompt
             ),
+            agent_core_snapshot=tuple(
+                agent_core_snapshot
+            ),
+        )
+
+    async def retrieve_agent_core_snapshot(
+        self,
+        *,
+        user_id: str,
+    ) -> list[dict[str, Any]]:
+        """Retrieve compact durable Agent Core work state."""
+
+        return await agent_core.get_turn_snapshot(
+            user_id=user_id,
+        )
+
+    async def maybe_activate_agent_objective(
+        self,
+        *,
+        user_id: str,
+        conversation_id: str,
+        source_message_id: str,
+        user_message: str,
+    ) -> dict[str, Any]:
+        """Delegate explicit-user-authority Agent Core activation."""
+
+        return await (
+            agent_core_intelligence
+            .maybe_activate_from_chat(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                source_message_id=source_message_id,
+                user_message=user_message,
+            )
         )
 
     async def execute_assistant_mode_command(
@@ -260,6 +301,8 @@ class CognitiveRuntime:
         related_summaries: list[dict[str, Any]],
         memory_assembly: chat_memory_assembly.ChatMemoryAssembly,
         turn_ref: str | None,
+        agent_core_snapshot: tuple[dict[str, Any], ...] = (),
+        agent_core_activation_result: dict[str, Any] | None = None,
         logger: logging.Logger | None = None,
     ) -> cognitive_turn_context.CognitiveTurnContextAssembly:
         """Prepare complete model-facing context for one turn."""
@@ -272,6 +315,11 @@ class CognitiveRuntime:
                 user_id=user_id,
                 logger=logger,
             )
+
+        agent_core_context = agent_core.render_turn_context(
+            agent_core_snapshot,
+            activation_result=agent_core_activation_result,
+        )
 
         def defer_trace(
             _packed_memory_context: Any,
@@ -312,6 +360,7 @@ class CognitiveRuntime:
                 is_calendar_draft_action_turn=(
                     is_calendar_draft_action_turn
                 ),
+                agent_core_context=agent_core_context,
                 pack_memory_context=(
                     pack_memory_context
                 ),

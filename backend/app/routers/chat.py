@@ -241,9 +241,28 @@ async def chat(
     latest_briefing_for_prompt = (
         cognitive_sources.latest_briefing_for_prompt
     )
+    agent_core_snapshot = (
+        cognitive_sources.agent_core_snapshot
+    )
 
     if not convo_result or not convo_result.data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+
+    agent_core_activation_result = (
+        await _cognitive_runtime.maybe_activate_agent_objective(
+            user_id=user_id,
+            conversation_id=body.conversation_id,
+            source_message_id=user_message_id,
+            user_message=body.message,
+        )
+    )
+
+    if agent_core_activation_result.get("created"):
+        agent_core_snapshot = tuple(
+            await _cognitive_runtime.retrieve_agent_core_snapshot(
+                user_id=user_id,
+            )
+        )
 
     legacy_memories = memory_assembly.legacy_memories
     related_summaries = memory_assembly.related_summaries
@@ -441,6 +460,10 @@ async def chat(
             related_summaries=related_summaries,
             memory_assembly=memory_assembly,
             turn_ref=user_message_id,
+            agent_core_snapshot=agent_core_snapshot,
+            agent_core_activation_result=(
+                agent_core_activation_result
+            ),
             logger=timing_log,
         )
     )
@@ -642,6 +665,11 @@ async def chat(
                 .decision
                 .allow_background_inference
             ),
+            agent_objective_created=bool(
+                agent_core_activation_result.get(
+                    "created"
+                )
+            ),
         ),
         media_type="text/event-stream",
         headers={
@@ -728,6 +756,7 @@ async def _stream_claude_response(
     metacognitive_response_posture: str = "proceed",
     metacognitive_projection_posture: str = "eligible",
     metacognitive_allow_background_inference: bool = True,
+    agent_objective_created: bool = False,
 ) -> AsyncIterator[str]:
     claude = get_claude()
     supabase = get_supabase()
@@ -910,7 +939,8 @@ async def _stream_claude_response(
 
     # Goal intelligence — only on goal-like turns. Suggestions still require confirmation.
     if (
-        metacognitive_allow_background_inference
+        not agent_objective_created
+        and metacognitive_allow_background_inference
         and extraction_decision.run_goal_intelligence
     ):
         add_safe_background_task(background_tasks, 

@@ -367,6 +367,7 @@ async def assemble_turn_context(
     is_calendar_draft_action_turn: bool,
     pack_memory_context: Callable[[], Any],
     record_trace: Callable[[Any], None],
+    agent_core_context: str | None = None,
 ) -> CognitiveTurnContextAssembly:
     """Assemble the complete per-turn model context without invoking Claude."""
 
@@ -374,6 +375,8 @@ async def assemble_turn_context(
     volatile_context = render_context(context)
     if chronology_context:
         volatile_context += "\n\n" + chronology_context
+    if agent_core_context:
+        volatile_context += "\n\n" + agent_core_context
     volatile_context += "\n\n" + capability_registry.render_capability_registry()
     volatile_context += (
         "\n\nCalendar response style policy:"
