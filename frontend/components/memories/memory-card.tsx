@@ -16,7 +16,9 @@ type MemoryItem = {
   archived?: boolean
   archived_by?: string | null
   archived_at?: string | null
-  last_confirmed_at?: string | null
+  last_user_confirmed_at?: string | null
+  last_user_confirmation_source?: string | null
+  last_user_confirmation_evidence?: Record<string, unknown> | null
   created_at?: string | null
   updated_at?: string | null
   source?: string | null
@@ -39,7 +41,7 @@ const SOURCE_LABELS: Record<string, string> = {
   user_answer_in_context: "Learned from your answer",
   user_correction: "Corrected by you",
   repeated_pattern: "Repeated pattern",
-  assistant_confirmation: "Confirmed in chat",
+  assistant_confirmation: "Assistant-originated signal",
   manual_review: "Added manually",
 }
 
@@ -110,8 +112,8 @@ function memoryWhyItMatters(memory: MemoryItem) {
 function memoryTrustSummary(memory: MemoryItem) {
   const strength = strengthLabel(memory.confidence)
   const source = sourceLabel(memory.source_priority)
-  const confirmed = memory.last_confirmed_at
-    ? `Confirmed ${formatDate(memory.last_confirmed_at)}`
+  const confirmed = memory.last_user_confirmed_at
+    ? `Confirmed by you ${formatDate(memory.last_user_confirmed_at)}`
     : memory.created_at
       ? `Learned ${formatDate(memory.created_at)}`
       : "No date available"
@@ -211,8 +213,8 @@ export function MemoryCard({
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-300/55 dark:border-white/10 pt-4">
         <div className="text-xs text-slate-500 dark:text-zinc-500">
-          {memory.last_confirmed_at
-            ? `Confirmed ${formatDate(memory.last_confirmed_at)}`
+          {memory.last_user_confirmed_at
+            ? `Confirmed by you ${formatDate(memory.last_user_confirmed_at)}`
             : memory.created_at
               ? `Created ${formatDate(memory.created_at)}`
               : "No timestamp"}
@@ -286,6 +288,7 @@ function ActionButton({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
       className={[
