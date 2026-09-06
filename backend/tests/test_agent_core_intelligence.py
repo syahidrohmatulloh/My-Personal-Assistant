@@ -86,3 +86,84 @@ def test_agent_core_uses_configured_utility_model() -> None:
 
     assert "model=settings.UTILITY_LLM_MODEL" in source
     assert 'model="claude-haiku-4-5"' not in source
+
+
+
+async def test_agent_core_draft_uses_supported_anthropic_kwargs(
+    monkeypatch,
+) -> None:
+    from types import SimpleNamespace
+
+    captured = {}
+
+    class FakeMessages:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+
+            return SimpleNamespace(
+                content=[
+                    SimpleNamespace(
+                        text=(
+                            '{"should_create":true,'
+                            '"title":"Prepare roadmap",'
+                            '"desired_outcome":"Produce a demo-ready roadmap",'
+                            '"priority":"normal",'
+                            '"steps":['
+                            '{"title":"Define scope",'
+                            '"description":null,'
+                            '"step_kind":"internal",'
+                            '"requires_verification":false},'
+                            '{"title":"Verify roadmap",'
+                            '"description":null,'
+                            '"step_kind":"verify",'
+                            '"requires_verification":true}'
+                            ']}'
+                        )
+                    )
+                ]
+            )
+
+    fake_client = SimpleNamespace(
+        messages=FakeMessages()
+    )
+
+    monkeypatch.setattr(
+        agent_core_intelligence,
+        "get_claude",
+        lambda: fake_client,
+    )
+
+    draft = await (
+        agent_core_intelligence
+        ._draft_objective(
+            user_message=(
+                "Tolong buat objective untuk "
+                "menyiapkan roadmap demo."
+            )
+        )
+    )
+
+    assert draft.should_create is True
+    assert draft.title == "Prepare roadmap"
+
+    assert (
+        captured["model"]
+        == agent_core_intelligence.settings.UTILITY_LLM_MODEL
+    )
+    assert captured["max_tokens"] == 1_400
+    assert (
+        captured["system"]
+        == agent_core_intelligence.OBJECTIVE_DRAFT_PROMPT
+    )
+
+    assert "temperature" not in captured
+
+    assert captured["messages"] == [
+        {
+            "role": "user",
+            "content": (
+                "Tolong buat objective untuk "
+                "menyiapkan roadmap demo."
+            ),
+        }
+    ]

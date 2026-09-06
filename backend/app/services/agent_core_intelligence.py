@@ -241,7 +241,6 @@ async def _draft_objective(
     response = await claude.messages.create(
         model=settings.UTILITY_LLM_MODEL,
         max_tokens=1_400,
-        temperature=0,
         system=OBJECTIVE_DRAFT_PROMPT,
         messages=[
             {
