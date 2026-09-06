@@ -267,20 +267,40 @@ export function ChatV2CommandMenu({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label="Open assistant menu"
-        className={cn(
-          "inline-flex h-10 items-center gap-2 rounded-full border px-3 text-sm font-medium shadow-sm backdrop-blur transition active:scale-[0.98]",
-          isChief
-            ? "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/[0.07] hover:text-white"
-            : "border-stone-200 bg-white/70 text-stone-600 hover:bg-white hover:text-stone-950",
-        )}
-      >
-        <Menu className="h-4 w-4" />
-        <span className="hidden sm:inline">Menu</span>
-      </button>
+      <div className="inline-flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void startNewChat(null)}
+          disabled={creating}
+          aria-label={creating ? "Starting new chat" : "Start new chat"}
+          className={cn(
+            "inline-flex h-10 items-center gap-2 rounded-full border px-3 text-sm font-medium shadow-sm backdrop-blur transition active:scale-[0.98] disabled:cursor-wait disabled:opacity-60",
+            isChief
+              ? "border-teal-200/15 bg-teal-200/[0.07] text-teal-50 hover:bg-teal-200/[0.10]"
+              : "border-stone-900 bg-stone-950 text-white hover:bg-stone-800",
+          )}
+        >
+          <Plus className="h-4 w-4" />
+          <span className="hidden sm:inline">
+            {creating ? "Starting…" : "New chat"}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label="Open chats and assistant menu"
+          className={cn(
+            "inline-flex h-10 items-center gap-2 rounded-full border px-3 text-sm font-medium shadow-sm backdrop-blur transition active:scale-[0.98]",
+            isChief
+              ? "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/[0.07] hover:text-white"
+              : "border-stone-200 bg-white/70 text-stone-600 hover:bg-white hover:text-stone-950",
+          )}
+        >
+          <Menu className="h-4 w-4" />
+          <span className="hidden sm:inline">Chats</span>
+        </button>
+      </div>
 
       {open ? (
         <div className="fixed inset-0 z-50">
