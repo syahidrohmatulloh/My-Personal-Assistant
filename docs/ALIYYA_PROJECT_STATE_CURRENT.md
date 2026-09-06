@@ -1,8 +1,8 @@
 # Aliyya Project State — Current
 
-Versi dokumen: 1.1 • Diperiksa: 5 September 2026 • Pemilik produk: Syahid Rohmatulloh
+Versi dokumen: 1.2 • Diperiksa: 6 September 2026 • Pemilik produk: Syahid Rohmatulloh
 
-**Current milestone: M35C3 — ACTIVE, tahap pemetaan dan audit. Canonical direction setelah M35C3 sudah dikunci menuju Agent Core dan transformasi Aliyya sebagai persistent Personal & Executive AI Agent.** Baseline GitHub `main` yang diamati adalah `6a4acbafa0acb4a483eb02f3e925fbe997a7decc`, sesuai brief. M35C2C adalah milestone terakhir yang dinyatakan complete/frozen. Dokumen ini menyatukan baseline, scope, dependency map, dan kriteria penerimaan; tidak merupakan persetujuan desain implementasi atau bukti bahwa M35C3 selesai.
+**Current state: M35C3 — COMPLETE / FROZEN. Trusted Cognitive Foundation M31–M35 telah ditutup dan arah berikutnya yang dikunci adalah Agent Core, memulai transformasi Aliyya dari trusted cognitive assistant menuju persistent Personal & Executive AI Agent.** M35C3 runtime/code freeze anchor adalah `29134ccff2db04feb4d17ea44f69344b3eeb1e44`; implementation utama berada pada `27851ae9ed268151d4a7c53a100a0af1748fdf38` dan frontend canonical-confirmation smoke fix pada `29134ccff2db04feb4d17ea44f69344b3eeb1e44`. Dokumen versi 1.2 ini adalah completion/freeze record; commit dokumen setelah anchor tersebut bersifat docs-only dan tidak mengubah runtime.
 
 ## 1. Sumber, batas verifikasi, dan aturan pembaruan
 
@@ -15,7 +15,7 @@ Label bukti:
 - **PROPOSED**: rekomendasi untuk desain M35C3, belum menjadi kontrak implementasi.
 - **UNVERIFIED**: memerlukan checkout, pengujian, akses schema aktual, atau bukti deployment.
 
-Tidak ada checkout Git pada workspace ini saat pemeriksaan. Path `/Users/syahidrohmatulloh/my-assistant` adalah lokasi MacBook yang dilaporkan pengguna; working tree tersebut tidak dapat diakses dari workspace ini. Tidak ada patch aplikasi, migrasi, commit, push, atau deploy yang dilakukan dalam penyusunan dokumen ini. Tidak ada test suite yang dijalankan.
+Update final 6 September 2026: exact checkout lokal `/Users/syahidrohmatulloh/my-assistant` diverifikasi pada branch `main` dengan runtime/code anchor `29134ccff2db04feb4d17ea44f69344b3eeb1e44`, local/remote telah sinkron, dan working tree bersih sebelum freeze documentation. M35C3 telah melalui consolidated implementation, regression, Phase 424 production migration, backend Fly.io deployment, frontend Vercel deployment, dan production smoke test. Evidence final dicatat pada bagian completion record dan Definition of Done.
 
 Aturan canonical state: kode pada commit terverifikasi menjelaskan implementasi repository; schema aktual menjelaskan keadaan database; artefak deployment menjelaskan production; brief menetapkan visi dan batas produk. Salah satu tidak boleh dijadikan pengganti bukti yang lain. Jika implementasi melanggar invariant, catat sebagai gap yang harus diperbaiki—jangan mengubah invariant agar sesuai bug.
 
@@ -88,14 +88,14 @@ Public agent context hanya boleh menerima informasi melalui disclosure/policy ga
 
 | Lapisan | Baseline canonical saat ini | Bukti / batas |
 |---|---|---|
-| Repository | `syahidrohmatulloh/My-Personal-Assistant`, branch `main` | OBSERVED SHA `6a4acba…` |
+| Repository | `syahidrohmatulloh/My-Personal-Assistant`, branch `main` | M35C3 runtime/code freeze anchor `29134ccff2db04feb4d17ea44f69344b3eeb1e44` |
 | Frontend | Next.js **15.5.18**, React **19.2.6**, React Query, Tailwind, pnpm | OBSERVED lockfile; manifest Next `^15.0.0`, React `^19.0.0` |
-| Frontend hosting | Vercel | DOCUMENTED; deployment aktif belum diverifikasi |
+| Frontend hosting | Vercel | PRODUCTION VERIFIED; M35C3 frontend build dari `29134cc` live |
 | Backend | FastAPI / Python | OBSERVED entrypoint dan router |
-| Backend hosting | Fly.io | DOCUMENTED; file konfigurasi ada, runtime aktif belum diverifikasi |
-| Durable state | Supabase / PostgreSQL / pgvector | Kode client, query, dan SQL mendukung; schema production belum dibaca |
+| Backend hosting | Fly.io | PRODUCTION VERIFIED; rolling deployment M35C3 sehat pada dua machine dan `/health` mengembalikan `status=ok` |
+| Durable state | Supabase / PostgreSQL / pgvector | LIVE VERIFIED; Phase 424 applied, canonical confirmation columns dan guarded `match_memories` aktif |
 | Cognition | `CognitiveRuntime`, working memory, decision trace, metacognition, attention, habit learning, consolidation, calendar policy | OBSERVED runtime facade dan dependency-nya; bukan audit setiap algoritme |
-| Memory governance | `memory_epistemic_governance.py` + `memory_lifecycle_governance.py` | OBSERVED; canonical confirmation masih menggunakan timestamp lama |
+| Memory governance | `memory_epistemic_governance.py` + `memory_lifecycle_governance.py` | M35C3 FROZEN; authority menggunakan canonical user confirmation, legacy `last_confirmed_at` historical-only |
 | AI dan integrasi | Anthropic Claude, VoyageAI embeddings, ElevenLabs TTS, Deepgram STT, Google Calendar OAuth | Baseline integrasi DOCUMENTED; konfigurasi/konektivitas live belum diverifikasi |
 
 **Koreksi stack:** brief menyebut Next.js 16, tetapi manifest dan lockfile pada baseline menunjukkan Next.js 15.5.18. Gunakan versi repository sebagai canonical untuk pekerjaan berikutnya; upgrade framework bukan scope M35C3.
@@ -155,30 +155,36 @@ Tanggal pada tabel mengikuti timestamp commit **UTC**, bukan tanggal deploy. COM
 | M35C2B | Historical Confirmation Repair | COMPLETE / FROZEN | `3c3a91e`, 2 Sep 2026 |
 | M35C2A1 | Goal Projection Epistemic Preservation | COMPLETE / FROZEN | `443da41`, 2 Sep 2026; berada setelah C2B dalam riwayat commit |
 | M35C2C | Historical Provenance Governance | COMPLETE / FROZEN | `6a4acba`, 3 Sep 2026; baseline saat ini |
-| M35C3 | Memory Confirmation / Provenance UX Governance | **ACTIVE** | Scope dan dependency map disusun; audit menyeluruh/desain belum selesai |
+| M35C3 | Memory Confirmation / Provenance UX Governance | **COMPLETE / FROZEN** | `27851ae` implementation + `29134cc` frontend smoke fix; Phase 424 applied; full backend 1074 passed; production smoke verified |
 | M35D | Unified Projection Governance | **CONDITIONAL** | Hanya jika audit membuktikan gap lintas projection masih membutuhkan milestone sendiri |
 
-M35 secara keseluruhan belum complete karena M35C3 masih aktif. M35C3 tetap satu major milestone; audit, desain, patch, test, migration, dan deployment adalah gate internalnya.
+M35 secara keseluruhan sekarang **COMPLETE / FROZEN** setelah seluruh gate M35C3 selesai. Audit, desain, patch, test, migration, deployment, dan smoke fix tetap dicatat sebagai gate internal satu milestone M35C3, bukan milestone terpisah. Default development priority sesudah freeze ini berpindah dari Memory Intelligence ke Agent Intelligence.
 
 ## 5. Current baseline dan production state
 
-| Komponen keadaan | Status saat pemeriksaan |
+| Komponen keadaan | Status final M35C3 |
 |---|---|
-| GitHub default branch | OBSERVED: `main` |
-| GitHub HEAD | OBSERVED: `6a4acbafa0acb4a483eb02f3e925fbe997a7decc` |
-| Commit terakhir | `feat(cognition): complete M35c2c provenance governance`, 3 Sep 2026 03:30:36 UTC |
-| Kecocokan dengan brief | Cocok untuk SHA baseline; discrepancy stack dan integration gaps dicatat di bawah |
-| Local working tree MacBook | UNVERIFIED; jangan diasumsikan bersih atau sama dengan remote |
-| Checkout workspace | Tidak tersedia saat pemeriksaan; `git rev-parse` menyatakan bukan Git repository |
-| Runtime production / deployed SHA | UNVERIFIED; HEAD GitHub bukan bukti runtime yang sedang berjalan |
-| Live database / migration ledger | UNVERIFIED pada sesi ini |
-| Test saat ini | Tidak dijalankan; angka historis di bawah hanya catatan dokumentasi |
+| GitHub default branch | VERIFIED: `main` |
+| M35C3 runtime/code freeze anchor | `29134ccff2db04feb4d17ea44f69344b3eeb1e44` |
+| Implementation commit | `27851ae9ed268151d4a7c53a100a0af1748fdf38` — `feat(m35c3): govern memory confirmation and lifecycle trust` |
+| Frontend smoke-fix commit | `29134ccff2db04feb4d17ea44f69344b3eeb1e44` — `fix(m35c3): use canonical confirmation in memory cards` |
+| Local working tree MacBook | VERIFIED clean before freeze documentation |
+| Git remote | VERIFIED local SHA = remote SHA sebelum merge/freeze |
+| Backend production | VERIFIED Fly.io rolling deploy; two machines started; `/health` returned `status=ok` |
+| Frontend production | VERIFIED Vercel production deployment after merge to `main` |
+| Live database | VERIFIED Phase 424 applied; canonical fields, source constraint, and guarded `match_memories` active |
+| Historical data safety | 127-row pre-migration corpus preserved; 21 legacy timestamps retained historical-only; no blind canonical backfill |
+| Backend regression | FINAL: **1074 passed**, 2 Supabase client deprecation warnings |
+| Frontend validation | TypeScript `tsc --noEmit --incremental false` PASS; Next.js production build PASS |
+| Production smoke | Confirm workflow required 6-digit Memory PIN and persisted canonical UI state `Confirmed by you` |
 
 Dokumen M35C2C mencatat initial full backend regression **1031 passed**, kemudian targeted regression **35 passed** setelah koreksi boundary PostgreSQL REAL. Dokumen yang sama menyatakan guarded Phase423 production migration berhasil. Catatan ini tidak membuktikan full suite dijalankan ulang setelah koreksi terakhir, dan tidak menggantikan gate pengujian M35C3.
 
 Historical corpus yang dicatat: 127 rows; 82 `legacy_unknown`, 1 `system_inference`, 29 `explicit_user_statement`, 10 `repeated_pattern`, 3 `user_answer_in_context`, dan 2 `user_correction`. Distribusi confirmation tetap 106 NULL / 21 preserved. Ini snapshot repair historis, **bukan jumlah memory saat ini**. Preserved tidak berarti genuinely confirmed.
 
-### DOCUMENTED STATE vs OBSERVED REPOSITORY STATE
+### Historical pre-M35C3 gap register
+
+Tabel berikut dipertahankan sebagai **historical audit record pada baseline sebelum implementasi M35C3**, bukan sebagai deskripsi current production state. Gap confirmation, PIN, legacy mutations, lifecycle, retrieval trust, health scheduler, narrative authority, dan review UX yang menjadi acceptance scope M35C3 telah ditutup pada completion record di bawah; technical debt yang memang berada di luar milestone tetap dicatat terpisah.
 
 | Topik | DOCUMENTED STATE | OBSERVED REPOSITORY STATE | Recommended canonical state |
 |---|---|---|---|
@@ -234,9 +240,31 @@ Calendar semantic vocabulary yang dipertahankan:
 | persistence_target | none, reminder, calendar |
 | route | normal_chat, clarify_eventhood, calendar_candidate, calendar_action |
 
-## 7. Current active milestone — M35C3
+## 7. M35C3 completion record — COMPLETE / FROZEN
 
-**Objective:** memastikan apa yang disebut confirmed/verified dalam storage, retrieval, review, narrative, dan scheduler berasal dari evidence yang sah; seluruh manual memory mutation memiliki semantics dan protection yang konsisten.
+**Objective achieved:** apa yang disebut confirmed/verified dalam storage, retrieval, review, narrative, scheduler, interaction preferences, dan consolidation sekarang berasal dari authority/evidence yang sah; manual memory mutation menggunakan lifecycle semantics dan protection yang konsisten.
+
+### Final completion evidence
+
+| Gate | Final evidence |
+|---|---|
+| Canonical confirmation | `last_user_confirmed_at`, `last_user_confirmation_source`, dan `last_user_confirmation_evidence` menjadi canonical confirmation state; legacy timestamp tidak menjadi authority |
+| Historical ambiguity | Phase 424 melakukan no blind backfill; 21 preserved legacy timestamps tetap historical-only |
+| PIN / mutation boundary | Confirm dan memory mutations yang applicable memakai strict 6-digit Memory PIN pada server boundary; Calendar actions tetap mengikuti no-PIN contract M34 |
+| Legacy mutation API | Legacy `/memories` mutation surfaces retired dengan HTTP 410; Memory Review menjadi canonical mutation surface |
+| Lifecycle | Forget = reversible archive; restore tidak mengonfirmasi truth; superseded reserved untuk correction/replacement history |
+| Resurrection safety | Automatic writers menjaga archived/deleted/superseded rows hidden dan tidak silently recreate inferred truth |
+| Supersession atomicity | New row inserted sebelum existing truth difinalisasi sebagai superseded; failed insertion tidak menghancurkan old truth |
+| Retrieval / trust | Canonical recency dan single trust contribution; hidden rows excluded; unverified authority tetap capped |
+| Narrative | Hanya authoritative memory eligible menjadi reliable biography; governed persisted-summary reuse memakai M35C3 source hash/version |
+| Health / consumers | Health membawa provenance/canonical metadata read-only; interaction preferences dan consolidation menggunakan canonical authority |
+| Regression | M35C3-2C targeted 77 passed; final backend suite **1074 passed** |
+| Frontend | TypeScript PASS; Next.js production build PASS; MemoryCard memakai canonical confirmation |
+| Database | Phase 424 production migration applied dan post-verification lulus |
+| Backend production | Fly.io rolling deploy successful; two machines started; `/health` = `status: ok` |
+| Frontend production | Vercel production live setelah `main` maju ke `29134cc` |
+| End-to-end smoke | Confirm meminta Memory PIN dan memory menampilkan persisted `Confirmed by you` |
+| Git | Runtime/code freeze anchor `29134cc`; merged/pushed to `main`; working tree clean |
 
 ### Scope satu milestone
 
@@ -253,7 +281,7 @@ Calendar semantic vocabulary yang dipertahankan:
 | Narrative | Unverified memory tidak dipromosikan menjadi reliable biography | Source eligibility, prompt, deterministic fallback, persisted-summary invalidation/reuse |
 | Database dan regression | Migration guarded; test lintas seluruh surface | Live-schema preflight, PostgreSQL REAL, rollback, API regression, frontend validation |
 
-`last_user_confirmed_at` adalah **PROPOSED**, bukan keputusan schema final. Rekomendasi awal: nullable tanpa synthetic default dan tanpa blind backfill dari `last_confirmed_at`; evidence yang deterministik dapat dinilai pada desain. Confirmation baru tidak perlu menghapus provenance asal—mekanisme penyimpanan bukti confirmation harus diputuskan eksplisit. Manual add/edit adalah user-authored evidence, tetapi apakah sekaligus canonical confirmation harus ditetapkan sebagai kontrak, bukan akibat otomatis insertion.
+`last_user_confirmed_at` sekarang **CANONICAL / LOCKED** bersama `last_user_confirmation_source` dan `last_user_confirmation_evidence`. Ketiganya nullable, tidak memiliki synthetic confirmation default, dan tidak dibackfill dari ambiguous historical `last_confirmed_at`. Manual add/edit tidak otomatis menjadi canonical confirmation; explicit Confirm, approved quality keep-one, atau direct user restatement yang memenuhi evidence contract dapat menghasilkan canonical confirmation. Confirmation tidak menghapus provenance asal.
 
 Batas terkait Calendar: repository memiliki alur Calendar tanpa PIN dan test bernama `test_calendar_actions_no_pin.py`. Audit harus membedakan action Calendar murni dari endpoint yang dapat memutasi memory umum. Jangan memasang PIN ke semua Calendar actions secara menyeluruh tanpa menilai kontrak M34 dan kebutuhan proteksi memory; endpoint yang bersinggungan harus membatasi target dan efeknya dengan benar.
 
@@ -287,7 +315,9 @@ flowchart TD
 
 Pemetaan dependency untuk first task selesai pada tingkat modul/kontrak. **Audit impact lengkap belum selesai**: perlu inventaris seluruh writer/caller, semua entrypoint, permission/RLS, cache/snapshot consumers, perilaku concurrent mutations, exact test coverage, dan live schema. Kolom file adalah audit scope, bukan daftar final file yang akan diubah.
 
-### Gate sebelum consolidated patch
+### Historical implementation gates — SATISFIED
+
+Gate berikut adalah proses implementasi yang telah dipenuhi selama M35C3 dan dipertahankan sebagai audit trail:
 
 1. Verifikasi checkout target dengan `git status`, `git rev-parse HEAD`, dan `git log --oneline`; jika berbeda dari baseline, berhenti sebelum patch dan laporkan divergence.
 2. Audit seluruh dependency di atas dan adjacent surfaces. Inspect exact file bytes sebelum membuat patch.
@@ -331,9 +361,9 @@ Roadmap berikut adalah **canonical** dan dikunci sebagai urutan transformasi uta
 
 | Urutan | Major capability | Status | Hasil yang dituju |
 |---|---|---|---|
-| 1 | M31–M35 — Trusted Cognitive Foundation | COMPLETE / ACTIVE sampai M35C3 selesai | Cognition, working memory, attention, habit learning, consolidation, temporal semantics, trustworthy memory |
-| 2 | M35C3 — Finish Trust / Memory Governance | **ACTIVE** | Genuine confirmation, provenance UX, safe mutation governance, trustworthy consumers |
-| 3 | Agent Core | **LOCKED NEXT** | Persistent objectives, plans, action state, verification, continuation/follow-up runtime |
+| 1 | M31–M35 — Trusted Cognitive Foundation | **COMPLETE / FROZEN** | Cognition, working memory, attention, habit learning, consolidation, temporal semantics, trustworthy memory |
+| 2 | M35C3 — Finish Trust / Memory Governance | **COMPLETE / FROZEN** | Genuine confirmation, provenance UX, safe mutation governance, trustworthy consumers |
+| 3 | Agent Core | **LOCKED NEXT / READY TO START** | Persistent objectives, plans, action state, verification, continuation/follow-up runtime |
 | 4 | Personal & Executive World Model | **PLANNED** | Structured User, People, Organizations, Projects, Meetings, Commitments, Decisions, Relationships |
 | 5 | Executive Intelligence | **PLANNED** | Briefings, meeting prep, inbox intelligence, project/deal state, priority detection, follow-up intelligence |
 | 6 | Action & Authority | **PLANNED** | Tool execution, permissions, approvals, reversibility, risk classes, audit trail |
@@ -345,7 +375,7 @@ Roadmap berikut adalah **canonical** dan dikunci sebagai urutan transformasi uta
 
 ### Roadmap guardrails
 
-1. **M35C3 selesai dulu.** Jangan lompat ke Agent Core sebelum trust foundation benar-benar memenuhi Definition of Done.
+1. **M35C3 gate telah dipenuhi dan frozen.** Agent Core sekarang boleh dimulai, tetapi tetap melalui architecture/repository audit sebelum desain atau mutation schema baru dibuat.
 2. Setelah M35C3, fokus bergeser dari **Memory Intelligence → Agent Intelligence**.
 3. Jangan membuat workstream baru di luar roadmap ini tanpa alasan arsitektural kuat dan persetujuan product owner.
 4. Audit, migration, testing, deploy, dan hotfix adalah **internal gates**, bukan milestone baru.
@@ -382,33 +412,33 @@ Roadmap ini adalah source of truth untuk arah produk setelah M35C3. Jika ada pro
 
 ## 11. Definition of Done — M35C3
 
-Semua item berikut masih terbuka sebagai acceptance gates milestone ini.
+Semua acceptance gate berikut telah dipenuhi. M35C3 berstatus **COMPLETE / FROZEN**.
 
-- [ ] Genuine user confirmation memiliki canonical semantics dan evidence yang dapat diaudit.
-- [ ] Ambiguous historical confirmation tidak memberi false authority; tidak ada blind backfill.
-- [ ] Unverified provenance tercermin aman dalam lifecycle, review, dan natural wording UI.
-- [ ] Manual add, edit, confirm, forget/archive, restore, quality resolution, dan applicable consolidation konsisten.
-- [ ] PIN protection ditegakkan di server tanpa bypass legacy; authentication dan ownership tetap benar.
-- [ ] Legacy mutation surface ditutup atau didelegasikan aman; intended API changes terdokumentasi.
-- [ ] Forget/archive/supersede/deletion mempunyai semantics yang benar.
-- [ ] Automatic writer tidak diam-diam mengaktifkan atau menciptakan ulang forgotten memory sebagai active truth.
-- [ ] Corrected/superseded memory tidak direstore sebagai memory aktif secara salah.
-- [ ] Retrieval menghormati epistemic authority pada RPC, fallback, ranking, dan packing; trust bonus tidak ganda.
-- [ ] Narrative synthesis, fallback, dan persisted-summary reuse tidak memakai unverified/hidden memory sebagai reliable truth.
-- [ ] Memory health mengenali provenance uncertainty dengan source metadata yang cukup.
-- [ ] Migration deterministic, transaction-safe, fail-closed; REAL boundary ditangani; preflight dan post-verification lulus.
-- [ ] Targeted regression dan relevant cross-regression hijau.
-- [ ] Full backend suite hijau pada final candidate.
-- [ ] Frontend checks hijau bila frontend berubah; workflow kritis yang disentuh diverifikasi.
-- [ ] Tidak ada unintended API regression; route pasangan manual add/restore telah direkonsiliasi.
-- [ ] `git diff --check` bersih dan final git scope direview.
-- [ ] Satu clean final commit dan push selesai.
-- [ ] Maksimal satu final deployment bila runtime berubah; deployed runtime/schema diverifikasi.
-- [ ] Dokumentasi milestone dan living current-state document diperbarui dengan bukti final.
+- [x] Genuine user confirmation memiliki canonical semantics dan evidence yang dapat diaudit.
+- [x] Ambiguous historical confirmation tidak memberi false authority; tidak ada blind backfill.
+- [x] Unverified provenance tercermin aman dalam lifecycle, review, dan natural wording UI.
+- [x] Manual add, edit, confirm, forget/archive, restore, quality resolution, dan applicable consolidation konsisten.
+- [x] PIN protection ditegakkan di server tanpa bypass legacy; authentication dan ownership tetap benar.
+- [x] Legacy mutation surface ditutup atau didelegasikan aman; intended API changes terdokumentasi.
+- [x] Forget/archive/supersede/deletion mempunyai semantics yang benar.
+- [x] Automatic writer tidak diam-diam mengaktifkan atau menciptakan ulang forgotten memory sebagai active truth.
+- [x] Corrected/superseded memory tidak direstore sebagai memory aktif secara salah.
+- [x] Retrieval menghormati epistemic authority pada RPC, fallback, ranking, dan packing; trust bonus tidak ganda.
+- [x] Narrative synthesis, fallback, dan persisted-summary reuse tidak memakai unverified/hidden memory sebagai reliable truth.
+- [x] Memory health mengenali provenance uncertainty dengan source metadata yang cukup.
+- [x] Migration deterministic, transaction-safe, fail-closed; REAL boundary ditangani; preflight dan post-verification lulus.
+- [x] Targeted regression dan relevant cross-regression hijau.
+- [x] Full backend suite hijau pada final candidate.
+- [x] Frontend checks hijau bila frontend berubah; workflow kritis yang disentuh diverifikasi.
+- [x] Tidak ada unintended API regression; route pasangan manual add/restore telah direkonsiliasi.
+- [x] `git diff --check` bersih dan final git scope direview.
+- [x] Satu clean final commit dan push selesai.
+- [x] Maksimal satu final deployment bila runtime berubah; deployed runtime/schema diverifikasi.
+- [x] Dokumentasi milestone dan living current-state document diperbarui dengan bukti final.
 
 ## 12. Register bukti dan pekerjaan berikutnya
 
-Repository links dipatok ke baseline untuk menghindari drift:
+Historical repository links di bawah tetap dipatok ke pre-M35C3 baseline untuk menjaga audit trail. Final M35C3 evidence ditambahkan terpisah agar tidak menulis ulang sejarah:
 
 - [Baseline commit dan completion M35C2C](https://github.com/syahidrohmatulloh/My-Personal-Assistant/commit/6a4acbafa0acb4a483eb02f3e925fbe997a7decc).
 - [M31 ADR](https://github.com/syahidrohmatulloh/My-Personal-Assistant/blob/6a4acbafa0acb4a483eb02f3e925fbe997a7decc/docs/M31_COGNITIVE_ARCHITECTURE_ADR.md) dan [CognitiveRuntime](https://github.com/syahidrohmatulloh/My-Personal-Assistant/blob/6a4acbafa0acb4a483eb02f3e925fbe997a7decc/backend/app/services/cognitive_runtime.py).
@@ -418,14 +448,19 @@ Repository links dipatok ke baseline untuk menghindari drift:
 - [Legacy memory router](https://github.com/syahidrohmatulloh/My-Personal-Assistant/blob/6a4acbafa0acb4a483eb02f3e925fbe997a7decc/backend/app/routers/memories.py), [review router](https://github.com/syahidrohmatulloh/My-Personal-Assistant/blob/6a4acbafa0acb4a483eb02f3e925fbe997a7decc/backend/app/routers/memory_review.py), dan [registered entrypoint](https://github.com/syahidrohmatulloh/My-Personal-Assistant/blob/6a4acbafa0acb4a483eb02f3e925fbe997a7decc/backend/app/main.py).
 - [Retrieval ranking](https://github.com/syahidrohmatulloh/My-Personal-Assistant/blob/6a4acbafa0acb4a483eb02f3e925fbe997a7decc/backend/app/services/memory.py), [health scheduler](https://github.com/syahidrohmatulloh/My-Personal-Assistant/blob/6a4acbafa0acb4a483eb02f3e925fbe997a7decc/backend/app/services/memory_health_scheduler.py), dan [narrative summary](https://github.com/syahidrohmatulloh/My-Personal-Assistant/blob/6a4acbafa0acb4a483eb02f3e925fbe997a7decc/backend/app/services/memory_narrative_summary.py).
 - [Memory page](https://github.com/syahidrohmatulloh/My-Personal-Assistant/blob/6a4acbafa0acb4a483eb02f3e925fbe997a7decc/frontend/app/memories/page.tsx) dan [memory card](https://github.com/syahidrohmatulloh/My-Personal-Assistant/blob/6a4acbafa0acb4a483eb02f3e925fbe997a7decc/frontend/components/memories/memory-card.tsx).
+- Final M35C3 implementation: `27851ae9ed268151d4a7c53a100a0af1748fdf38`.
+- Final M35C3 frontend canonical-confirmation smoke fix dan runtime/code freeze anchor: `29134ccff2db04feb4d17ea44f69344b3eeb1e44`.
+- Production migration artifact: `backend/schema_phase424_m35c3_memory_confirmation_governance.sql`.
+- M35C3 regression contracts: `test_m35c3_confirmation_governance.py`, `test_m35c3_narrative_health_governance.py`, dan `test_m35c3_resurrection_supersession_governance.py`.
 - SQL diperiksa: `backend/schema_phase420_m35c1_safe_retrieval_governance.sql` dan `backend/schema_phase423_m35c2c_historical_provenance_governance.sql`. Keduanya adalah repository migration artifacts, bukan hasil introspeksi live DB.
 - Writer files dibaca untuk pemetaan: `memory_intelligence.py`, `relationship_memory.py`, `mood_memory_feedback.py`, `habit_learning.py`, dan `memory_supersession.py`. Pembacaan ini belum merupakan sign-off seluruh writer flow.
 
-**Langkah berikutnya:** audit impact M35C3 secara menyeluruh pada exact checkout yang terverifikasi, lalu tetapkan satu desain implementasi. Current-state document dan dependency map telah tersedia; patch tetap menunggu audit/design gate selesai.
+**Langkah berikutnya:** mulai **Agent Core Phase 0 — architecture/repository audit** pada exact checkout setelah freeze documentation. Audit harus memetakan durable objective state, plan/action state, verification, continuation/follow-up, ownership antara `CognitiveRuntime` dan services, existing goals/calendar/proactive surfaces, persistence schema, authority boundary, scheduler/delivery assumptions, serta regression surface sebelum desain implementasi dikunci. Tidak ada Agent Core mutation/schema patch sebelum audit dan ADR/contract selesai.
 
 ### Changelog
 
 | Versi | Tanggal | Perubahan |
 |---|---|---|
+| 1.2 | 6 Sep 2026 | M35C3 dinyatakan COMPLETE / FROZEN berdasarkan final regression, Phase 424 production migration, backend/frontend deployment, canonical PIN-confirm smoke test, dan runtime/code freeze anchor `29134cc`; Trusted Cognitive Foundation ditutup dan Agent Core dibuka sebagai LOCKED NEXT / READY TO START |
 | 1.1 | 5 Sep 2026 | Canonical product definition dikunci menjadi persistent Personal & Executive AI Agent; capability loop dan UNDERSTAND/REMEMBER/PLAN/ACT/ADAPT ditetapkan; roadmap pasca-M35C3 diganti menjadi Agent Transformation Roadmap yang locked; M35D dipindahkan menjadi conditional internal gate |
 | 1.0 | 5 Sep 2026 | Initial continuity baseline; verifikasi remote SHA; koreksi Next.js; timeline M31–M35; scope, dependency map, invariants, debt, roadmap, dan DoD; temuan statis dipisahkan dari status production |
