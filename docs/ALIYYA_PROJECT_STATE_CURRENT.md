@@ -1,8 +1,8 @@
 # Aliyya Project State — Current
 
-Versi dokumen: 1.2 • Diperiksa: 6 September 2026 • Pemilik produk: Syahid Rohmatulloh
+Versi dokumen: 1.3 • Diperiksa: 6 September 2026 • Pemilik produk: Syahid Rohmatulloh
 
-**Current state: M35C3 — COMPLETE / FROZEN. Trusted Cognitive Foundation M31–M35 telah ditutup dan arah berikutnya yang dikunci adalah Agent Core, memulai transformasi Aliyya dari trusted cognitive assistant menuju persistent Personal & Executive AI Agent.** M35C3 runtime/code freeze anchor adalah `29134ccff2db04feb4d17ea44f69344b3eeb1e44`; implementation utama berada pada `27851ae9ed268151d4a7c53a100a0af1748fdf38` dan frontend canonical-confirmation smoke fix pada `29134ccff2db04feb4d17ea44f69344b3eeb1e44`. Dokumen versi 1.2 ini adalah completion/freeze record; commit dokumen setelah anchor tersebut bersifat docs-only dan tidak mengubah runtime.
+**Current milestone: Agent Core — ACTIVE, architecture contract locked. M35C3 dan Trusted Cognitive Foundation M31–M35 tetap COMPLETE / FROZEN.** Agent Core Phase 0 repository dan live-schema audit telah selesai secara read-only. `docs/AGENT_CORE_ARCHITECTURE_ADR.md` sekarang menjadi canonical architecture contract untuk pemisahan Memory, Goals, Agent Objectives, plans, steps, observations, verification, continuation, dan future external-action authority. Agent Core architecture baseline adalah `43b3798643a2f93bd20d682b6d33a7baaf905c23`. Belum ada Agent Core runtime mutation atau production migration.
 
 ## 1. Sumber, batas verifikasi, dan aturan pembaruan
 
@@ -363,7 +363,7 @@ Roadmap berikut adalah **canonical** dan dikunci sebagai urutan transformasi uta
 |---|---|---|---|
 | 1 | M31–M35 — Trusted Cognitive Foundation | **COMPLETE / FROZEN** | Cognition, working memory, attention, habit learning, consolidation, temporal semantics, trustworthy memory |
 | 2 | M35C3 — Finish Trust / Memory Governance | **COMPLETE / FROZEN** | Genuine confirmation, provenance UX, safe mutation governance, trustworthy consumers |
-| 3 | Agent Core | **LOCKED NEXT / READY TO START** | Persistent objectives, plans, action state, verification, continuation/follow-up runtime |
+| 3 | Agent Core | **ACTIVE — ARCHITECTURE LOCKED** | Persistent objectives, plans, action state, verification, continuation/follow-up runtime |
 | 4 | Personal & Executive World Model | **PLANNED** | Structured User, People, Organizations, Projects, Meetings, Commitments, Decisions, Relationships |
 | 5 | Executive Intelligence | **PLANNED** | Briefings, meeting prep, inbox intelligence, project/deal state, priority detection, follow-up intelligence |
 | 6 | Action & Authority | **PLANNED** | Tool execution, permissions, approvals, reversibility, risk classes, audit trail |
@@ -455,12 +455,13 @@ Historical repository links di bawah tetap dipatok ke pre-M35C3 baseline untuk m
 - SQL diperiksa: `backend/schema_phase420_m35c1_safe_retrieval_governance.sql` dan `backend/schema_phase423_m35c2c_historical_provenance_governance.sql`. Keduanya adalah repository migration artifacts, bukan hasil introspeksi live DB.
 - Writer files dibaca untuk pemetaan: `memory_intelligence.py`, `relationship_memory.py`, `mood_memory_feedback.py`, `habit_learning.py`, dan `memory_supersession.py`. Pembacaan ini belum merupakan sign-off seluruh writer flow.
 
-**Langkah berikutnya:** mulai **Agent Core Phase 0 — architecture/repository audit** pada exact checkout setelah freeze documentation. Audit harus memetakan durable objective state, plan/action state, verification, continuation/follow-up, ownership antara `CognitiveRuntime` dan services, existing goals/calendar/proactive surfaces, persistence schema, authority boundary, scheduler/delivery assumptions, serta regression surface sebelum desain implementasi dikunci. Tidak ada Agent Core mutation/schema patch sebelum audit dan ADR/contract selesai.
+**Langkah berikutnya:** lakukan **Agent Core implementation preflight** terhadap architecture contract yang telah dikunci. Preflight harus memeriksa exact source anchors, live schema/RLS/indexes, deterministic transition policy, persistence service, API/runtime integration, passive cross-turn context, dan regression matrix. Setelah preflight selesai, susun satu consolidated implementation patch. Tidak ada production migration sebelum full validation dan database preflight.
 
 ### Changelog
 
 | Versi | Tanggal | Perubahan |
 |---|---|---|
+| 1.3 | 6 Sep 2026 | Agent Core Phase 0 audit selesai read-only; architecture contract dikunci; domain objective/plan/step/event, verification semantics, passive continuation, CognitiveRuntime ownership, scheduler boundary, dan explicit non-goals ditetapkan sebelum implementation |
 | 1.2 | 6 Sep 2026 | M35C3 dinyatakan COMPLETE / FROZEN berdasarkan final regression, Phase 424 production migration, backend/frontend deployment, canonical PIN-confirm smoke test, dan runtime/code freeze anchor `29134cc`; Trusted Cognitive Foundation ditutup dan Agent Core dibuka sebagai LOCKED NEXT / READY TO START |
 | 1.1 | 5 Sep 2026 | Canonical product definition dikunci menjadi persistent Personal & Executive AI Agent; capability loop dan UNDERSTAND/REMEMBER/PLAN/ACT/ADAPT ditetapkan; roadmap pasca-M35C3 diganti menjadi Agent Transformation Roadmap yang locked; M35D dipindahkan menjadi conditional internal gate |
 | 1.0 | 5 Sep 2026 | Initial continuity baseline; verifikasi remote SHA; koreksi Next.js; timeline M31–M35; scope, dependency map, invariants, debt, roadmap, dan DoD; temuan statis dipisahkan dari status production |
