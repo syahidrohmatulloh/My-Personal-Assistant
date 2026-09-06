@@ -140,16 +140,17 @@ _CAPABILITY_MARKERS = (
     "could you",
 )
 
-_IMPERATIVE_MARKERS = (
+_DIRECT_REQUEST_OVERRIDE_MARKERS = (
     "tolong",
     "please",
-    "buatkan",
-    "jadikan",
-    "track ini",
-    "track this",
-    "create an objective",
-    "buat objective",
-    "buat objektif",
+    "langsung",
+    "sekarang",
+    "now",
+    "go ahead",
+    "ya, buat",
+    "ya buat",
+    "ya, track",
+    "ya track",
 )
 
 
@@ -187,14 +188,13 @@ def is_explicit_objective_activation_request(
         return False
 
     capability_only = (
-        "?" in text
-        and any(
+        any(
             marker in text
             for marker in _CAPABILITY_MARKERS
         )
         and not any(
             marker in text
-            for marker in _IMPERATIVE_MARKERS
+            for marker in _DIRECT_REQUEST_OVERRIDE_MARKERS
         )
     )
 

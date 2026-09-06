@@ -27,12 +27,45 @@ def test_plain_goal_language_is_not_agent_objective() -> None:
 
 
 def test_capability_question_does_not_create_objective() -> None:
-    assert not (
-        agent_core_intelligence
-        .is_explicit_objective_activation_request(
-            "Can you create objectives?"
-        )
+    capability_only_messages = (
+        "Can you create objectives?",
+        "Can you create an objective?",
+        "Can you create an objective",
+        "Can you track this as an objective?",
+        "Bisa nggak kamu buat objective?",
+        "Bisa nggak kamu buat objective",
+        "Bisakah kamu buatkan objektif?",
+        "Apa kamu bisa track ini sebagai objective?",
     )
+
+    for message in capability_only_messages:
+        assert not (
+            agent_core_intelligence
+            .is_explicit_objective_activation_request(
+                message
+            )
+        )
+
+
+def test_capability_wording_with_explicit_override_can_activate() -> None:
+    explicit_messages = (
+        (
+            "Bisa nggak kamu buat objective ini sekarang? "
+            "Tolong buat objective untuk menyiapkan lender meeting."
+        ),
+        (
+            "Can you please create an objective for preparing "
+            "the lender meeting now?"
+        ),
+    )
+
+    for message in explicit_messages:
+        assert (
+            agent_core_intelligence
+            .is_explicit_objective_activation_request(
+                message
+            )
+        )
 
 
 def test_objective_mention_without_creation_action_is_not_enough() -> None:
