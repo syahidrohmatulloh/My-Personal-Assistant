@@ -83,8 +83,9 @@ export async function clearAllMemories(): Promise<void> {
 }
 
 export async function listConversations(): Promise<Conversation[]> {
-  const headers = await getAuthHeader();
-  const r = await fetch(`${API_URL}/conversations`, { headers });
+  const r = await fetch("/api/conversations", {
+    cache: "no-store",
+  });
   if (!r.ok) throw new Error(`listConversations failed: ${r.status}`);
   return r.json();
 }
@@ -101,14 +102,17 @@ export async function createConversation(
   title = "New chat",
   styleProfileId?: string | null,
 ): Promise<Conversation> {
-  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
   const body: Record<string, unknown> = { title };
   if (styleProfileId) body.style_profile_id = styleProfileId;
-  const r = await fetch(`${API_URL}/conversations`, {
+
+  const r = await fetch("/api/conversations", {
     method: "POST",
-    headers,
+    headers: {
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(body),
   });
+
   if (!r.ok) throw new Error(`createConversation failed: ${r.status}`);
   return r.json();
 }
