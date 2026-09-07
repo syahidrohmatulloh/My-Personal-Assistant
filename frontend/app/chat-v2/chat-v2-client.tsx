@@ -600,6 +600,16 @@ export function ChatV2Client({
   useEffect(() => {
     if (!activeConversationId) return;
 
+    // A route change represents a different conversation. Clear the
+    // previous conversation synchronously before the new server state
+    // arrives so old messages never flash in the new chat.
+    setMessages([]);
+    setResolvedConversationTitle(null);
+    setInput("");
+    setStreamMeta(null);
+    stickToLatestRef.current = true;
+    setShowJumpToLatest(false);
+
     let cancelled = false;
 
     async function hydrateConversationRoute() {
@@ -711,7 +721,11 @@ export function ChatV2Client({
       <div className="relative z-10 mx-auto flex min-h-dvh w-full max-w-[1500px] flex-col px-4 py-5 sm:px-6 lg:px-8">
         <header className="mb-5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <ChatV2CommandMenu assistantName={assistantName} mode={mode} />
+            <ChatV2CommandMenu
+              assistantName={assistantName}
+              mode={mode}
+              currentConversationId={activeConversationId || null}
+            />
             <Link
               href="/home"
               className={[
@@ -1679,27 +1693,39 @@ function ChatFrame({
         ))}
 
         {messages.length === 0 ? (
-          <>
-            <div
-              className={[
-                "ml-auto max-w-[min(88%,48rem)] rounded-[1.6rem] rounded-br-md px-4 py-3 text-sm leading-7 sm:px-5",
-                isChief ? "bg-slate-100 text-slate-950" : "bg-stone-900 text-stone-50",
-              ].join(" ")}
-            >
-              {copy.user}
-            </div>
+          <div className="flex min-h-full items-center justify-center px-5 py-10">
+            <div className="max-w-sm text-center">
+              <div
+                className={[
+                  "mx-auto grid h-12 w-12 place-items-center rounded-full border",
+                  isChief
+                    ? "border-white/10 bg-white/[0.045] text-teal-100"
+                    : "border-stone-200 bg-white/65 text-stone-500",
+                ].join(" ")}
+              >
+                <Sparkles className="h-5 w-5" />
+              </div>
 
-            <div
-              className={[
-                "max-w-[min(88%,48rem)] rounded-3xl border px-5 py-4 text-sm leading-7",
-                isChief
-                  ? "border-white/10 bg-white/[0.055] text-slate-200"
-                  : "border-white/80 bg-white/72 text-stone-800",
-              ].join(" ")}
-            >
-              {copy.assistant}
+              <p
+                className={[
+                  "mt-4 text-base font-semibold",
+                  isChief ? "text-slate-200" : "text-stone-800",
+                ].join(" ")}
+              >
+                Start a new conversation
+              </p>
+
+              <p
+                className={[
+                  "mt-2 text-sm leading-6",
+                  isChief ? "text-slate-500" : "text-stone-500",
+                ].join(" ")}
+              >
+                This chat is empty. Your previous conversations stay separate
+                and can be reopened from Chats.
+              </p>
             </div>
-          </>
+          </div>
         ) : null}
 
       </div>

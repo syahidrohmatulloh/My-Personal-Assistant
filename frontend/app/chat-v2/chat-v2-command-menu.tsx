@@ -140,20 +140,75 @@ function cleanAssistantName(value: string | null | undefined): string {
   return value?.trim() || "your assistant";
 }
 
+type ConversationGroup =
+  | "Today"
+  | "Yesterday"
+  | "Previous 7 days"
+  | "Older";
+
+const CONVERSATION_GROUP_ORDER: ConversationGroup[] = [
+  "Today",
+  "Yesterday",
+  "Previous 7 days",
+  "Older",
+];
+
+function isMainConversation(conversation: Conversation): boolean {
+  return conversation.title.trim().toLowerCase().startsWith("main chat");
+}
+
+function getConversationGroup(
+  value: string | null | undefined,
+): ConversationGroup {
+  if (!value) return "Older";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Older";
+
+  const now = new Date();
+
+  const todayUtc = Date.UTC(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  );
+
+  const conversationUtc = Date.UTC(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+  );
+
+  const daysAgo = Math.floor(
+    (todayUtc - conversationUtc) / 86_400_000,
+  );
+
+  if (daysAgo <= 0) return "Today";
+  if (daysAgo === 1) return "Yesterday";
+  if (daysAgo <= 7) return "Previous 7 days";
+
+  return "Older";
+}
+
 export function ChatV2CommandMenu({
   assistantName,
   mode,
+  currentConversationId,
 }: {
   assistantName: string | null;
   mode: AssistantMode;
+  currentConversationId: string | null;
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = useState(false);
+  const [chatsOpen, setChatsOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [chatQuery, setChatQuery] = useState("");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [styleProfiles, setStyleProfiles] = useState<StyleProfile[]>([]);
   const [loading, setLoading] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
   const [creating, setCreating] = useState(false);
 
   const isChief = mode === "chief_of_staff";
@@ -195,7 +250,7 @@ export function ChatV2CommandMenu({
         if (cancelled) return;
 
         if (conversationResult.status === "fulfilled") {
-          setConversations(conversationResult.value.slice(0, 7));
+          setConversations(conversationResult.value);
         }
 
         if (styleResult.status === "fulfilled") {
@@ -220,6 +275,81 @@ export function ChatV2CommandMenu({
       window.removeEventListener("keydown", onEscape);
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!chatsOpen) return;
+
+    let cancelled = false;
+    const previousOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = "hidden";
+    setChatLoading(true);
+
+    void listConversations()
+      .then((items) => {
+        if (!cancelled) {
+          setConversations(items);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setChatLoading(false);
+        }
+      });
+
+    function onEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setChatsOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", onEscape);
+
+    return () => {
+      cancelled = true;
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onEscape);
+    };
+  }, [chatsOpen]);
+
+  const filteredConversations = useMemo(() => {
+    const needle = chatQuery.trim().toLowerCase();
+
+    if (!needle) return conversations;
+
+    return conversations.filter((conversation) =>
+      conversation.title.toLowerCase().includes(needle),
+    );
+  }, [chatQuery, conversations]);
+
+  const mainConversation = useMemo(
+    () =>
+      filteredConversations.find((conversation) =>
+        isMainConversation(conversation),
+      ) ?? null,
+    [filteredConversations],
+  );
+
+  const groupedConversations = useMemo(() => {
+    const result: Record<ConversationGroup, Conversation[]> = {
+      Today: [],
+      Yesterday: [],
+      "Previous 7 days": [],
+      Older: [],
+    };
+
+    for (const conversation of filteredConversations) {
+      if (isMainConversation(conversation)) continue;
+
+      result[
+        getConversationGroup(
+          conversation.updated_at || conversation.created_at,
+        )
+      ].push(conversation);
+    }
+
+    return result;
+  }, [filteredConversations]);
 
   const filteredItems = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -248,6 +378,7 @@ export function ChatV2CommandMenu({
     try {
       const conversation = await createConversation("New chat", styleProfileId);
       setOpen(false);
+      setChatsOpen(false);
       router.push(`/chat-v2/${conversation.id}`);
     } finally {
       setCreating(false);
@@ -288,8 +419,8 @@ export function ChatV2CommandMenu({
 
         <button
           type="button"
-          onClick={() => setOpen(true)}
-          aria-label="Open chats and assistant menu"
+          onClick={() => setChatsOpen(true)}
+          aria-label="Open conversations"
           className={cn(
             "inline-flex h-10 items-center gap-2 rounded-full border px-3 text-sm font-medium shadow-sm backdrop-blur transition active:scale-[0.98]",
             isChief
@@ -297,10 +428,238 @@ export function ChatV2CommandMenu({
               : "border-stone-200 bg-white/70 text-stone-600 hover:bg-white hover:text-stone-950",
           )}
         >
-          <Menu className="h-4 w-4" />
+          <MessageSquare className="h-4 w-4" />
           <span className="hidden sm:inline">Chats</span>
         </button>
       </div>
+
+      {chatsOpen ? (
+        <div className="fixed inset-0 z-50">
+          <button
+            type="button"
+            aria-label="Close conversations"
+            className="absolute inset-0 bg-slate-950/30 backdrop-blur-sm"
+            onClick={() => setChatsOpen(false)}
+          />
+
+          <aside
+            aria-label="Conversations"
+            className={cn(
+              "absolute bottom-0 left-0 top-0 flex w-[min(92vw,24rem)] flex-col border-r p-4 shadow-2xl backdrop-blur-2xl",
+              isChief
+                ? "border-white/10 bg-[#0b141d]/96 text-slate-100 shadow-black/45"
+                : "border-white/75 bg-[#fbf8f0]/96 text-stone-950 shadow-stone-900/20",
+            )}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p
+                  className={cn(
+                    "text-[10px] font-semibold uppercase tracking-[0.24em]",
+                    isChief ? "text-teal-200/75" : "text-stone-400",
+                  )}
+                >
+                  Conversations
+                </p>
+                <h2 className="mt-1 text-xl font-semibold tracking-[-0.03em]">
+                  Your chats
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setChatsOpen(false)}
+                aria-label="Close conversations"
+                className={cn(
+                  "grid h-9 w-9 place-items-center rounded-full transition",
+                  isChief
+                    ? "text-slate-400 hover:bg-white/[0.07] hover:text-white"
+                    : "text-stone-500 hover:bg-stone-900/[0.06] hover:text-stone-950",
+                )}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void startNewChat(null)}
+              disabled={creating}
+              className={cn(
+                "mt-4 flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left transition active:scale-[0.99] disabled:opacity-60",
+                isChief
+                  ? "border-teal-200/15 bg-teal-200/[0.07] text-teal-50 hover:bg-teal-200/[0.10]"
+                  : "border-stone-900 bg-stone-950 text-white hover:bg-stone-800",
+              )}
+            >
+              <span
+                className={cn(
+                  "grid h-9 w-9 shrink-0 place-items-center rounded-full",
+                  isChief
+                    ? "bg-teal-100 text-slate-950"
+                    : "bg-white text-stone-950",
+                )}
+              >
+                <Plus className="h-4 w-4" />
+              </span>
+
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold">
+                  {creating ? "Starting…" : "New chat"}
+                </span>
+                <span
+                  className={cn(
+                    "block text-[11px]",
+                    isChief ? "text-teal-100/65" : "text-white/65",
+                  )}
+                >
+                  Start a clean conversation
+                </span>
+              </span>
+            </button>
+
+            <div
+              className={cn(
+                "mt-3 flex items-center gap-2 rounded-2xl border px-3 py-2.5",
+                isChief
+                  ? "border-white/10 bg-black/20"
+                  : "border-stone-200/80 bg-white/65",
+              )}
+            >
+              <Search
+                className={cn(
+                  "h-4 w-4 shrink-0",
+                  isChief ? "text-slate-500" : "text-stone-400",
+                )}
+              />
+              <input
+                value={chatQuery}
+                onChange={(event) => setChatQuery(event.target.value)}
+                placeholder="Search conversations"
+                className={cn(
+                  "min-w-0 flex-1 bg-transparent text-sm outline-none",
+                  isChief
+                    ? "text-slate-100 placeholder:text-slate-500"
+                    : "text-stone-950 placeholder:text-stone-400",
+                )}
+              />
+            </div>
+
+            <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1 [scrollbar-width:thin]">
+              {chatLoading ? (
+                <p
+                  className={cn(
+                    "px-2 py-4 text-sm",
+                    isChief ? "text-slate-500" : "text-stone-400",
+                  )}
+                >
+                  Loading conversations…
+                </p>
+              ) : null}
+
+              {!chatLoading && mainConversation ? (
+                <div className="mb-4">
+                  <p
+                    className={cn(
+                      "mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.22em]",
+                      isChief ? "text-slate-500" : "text-stone-400",
+                    )}
+                  >
+                    Pinned
+                  </p>
+
+                  <ConversationDrawerLink
+                    conversation={mainConversation}
+                    active={
+                      mainConversation.id === currentConversationId
+                    }
+                    isChief={isChief}
+                    onClick={() => setChatsOpen(false)}
+                  />
+                </div>
+              ) : null}
+
+              {!chatLoading
+                ? CONVERSATION_GROUP_ORDER.map((group) => {
+                    const items = groupedConversations[group];
+
+                    if (items.length === 0) return null;
+
+                    return (
+                      <section key={group} className="mb-4">
+                        <p
+                          className={cn(
+                            "mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.22em]",
+                            isChief
+                              ? "text-slate-500"
+                              : "text-stone-400",
+                          )}
+                        >
+                          {group}
+                        </p>
+
+                        <div className="space-y-1.5">
+                          {items.map((conversation) => (
+                            <ConversationDrawerLink
+                              key={conversation.id}
+                              conversation={conversation}
+                              active={
+                                conversation.id === currentConversationId
+                              }
+                              isChief={isChief}
+                              onClick={() => setChatsOpen(false)}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })
+                : null}
+
+              {!chatLoading &&
+              !mainConversation &&
+              CONVERSATION_GROUP_ORDER.every(
+                (group) => groupedConversations[group].length === 0,
+              ) ? (
+                <p
+                  className={cn(
+                    "rounded-2xl border px-3 py-4 text-sm",
+                    isChief
+                      ? "border-white/10 bg-white/[0.025] text-slate-500"
+                      : "border-stone-200/70 bg-white/45 text-stone-500",
+                  )}
+                >
+                  No conversations found.
+                </p>
+              ) : null}
+            </div>
+
+            <div
+              className={cn(
+                "mt-3 border-t pt-3",
+                isChief ? "border-white/10" : "border-stone-200/70",
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setChatsOpen(false);
+                  window.setTimeout(() => setOpen(true), 0);
+                }}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-sm transition",
+                  isChief
+                    ? "text-slate-400 hover:bg-white/[0.055] hover:text-white"
+                    : "text-stone-500 hover:bg-stone-900/[0.06] hover:text-stone-950",
+                )}
+              >
+                <Menu className="h-4 w-4" />
+                Assistant OS
+              </button>
+            </div>
+          </aside>
+        </div>
+      ) : null}
 
       {open ? (
         <div className="fixed inset-0 z-50">
@@ -493,7 +852,7 @@ export function ChatV2CommandMenu({
                 isChief={isChief}
               >
                 {conversations.length > 0 ? (
-                  conversations.map((conversation) => (
+                  conversations.slice(0, 7).map((conversation) => (
                     <Link
                       key={conversation.id}
                       href={`/chat-v2/${conversation.id}`}
@@ -560,6 +919,64 @@ export function ChatV2CommandMenu({
         </div>
       ) : null}
     </>
+  );
+}
+
+function ConversationDrawerLink({
+  conversation,
+  active,
+  isChief,
+  onClick,
+}: {
+  conversation: Conversation;
+  active: boolean;
+  isChief: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Link
+      href={`/chat-v2/${conversation.id}`}
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex items-center gap-3 rounded-2xl border px-3 py-2.5 transition",
+        active
+          ? isChief
+            ? "border-teal-200/20 bg-teal-200/[0.09] text-teal-50"
+            : "border-stone-300 bg-white text-stone-950 shadow-sm"
+          : isChief
+            ? "border-transparent text-slate-400 hover:border-white/10 hover:bg-white/[0.045] hover:text-slate-100"
+            : "border-transparent text-stone-600 hover:border-stone-200/70 hover:bg-white/65 hover:text-stone-950",
+      )}
+    >
+      <MessageSquare className="h-4 w-4 shrink-0 opacity-60" />
+
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">
+          {conversation.title || "Untitled"}
+        </span>
+        <span
+          className={cn(
+            "mt-0.5 block text-[11px]",
+            isChief ? "text-slate-600" : "text-stone-400",
+          )}
+        >
+          {formatConversationDate(
+            conversation.updated_at || conversation.created_at,
+          )}
+        </span>
+      </span>
+
+      {active ? (
+        <span
+          className={cn(
+            "h-2 w-2 shrink-0 rounded-full",
+            isChief ? "bg-teal-200" : "bg-stone-900",
+          )}
+          aria-hidden="true"
+        />
+      ) : null}
+    </Link>
   );
 }
 
